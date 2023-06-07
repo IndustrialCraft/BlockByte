@@ -20,8 +20,8 @@ use std::{
 
 use net::PlayerConnection;
 use registry::BlockRegistry;
-use util::Identifier;
-use world::World;
+use util::{Identifier, Location, Position};
+use world::{Entity, World};
 
 fn main() {
     let running = Arc::new(AtomicBool::new(true));
@@ -77,7 +77,23 @@ impl Server {
         let worlds = self.worlds.lock().unwrap();
         worlds.get(&identifier).map(|world| world.clone())
     }
+    pub fn get_spawn_location(&self) -> Location {
+        Location {
+            position: Position {
+                x: 0.,
+                y: 0.,
+                z: 0.,
+            },
+            world: self.get_or_create_world(Identifier::new("bb", "lobby")),
+        }
+    }
     pub fn tick(&self) {
+        while let Ok(connection) = self.new_players.try_recv() {
+            Entity::new(
+                &self.get_spawn_location(),
+                world::EntityData::Player(connection),
+            );
+        }
         let worlds: Vec<Arc<World>> = self
             .worlds
             .lock()

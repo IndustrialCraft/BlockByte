@@ -15,7 +15,7 @@ impl BlockRegistry {
             id_generator: 0,
         };
         block_registry
-            .register(Identifier::new("bb".to_string(), "air".to_string()), |id| {
+            .register(Identifier::new("bb", "air"), |id| {
                 let block = Arc::new(Block { block_id: *id });
                 let state = vec![BlockState {
                     state_id: *id,

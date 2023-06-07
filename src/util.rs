@@ -187,8 +187,11 @@ pub struct Identifier {
     key: String,
 }
 impl Identifier {
-    pub fn new(namespace: String, key: String) -> Arc<Self> {
-        Arc::new(Identifier { namespace, key })
+    pub fn new<N: Into<String>, K: Into<String>>(namespace: N, key: K) -> Arc<Self> {
+        Arc::new(Identifier {
+            namespace: namespace.into(),
+            key: key.into(),
+        })
     }
     pub fn parse(value: String) -> Result<Arc<Self>, ()> {
         let mut split = value.split(":");
@@ -197,7 +200,7 @@ impl Identifier {
         if split.next().is_some() {
             return Err(());
         }
-        Ok(Identifier::new(namespace.to_string(), key.to_string()))
+        Ok(Identifier::new(namespace, key))
     }
 }
 

@@ -9,7 +9,7 @@ use atomic_counter::{AtomicCounter, RelaxedCounter};
 
 use crate::{
     net::PlayerConnection,
-    util::{ChunkLocation, ChunkPosition, Position},
+    util::{ChunkLocation, ChunkPosition, Location, Position},
     Server,
 };
 
@@ -68,7 +68,9 @@ impl World {
         self.unload_timer.get() >= World::UNLOAD_TIME
     }
     pub fn destroy(&self) {
-        self.chunks.lock().unwrap().clear();
+        for chunk in self.chunks.lock().unwrap().drain() {
+            chunk.1.destroy();
+        }
     }
 }
 pub enum BlockData {
@@ -96,6 +98,9 @@ impl Chunk {
             entities: Mutex::new(Vec::new()),
         })
     }
+    fn add_entity(&self, entity: Arc<Entity>) {
+        self.entities.lock().unwrap().push(entity);
+    }
     pub fn tick(&self) {
         self.unload_timer.inc();
 
@@ -109,32 +114,46 @@ impl Chunk {
         for entity in entities {
             entity.tick();
         }
-        self.entities.lock().unwrap().drain_filter(
-            |entity| entity.is_removed() || false, /*todo: check if chunk is same*/
-        );
+        self.entities.lock().unwrap().drain_filter(|entity| {
+            entity.is_removed() || entity.get_location().chunk.position != self.position
+        });
     }
     pub fn should_unload(&self) -> bool {
         self.unload_timer.get() >= Chunk::UNLOAD_TIME
+    }
+    pub fn destroy(&self) {
+        self.entities.lock().unwrap().clear();
     }
 }
 pub enum EntityData {
     Player(Mutex<PlayerConnection>),
 }
 pub struct Entity {
+    this: Weak<Self>,
     location: Mutex<ChunkLocation>,
     data: Mutex<EntityData>,
     removed: AtomicBool,
 }
 impl Entity {
-    fn new(location: ChunkLocation, data: EntityData) -> Arc<Entity> {
-        Arc::new(Entity {
+    pub fn new<T: Into<ChunkLocation>>(location: T, data: EntityData) -> Arc<Entity> {
+        let location = location.into();
+        let chunk = location.chunk.clone();
+        let entity = Arc::new_cyclic(|weak| Entity {
             location: Mutex::new(location),
             data: Mutex::new(data),
             removed: AtomicBool::new(false),
-        })
+            this: weak.clone(),
+        });
+        chunk.add_entity(entity.clone());
+        entity
     }
     pub fn teleport<T: Into<ChunkLocation>>(&self, location: T) {
-        *self.location.lock().unwrap() = location.into();
+        let new_location: ChunkLocation = location.into();
+        if !Arc::ptr_eq(&self.location.lock().unwrap().chunk, &new_location.chunk) {
+            new_location.chunk.add_entity(self.this.upgrade().unwrap())
+        }
+        *self.location.lock().unwrap() = new_location;
+
         //todo: announce move
     }
     pub fn get_location(&self) -> ChunkLocation {
