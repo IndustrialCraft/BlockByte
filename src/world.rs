@@ -1,14 +1,22 @@
 use std::{
     cell::RefCell,
-    collections::HashMap,
-    sync::{atomic::AtomicBool, Arc, Mutex, Weak},
+    collections::{HashMap, HashSet},
+    hash::Hash,
+    io::Write,
+    sync::{
+        atomic::{AtomicBool, AtomicU32},
+        Arc, Mutex, Weak,
+    },
 };
 
 use array_init::array_init;
-use atomic_counter::{AtomicCounter, RelaxedCounter};
+use atomic_counter::{AtomicCounter, ConsistentCounter, RelaxedCounter};
+use endio::LEWrite;
+use libflate::zlib::Encoder;
+use uuid::Uuid;
 
 use crate::{
-    net::PlayerConnection,
+    net::{NetworkMessageS2C, PlayerConnection},
     util::{ChunkLocation, ChunkPosition, Location, Position},
     Server,
 };
@@ -77,12 +85,21 @@ pub enum BlockData {
     Simple(u32),
     Data,
 }
+impl BlockData {
+    pub fn get_client_id(&self) -> u32 {
+        match self {
+            Self::Simple(id) => *id,
+            Self::Data => todo!(),
+        }
+    }
+}
 
 pub struct Chunk {
     pub position: ChunkPosition,
     pub world: Arc<World>,
     blocks: Mutex<[[[BlockData; 16]; 16]; 16]>,
     entities: Mutex<Vec<Arc<Entity>>>,
+    viewers: Mutex<HashSet<ChunkViewer>>,
     unload_timer: RelaxedCounter,
 }
 impl Chunk {
@@ -96,10 +113,72 @@ impl Chunk {
             })),
             unload_timer: RelaxedCounter::new(0),
             entities: Mutex::new(Vec::new()),
+            viewers: Mutex::new(HashSet::new()),
         })
     }
     fn add_entity(&self, entity: Arc<Entity>) {
         self.entities.lock().unwrap().push(entity);
+    }
+    fn add_viewer(&self, viewer: Arc<Entity>) {
+        use std::ops::Deref;
+        let mut blocks: Vec<u32> = Vec::with_capacity(16 * 16 * 16);
+        {
+            let real_blocks = self.blocks.lock().unwrap();
+            for x in 0..16 {
+                for y in 0..16 {
+                    for z in 0..16 {
+                        blocks.push(real_blocks[x][y][z].get_client_id());
+                    }
+                }
+            }
+        }
+        let mut encoder = Encoder::new(Vec::new()).unwrap();
+        for id in blocks {
+            encoder.write_be(id).unwrap();
+        }
+        match viewer.data.lock().unwrap().deref() {
+            EntityData::Player(connection) => {
+                connection
+                    .lock()
+                    .unwrap()
+                    .send(&NetworkMessageS2C::LoadChunk(
+                        self.position.x,
+                        self.position.y,
+                        self.position.z,
+                        encoder.finish().into_result().unwrap(),
+                    ));
+            }
+            _ => panic!("tried to add non player entity as chunk viewer"),
+        }
+        self.viewers
+            .lock()
+            .unwrap()
+            .insert(ChunkViewer::new(viewer).unwrap());
+    }
+    fn remove_viewer(&self, viewer: Arc<Entity>) {
+        use std::ops::Deref;
+        match viewer.data.lock().unwrap().deref() {
+            EntityData::Player(connection) => {
+                connection
+                    .lock()
+                    .unwrap()
+                    .send(&NetworkMessageS2C::UnloadChunk(
+                        self.position.x,
+                        self.position.y,
+                        self.position.z,
+                    ));
+            }
+            _ => panic!("tried to remove non player entity from chunk viewers list"),
+        }
+        self.viewers
+            .lock()
+            .unwrap()
+            .remove(&ChunkViewer::new(viewer).unwrap());
+    }
+    pub fn announce_to_viewers(&self, message: NetworkMessageS2C) {
+        for viewer in self.viewers.lock().unwrap().iter() {
+            viewer.send(&message);
+        }
     }
     pub fn tick(&self) {
         self.unload_timer.inc();
@@ -125,36 +204,181 @@ impl Chunk {
         self.entities.lock().unwrap().clear();
     }
 }
+struct ChunkViewer {
+    player: Arc<Entity>,
+}
+impl ChunkViewer {
+    pub fn new(player: Arc<Entity>) -> Result<Self, ()> {
+        use std::ops::Deref;
+        let result = match player.data.lock().unwrap().deref() {
+            EntityData::Player(_) => Ok(()),
+            _ => Err(()),
+        };
+        result.map(|_| ChunkViewer { player })
+    }
+    pub fn send(&self, message: &NetworkMessageS2C) {
+        use std::ops::Deref;
+        match self.player.data.lock().unwrap().deref() {
+            EntityData::Player(connection) => {
+                connection.lock().unwrap().send(&message);
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+impl Hash for ChunkViewer {
+    fn hash<H: ~const std::hash::Hasher>(&self, state: &mut H) {
+        self.player.id.hash(state)
+    }
+}
+impl PartialEq for ChunkViewer {
+    fn eq(&self, other: &Self) -> bool {
+        self.player.id == other.player.id
+    }
+}
+impl Eq for ChunkViewer {}
 pub enum EntityData {
     Player(Mutex<PlayerConnection>),
+}
+impl EntityData {
+    pub fn get_type(&self) -> u32 {
+        match self {
+            Self::Player(_) => 0,
+        }
+    }
 }
 pub struct Entity {
     this: Weak<Self>,
     location: Mutex<ChunkLocation>,
     data: Mutex<EntityData>,
     removed: AtomicBool,
+    client_id: u32,
+    id: Uuid,
 }
+const ENTITY_CLIENT_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
 impl Entity {
     pub fn new<T: Into<ChunkLocation>>(location: T, data: EntityData) -> Arc<Entity> {
-        let location = location.into();
+        let location: ChunkLocation = location.into();
+        let position = location.position;
         let chunk = location.chunk.clone();
         let entity = Arc::new_cyclic(|weak| Entity {
             location: Mutex::new(location),
             data: Mutex::new(data),
             removed: AtomicBool::new(false),
             this: weak.clone(),
+            client_id: ENTITY_CLIENT_ID_GENERATOR.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+            id: Uuid::new_v4(),
         });
         chunk.add_entity(entity.clone());
+        let add_message = entity.create_add_message(position);
+        for viewer in chunk.viewers.lock().unwrap().iter() {
+            viewer.send(&add_message);
+        }
+        for chunk_position in Entity::get_chunks_to_load_at(&position) {
+            chunk
+                .world
+                .load_chunk(chunk_position)
+                .add_viewer(entity.clone());
+        }
         entity
     }
+    pub fn create_add_message(&self, position: Position) -> NetworkMessageS2C {
+        NetworkMessageS2C::AddEntity(
+            self.data.lock().unwrap().get_type(),
+            self.client_id,
+            position.x,
+            position.y,
+            position.z,
+            0., /*todo rotation*/
+            0,  /*todo animation*/
+            0.,
+        )
+    }
     pub fn teleport<T: Into<ChunkLocation>>(&self, location: T) {
+        use std::ops::Deref;
+        let old_location = self.location.lock().unwrap().clone();
         let new_location: ChunkLocation = location.into();
-        if !Arc::ptr_eq(&self.location.lock().unwrap().chunk, &new_location.chunk) {
-            new_location.chunk.add_entity(self.this.upgrade().unwrap())
-        }
-        *self.location.lock().unwrap() = new_location;
+        let is_player = match self.data.lock().unwrap().deref() {
+            EntityData::Player(_) => true,
+            _ => false,
+        };
+        if !Arc::ptr_eq(&old_location.chunk, &new_location.chunk) {
+            new_location.chunk.add_entity(self.this.upgrade().unwrap());
 
-        //todo: announce move
+            let old_viewers = old_location.chunk.viewers.lock().unwrap();
+            let new_viewers = new_location.chunk.viewers.lock().unwrap();
+            let add_message = self.create_add_message(new_location.position);
+            for viewer in old_viewers.difference(&new_viewers) {
+                viewer.send(&add_message);
+            }
+            let delete_message = NetworkMessageS2C::DeleteEntity(self.client_id);
+            for viewer in old_viewers.difference(&new_viewers) {
+                viewer.send(&delete_message);
+            }
+
+            if is_player {
+                let old_loaded = Entity::get_chunks_to_load_at(&old_location.position);
+                let new_loaded = Entity::get_chunks_to_load_at(&new_location.position);
+
+                if Arc::ptr_eq(&old_location.chunk.world, &new_location.chunk.world) {
+                    for pos in old_loaded {
+                        old_location
+                            .chunk
+                            .world
+                            .load_chunk(pos)
+                            .remove_viewer(self.this.upgrade().unwrap());
+                    }
+                    for pos in new_loaded {
+                        new_location
+                            .chunk
+                            .world
+                            .load_chunk(pos)
+                            .add_viewer(self.this.upgrade().unwrap());
+                    }
+                } else {
+                    let world = old_location.chunk.world.clone(); //old or new doesn't matter
+                    for pos in old_loaded.difference(&new_loaded) {
+                        world
+                            .load_chunk(pos.clone())
+                            .remove_viewer(self.this.upgrade().unwrap());
+                    }
+                    for pos in new_loaded.difference(&old_loaded) {
+                        world
+                            .load_chunk(pos.clone())
+                            .add_viewer(self.this.upgrade().unwrap());
+                    }
+                }
+            }
+        }
+        *self.location.lock().unwrap() = new_location.clone();
+
+        new_location
+            .chunk
+            .announce_to_viewers(NetworkMessageS2C::MoveEntity(
+                self.client_id,
+                new_location.position.x,
+                new_location.position.y,
+                new_location.position.z,
+                0., /*todo:rotation*/
+            ));
+    }
+    pub fn get_chunks_to_load_at(position: &Position) -> HashSet<ChunkPosition> {
+        let chunk_pos = position.to_chunk_pos();
+        let vertical_view_distance = 8;
+        let horizontal_view_distance = 6;
+        let mut positions = HashSet::new();
+        for x in (-horizontal_view_distance)..=horizontal_view_distance {
+            for y in (-vertical_view_distance)..=vertical_view_distance {
+                for z in (-horizontal_view_distance)..=horizontal_view_distance {
+                    positions.insert(ChunkPosition {
+                        x: chunk_pos.x + x,
+                        y: chunk_pos.y + y,
+                        z: chunk_pos.z + z,
+                    });
+                }
+            }
+        }
+        positions
     }
     pub fn get_location(&self) -> ChunkLocation {
         use std::ops::Deref;
@@ -176,5 +400,10 @@ impl Entity {
                 _ => false,
             }
         }
+    }
+}
+impl Hash for Entity {
+    fn hash<H: ~const std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state)
     }
 }

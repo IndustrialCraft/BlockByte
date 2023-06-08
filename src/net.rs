@@ -14,20 +14,24 @@ impl NetworkMessageS2C {
         let mut data: Vec<u8> = Vec::new();
         match self {
             Self::SetBlock(x, y, z, id) => {
+                data.write_be(0u8).unwrap();
                 data.write_be(*x).unwrap();
                 data.write_be(*y).unwrap();
                 data.write_be(*z).unwrap();
                 data.write_be(*id).unwrap();
             }
             Self::LoadChunk(x, y, z, blocks) => {
+                data.write_be(1u8).unwrap();
                 data.write_be(*x).unwrap();
                 data.write_be(*y).unwrap();
                 data.write_be(*z).unwrap();
+                data.write_be(blocks.len() as u32).unwrap();
                 for byte in blocks {
                     data.write_be(*byte).unwrap();
                 }
             }
             Self::UnloadChunk(x, y, z) => {
+                data.write_be(2u8).unwrap();
                 data.write_be(*x).unwrap();
                 data.write_be(*y).unwrap();
                 data.write_be(*z).unwrap();
@@ -42,6 +46,7 @@ impl NetworkMessageS2C {
                 animation,
                 animation_start_time,
             ) => {
+                data.write_be(3u8).unwrap();
                 data.write_be(*entity_type).unwrap();
                 data.write_be(*id).unwrap();
                 data.write_be(*x).unwrap();
@@ -52,6 +57,7 @@ impl NetworkMessageS2C {
                 data.write_be(*animation_start_time).unwrap();
             }
             Self::MoveEntity(id, x, y, z, rotation) => {
+                data.write_be(4u8).unwrap();
                 data.write_be(*id).unwrap();
                 data.write_be(*x).unwrap();
                 data.write_be(*y).unwrap();
@@ -59,21 +65,26 @@ impl NetworkMessageS2C {
                 data.write_be(*rotation).unwrap();
             }
             Self::DeleteEntity(id) => {
+                data.write_be(5u8).unwrap();
                 data.write_be(*id).unwrap();
             }
             Self::GuiData(json) => {
+                data.write_be(6u8).unwrap();
                 write_string(&mut data, &json.dump());
             }
             Self::BlockBreakTimeResponse(id, time) => {
+                data.write_be(7u8).unwrap();
                 data.write_be(*id).unwrap();
                 data.write_be(*time).unwrap();
             }
             Self::EntityAddItem(id, item_index, item_id) => {
+                data.write_be(8u8).unwrap();
                 data.write_be(*id).unwrap();
                 data.write_be(*item_index).unwrap();
                 data.write_be(*item_id).unwrap();
             }
             Self::BlockAddItem(x, y, z, x_offset, y_offset, z_offset, item_index, item_id) => {
+                data.write_be(9u8).unwrap();
                 data.write_be(*x).unwrap();
                 data.write_be(*y).unwrap();
                 data.write_be(*z).unwrap();
@@ -84,12 +95,14 @@ impl NetworkMessageS2C {
                 data.write_be(*item_id).unwrap();
             }
             Self::BlockRemoveItem(x, y, z, item_index) => {
+                data.write_be(10u8).unwrap();
                 data.write_be(*x).unwrap();
                 data.write_be(*y).unwrap();
                 data.write_be(*z).unwrap();
                 data.write_be(*item_index).unwrap();
             }
             Self::BlockMoveItem(x, y, z, x_offset, y_offset, z_offset, item_index) => {
+                data.write_be(11u8).unwrap();
                 data.write_be(*x).unwrap();
                 data.write_be(*y).unwrap();
                 data.write_be(*z).unwrap();
@@ -99,15 +112,18 @@ impl NetworkMessageS2C {
                 data.write_be(*item_index).unwrap();
             }
             Self::Knockback(x, y, z, set) => {
+                data.write_be(12u8).unwrap();
                 data.write_be(*x).unwrap();
                 data.write_be(*y).unwrap();
                 data.write_be(*z).unwrap();
                 data.write_be(*set).unwrap();
             }
             Self::FluidSelectable(selectable) => {
+                data.write_be(13u8).unwrap();
                 data.write_be(*selectable).unwrap();
             }
             Self::PlaySound(id, x, y, z, gain, pitch, relative) => {
+                data.write_be(14u8).unwrap();
                 write_string(&mut data, id);
                 data.write_be(*x).unwrap();
                 data.write_be(*y).unwrap();
@@ -117,22 +133,27 @@ impl NetworkMessageS2C {
                 data.write_be(*relative).unwrap();
             }
             Self::EntityAnimation(id, animation) => {
+                data.write_be(15u8).unwrap();
                 data.write_be(*id).unwrap();
                 data.write_be(*animation).unwrap();
             }
             Self::ChatMessage(message) => {
+                data.write_be(16u8).unwrap();
                 write_string(&mut data, message);
             }
             Self::PlayerAbilities(speed, move_type) => {
+                data.write_be(17u8).unwrap();
                 data.write_be(*speed).unwrap();
                 data.write_be(*move_type as u8).unwrap();
             }
             Self::TeleportPlayer(x, y, z) => {
+                data.write_be(18u8).unwrap();
                 data.write_be(*x).unwrap();
                 data.write_be(*y).unwrap();
                 data.write_be(*z).unwrap();
             }
             Self::BlockAnimation(x, y, z, animation) => {
+                data.write_be(19u8).unwrap();
                 data.write_be(*x).unwrap();
                 data.write_be(*y).unwrap();
                 data.write_be(*z).unwrap();

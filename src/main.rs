@@ -1,4 +1,10 @@
-#![feature(fn_traits, inline_const, hash_drain_filter, drain_filter)]
+#![feature(
+    fn_traits,
+    inline_const,
+    hash_drain_filter,
+    drain_filter,
+    const_trait_impl
+)]
 
 mod net;
 mod registry;
