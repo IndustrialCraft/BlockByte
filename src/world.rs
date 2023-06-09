@@ -3,6 +3,7 @@ use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
     io::Write,
+    ops::DerefMut,
     sync::{
         atomic::{AtomicBool, AtomicU32},
         Arc, Mutex, Weak,
@@ -105,7 +106,7 @@ pub struct Chunk {
 impl Chunk {
     const UNLOAD_TIME: usize = 40;
     pub fn new(position: ChunkPosition, world: Arc<World>) -> Arc<Self> {
-        Arc::new(Chunk {
+        let chunk = Arc::new(Chunk {
             position,
             world,
             blocks: Mutex::new(array_init(|_| {
@@ -114,13 +115,25 @@ impl Chunk {
             unload_timer: RelaxedCounter::new(0),
             entities: Mutex::new(Vec::new()),
             viewers: Mutex::new(HashSet::new()),
-        })
+        });
+        chunk.set_block(0, 0, 0, BlockData::Simple(5));
+        chunk
+    }
+    pub fn set_block(&self, offset_x: u8, offset_y: u8, offset_z: u8, block: BlockData) {
+        self.announce_to_viewers(NetworkMessageS2C::SetBlock(
+            self.position.x * 16 + offset_x as i32,
+            self.position.y * 16 + offset_y as i32,
+            self.position.z * 16 + offset_z as i32,
+            block.get_client_id(),
+        ));
+        self.blocks.lock().unwrap()[offset_x as usize][offset_y as usize][offset_z as usize] =
+            block;
     }
     fn add_entity(&self, entity: Arc<Entity>) {
+        println!("added entity to chunk");
         self.entities.lock().unwrap().push(entity);
     }
     fn add_viewer(&self, viewer: Arc<Entity>) {
-        use std::ops::Deref;
         let mut blocks: Vec<u32> = Vec::with_capacity(16 * 16 * 16);
         {
             let real_blocks = self.blocks.lock().unwrap();
@@ -136,17 +149,15 @@ impl Chunk {
         for id in blocks {
             encoder.write_be(id).unwrap();
         }
-        match viewer.data.lock().unwrap().deref() {
+        use std::ops::DerefMut;
+        match viewer.data.lock().unwrap().deref_mut() {
             EntityData::Player(connection) => {
-                connection
-                    .lock()
-                    .unwrap()
-                    .send(&NetworkMessageS2C::LoadChunk(
-                        self.position.x,
-                        self.position.y,
-                        self.position.z,
-                        encoder.finish().into_result().unwrap(),
-                    ));
+                connection.send(&NetworkMessageS2C::LoadChunk(
+                    self.position.x,
+                    self.position.y,
+                    self.position.z,
+                    encoder.finish().into_result().unwrap(),
+                ));
             }
             _ => panic!("tried to add non player entity as chunk viewer"),
         }
@@ -156,17 +167,14 @@ impl Chunk {
             .insert(ChunkViewer::new(viewer).unwrap());
     }
     fn remove_viewer(&self, viewer: Arc<Entity>) {
-        use std::ops::Deref;
-        match viewer.data.lock().unwrap().deref() {
+        use std::ops::DerefMut;
+        match viewer.data.lock().unwrap().deref_mut() {
             EntityData::Player(connection) => {
-                connection
-                    .lock()
-                    .unwrap()
-                    .send(&NetworkMessageS2C::UnloadChunk(
-                        self.position.x,
-                        self.position.y,
-                        self.position.z,
-                    ));
+                connection.send(&NetworkMessageS2C::UnloadChunk(
+                    self.position.x,
+                    self.position.y,
+                    self.position.z,
+                ));
             }
             _ => panic!("tried to remove non player entity from chunk viewers list"),
         }
@@ -190,6 +198,9 @@ impl Chunk {
             .iter()
             .map(|e| e.clone())
             .collect();
+        if entities.len() > 0 {
+            self.unload_timer.reset();
+        }
         for entity in entities {
             entity.tick();
         }
@@ -217,10 +228,10 @@ impl ChunkViewer {
         result.map(|_| ChunkViewer { player })
     }
     pub fn send(&self, message: &NetworkMessageS2C) {
-        use std::ops::Deref;
-        match self.player.data.lock().unwrap().deref() {
+        use std::ops::DerefMut;
+        match self.player.data.lock().unwrap().deref_mut() {
             EntityData::Player(connection) => {
-                connection.lock().unwrap().send(&message);
+                connection.send(&message);
             }
             _ => unreachable!(),
         }
@@ -238,7 +249,7 @@ impl PartialEq for ChunkViewer {
 }
 impl Eq for ChunkViewer {}
 pub enum EntityData {
-    Player(Mutex<PlayerConnection>),
+    Player(PlayerConnection),
 }
 impl EntityData {
     pub fn get_type(&self) -> u32 {
@@ -250,6 +261,7 @@ impl EntityData {
 pub struct Entity {
     this: Weak<Self>,
     location: Mutex<ChunkLocation>,
+    teleport: Mutex<Option<ChunkLocation>>,
     data: Mutex<EntityData>,
     removed: AtomicBool,
     client_id: u32,
@@ -268,6 +280,7 @@ impl Entity {
             this: weak.clone(),
             client_id: ENTITY_CLIENT_ID_GENERATOR.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
             id: Uuid::new_v4(),
+            teleport: Mutex::new(None),
         });
         chunk.add_entity(entity.clone());
         let add_message = entity.create_add_message(position);
@@ -295,81 +308,28 @@ impl Entity {
         )
     }
     pub fn teleport<T: Into<ChunkLocation>>(&self, location: T) {
-        use std::ops::Deref;
-        let old_location = self.location.lock().unwrap().clone();
-        let new_location: ChunkLocation = location.into();
-        let is_player = match self.data.lock().unwrap().deref() {
-            EntityData::Player(_) => true,
-            _ => false,
-        };
-        if !Arc::ptr_eq(&old_location.chunk, &new_location.chunk) {
-            new_location.chunk.add_entity(self.this.upgrade().unwrap());
-
-            let old_viewers = old_location.chunk.viewers.lock().unwrap();
-            let new_viewers = new_location.chunk.viewers.lock().unwrap();
-            let add_message = self.create_add_message(new_location.position);
-            for viewer in old_viewers.difference(&new_viewers) {
-                viewer.send(&add_message);
-            }
-            let delete_message = NetworkMessageS2C::DeleteEntity(self.client_id);
-            for viewer in old_viewers.difference(&new_viewers) {
-                viewer.send(&delete_message);
-            }
-
-            if is_player {
-                let old_loaded = Entity::get_chunks_to_load_at(&old_location.position);
-                let new_loaded = Entity::get_chunks_to_load_at(&new_location.position);
-
-                if Arc::ptr_eq(&old_location.chunk.world, &new_location.chunk.world) {
-                    for pos in old_loaded {
-                        old_location
-                            .chunk
-                            .world
-                            .load_chunk(pos)
-                            .remove_viewer(self.this.upgrade().unwrap());
-                    }
-                    for pos in new_loaded {
-                        new_location
-                            .chunk
-                            .world
-                            .load_chunk(pos)
-                            .add_viewer(self.this.upgrade().unwrap());
-                    }
-                } else {
-                    let world = old_location.chunk.world.clone(); //old or new doesn't matter
-                    for pos in old_loaded.difference(&new_loaded) {
-                        world
-                            .load_chunk(pos.clone())
-                            .remove_viewer(self.this.upgrade().unwrap());
-                    }
-                    for pos in new_loaded.difference(&old_loaded) {
-                        world
-                            .load_chunk(pos.clone())
-                            .add_viewer(self.this.upgrade().unwrap());
-                    }
-                }
-            }
+        let location: ChunkLocation = location.into();
+        let position = location.position.clone();
+        self.move_to(location);
+        use std::ops::DerefMut;
+        match self.data.lock().unwrap().deref_mut() {
+            EntityData::Player(connection) => connection.send(&NetworkMessageS2C::TeleportPlayer(
+                position.x, position.y, position.z,
+            )),
+            _ => {}
         }
-        *self.location.lock().unwrap() = new_location.clone();
-
-        new_location
-            .chunk
-            .announce_to_viewers(NetworkMessageS2C::MoveEntity(
-                self.client_id,
-                new_location.position.x,
-                new_location.position.y,
-                new_location.position.z,
-                0., /*todo:rotation*/
-            ));
+    }
+    pub fn move_to<T: Into<ChunkLocation>>(&self, location: T) {
+        *self.teleport.lock().unwrap() = Some(location.into());
     }
     pub fn get_chunks_to_load_at(position: &Position) -> HashSet<ChunkPosition> {
         let chunk_pos = position.to_chunk_pos();
         let vertical_view_distance = 8;
         let horizontal_view_distance = 6;
         let mut positions = HashSet::new();
-        for x in (-horizontal_view_distance)..=horizontal_view_distance {
-            for y in (-vertical_view_distance)..=vertical_view_distance {
-                for z in (-horizontal_view_distance)..=horizontal_view_distance {
+        for x in (-vertical_view_distance)..=vertical_view_distance {
+            for y in (-horizontal_view_distance)..=horizontal_view_distance {
+                for z in (-vertical_view_distance)..=vertical_view_distance {
                     positions.insert(ChunkPosition {
                         x: chunk_pos.x + x,
                         y: chunk_pos.y + y,
@@ -386,7 +346,107 @@ impl Entity {
         let location: &ChunkLocation = location.deref().into();
         location.clone()
     }
-    pub fn tick(&self) {}
+    pub fn tick(&self) {
+        use std::ops::Deref;
+        use std::ops::DerefMut;
+
+        if let Some(teleport_location) = self.teleport.lock().unwrap().deref() {
+            let old_location = self.location.lock().unwrap().clone();
+            let new_location: ChunkLocation = teleport_location.clone();
+
+            *self.location.lock().unwrap() = new_location.clone();
+
+            let is_player = match self.data.lock().unwrap().deref() {
+                EntityData::Player(_) => true,
+                _ => false,
+            };
+            if !Arc::ptr_eq(&old_location.chunk, &new_location.chunk) {
+                new_location.chunk.add_entity(self.this.upgrade().unwrap());
+
+                {
+                    let old_viewers = old_location.chunk.viewers.lock().unwrap();
+                    let new_viewers = new_location.chunk.viewers.lock().unwrap();
+                    let add_message = self.create_add_message(new_location.position);
+                    let delete_message = NetworkMessageS2C::DeleteEntity(self.client_id);
+                    for viewer in old_viewers.difference(&new_viewers) {
+                        viewer.send(&delete_message);
+                    }
+                    for viewer in new_viewers.difference(&old_viewers) {
+                        viewer.send(&add_message);
+                    }
+                }
+
+                if is_player {
+                    let old_loaded = Entity::get_chunks_to_load_at(&old_location.position);
+                    let new_loaded = Entity::get_chunks_to_load_at(&new_location.position);
+
+                    if !Arc::ptr_eq(&old_location.chunk.world, &new_location.chunk.world) {
+                        for pos in old_loaded {
+                            old_location
+                                .chunk
+                                .world
+                                .load_chunk(pos)
+                                .remove_viewer(self.this.upgrade().unwrap());
+                        }
+                        for pos in new_loaded {
+                            new_location
+                                .chunk
+                                .world
+                                .load_chunk(pos)
+                                .add_viewer(self.this.upgrade().unwrap());
+                        }
+                    } else {
+                        let world = old_location.chunk.world.clone(); //old or new doesn't matter
+                        for pos in old_loaded.difference(&new_loaded) {
+                            world
+                                .load_chunk(pos.clone())
+                                .remove_viewer(self.this.upgrade().unwrap());
+                        }
+                        for pos in new_loaded.difference(&old_loaded) {
+                            world
+                                .load_chunk(pos.clone())
+                                .add_viewer(self.this.upgrade().unwrap());
+                        }
+                    }
+                }
+            }
+            new_location
+                .chunk
+                .announce_to_viewers(NetworkMessageS2C::MoveEntity(
+                    self.client_id,
+                    new_location.position.x,
+                    new_location.position.y,
+                    new_location.position.z,
+                    0., /*todo:rotation*/
+                ));
+        }
+        *self.teleport.lock().unwrap() = None;
+
+        println!("player tick");
+
+        match self.data.lock().unwrap().deref_mut() {
+            EntityData::Player(connection) => {
+                while let Some(message) = connection.try_recv() {
+                    match message {
+                        crate::net::NetworkMessageC2S::PlayerPosition(
+                            x,
+                            y,
+                            z,
+                            shift,
+                            rotation,
+                            moved,
+                        ) => {
+                            self.move_to(&Location {
+                                position: Position { x, y, z },
+                                world: self.location.lock().unwrap().chunk.world.clone(),
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
     pub fn remove(&self) {
         self.removed
             .store(true, std::sync::atomic::Ordering::Relaxed)
@@ -396,7 +456,7 @@ impl Entity {
             let data = self.data.lock().unwrap();
             use std::ops::Deref;
             match data.deref() {
-                EntityData::Player(connection) => connection.lock().unwrap().is_closed(),
+                EntityData::Player(connection) => connection.is_closed(),
                 _ => false,
             }
         }

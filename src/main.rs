@@ -58,7 +58,7 @@ pub struct Server {
     this: Weak<Server>,
     block_registry: BlockRegistry,
     worlds: Mutex<HashMap<Arc<Identifier>, Arc<World>>>,
-    new_players: Receiver<Mutex<PlayerConnection>>,
+    new_players: Receiver<PlayerConnection>,
 }
 impl Server {
     fn new(port: u16) -> Arc<Server> {
@@ -116,7 +116,7 @@ impl Server {
             world.1.destroy();
         }
     }
-    fn create_listener_thread(port: u16) -> Receiver<Mutex<PlayerConnection>> {
+    fn create_listener_thread(port: u16) -> Receiver<PlayerConnection> {
         let (tx, rx) = channel();
         spawn(move || {
             let server = TcpListener::bind(("127.0.0.1", port)).unwrap();

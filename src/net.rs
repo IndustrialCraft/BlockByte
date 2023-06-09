@@ -311,11 +311,11 @@ pub struct PlayerConnection {
     closed: bool,
 }
 impl PlayerConnection {
-    pub fn new(socket: WebSocket<TcpStream>) -> Mutex<Self> {
-        Mutex::new(PlayerConnection {
+    pub fn new(socket: WebSocket<TcpStream>) -> Self {
+        PlayerConnection {
             socket,
             closed: false,
-        })
+        }
     }
     pub fn send(&mut self, message: &NetworkMessageS2C) {
         if let Err(_) = self
@@ -344,6 +344,6 @@ impl PlayerConnection {
         }
     }
     pub fn is_closed(&self) -> bool {
-        self.closed
+        self.closed | !self.socket.can_write()
     }
 }
