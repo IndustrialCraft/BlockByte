@@ -1,4 +1,4 @@
-use std::{cell::RefCell, sync::Arc};
+use std::{cell::RefCell, fmt::Display, sync::Arc};
 
 use crate::world::{Chunk, World};
 
@@ -201,6 +201,17 @@ impl Identifier {
             return Err(());
         }
         Ok(Identifier::new(namespace, key))
+    }
+    pub fn get_namespace(&self) -> &String {
+        &self.namespace
+    }
+    pub fn get_key(&self) -> &String {
+        &self.key
+    }
+}
+impl Display for Identifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.namespace, self.key)
     }
 }
 

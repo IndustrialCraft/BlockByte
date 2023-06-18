@@ -6,14 +6,17 @@
     const_trait_impl
 )]
 
+mod mods;
 mod net;
 mod registry;
 mod util;
 mod world;
 
 use std::{
+    cell::RefCell,
     collections::HashMap,
     net::TcpListener,
+    path::Path,
     process,
     sync::{
         atomic::AtomicBool,
@@ -24,6 +27,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use mods::{BlockRegistryWrapper, ModManager};
 use net::PlayerConnection;
 use registry::BlockRegistry;
 use util::{Identifier, Location, Position};
@@ -46,6 +50,7 @@ fn main() {
     let mut tick_count: u32 = 0;
     while running.load(std::sync::atomic::Ordering::Relaxed) {
         server.tick();
+        //println!("tick: {}", tick_count);
         while tick_count as u128 * 50 > Instant::now().duration_since(start_time).as_millis() {
             thread::sleep(Duration::from_millis(1));
         }
@@ -59,15 +64,25 @@ pub struct Server {
     block_registry: BlockRegistry,
     worlds: Mutex<HashMap<Arc<Identifier>, Arc<World>>>,
     new_players: Receiver<PlayerConnection>,
+    mods: ModManager,
 }
 impl Server {
     fn new(port: u16) -> Arc<Server> {
         let new_players = Server::create_listener_thread(port);
+        let mods = ModManager::load_mods(Path::new("mods"));
+        let block_registry = RefCell::new(BlockRegistry::new());
+        mods.call_event(
+            "registryInit",
+            BlockRegistryWrapper {
+                block_registry: &block_registry,
+            },
+        );
         Arc::new_cyclic(|this| Server {
             this: this.clone(),
             new_players,
             worlds: Mutex::new(HashMap::new()),
-            block_registry: BlockRegistry::new(),
+            block_registry: block_registry.into_inner(),
+            mods,
         })
     }
     pub fn get_or_create_world(&self, identifier: Arc<Identifier>) -> Arc<World> {
