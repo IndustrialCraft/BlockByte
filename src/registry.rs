@@ -109,7 +109,7 @@ impl ClientContent {
                 }
             }
             blocks
-                .push(object! {id: block.0,
+                .push(object! {id: block.0+1,
                     model: model_json
                 })
                 .unwrap();
