@@ -10,9 +10,16 @@ use rlua::{
     Function, Lua, MultiValue, Table, UserData,
     Value::{self, Nil},
 };
+use tungstenite::stream;
 use walkdir::WalkDir;
 
-use crate::{registry::BlockRegistry, util::Identifier};
+use crate::{
+    registry::{
+        Block, BlockRegistry, BlockState, ClientBlockCubeRenderData, ClientBlockRenderData,
+        ClientBlockRenderDataType,
+    },
+    util::Identifier,
+};
 
 struct Mod {
     lua: Lua,
@@ -157,9 +164,52 @@ pub struct BlockRegistryWrapper<'a> {
 }
 impl<'a> UserData for BlockRegistryWrapper<'a> {
     fn add_methods<'lua, T: rlua::UserDataMethods<'lua, Self>>(_methods: &mut T) {
-        _methods.add_method("register", |_, this, id: String| {
+        _methods.add_method("register", |_, this, (id, data): (String, Table)| {
             println!("registered block {}", id);
+            this.block_registry
+                .borrow_mut()
+                .register(Identifier::parse(id).unwrap(), |client_id| {
+                    let block = Arc::new(Block {
+                        default_state: client_id,
+                    });
+                    let state = BlockState {
+                        state_id: client_id,
+                        client_data: BlockRegistryWrapper::client_data_from_table(
+                            data.get("client").unwrap(),
+                        ),
+                        parent: block.clone(),
+                    };
+                    (block, vec![state])
+                })
+                .unwrap();
             Ok(())
         })
+    }
+}
+impl<'a> BlockRegistryWrapper<'a> {
+    fn client_data_from_table(table: Table) -> ClientBlockRenderData {
+        ClientBlockRenderData {
+            block_type: BlockRegistryWrapper::client_render_type_from_table(
+                table.get("render_type").unwrap(),
+            ),
+            fluid: table.get("fluid").unwrap_or(false),
+            render_data: table.get("render_data").unwrap_or(0),
+            transparent: table.get("transparent").unwrap_or(false),
+        }
+    }
+    fn client_render_type_from_table(table: Table) -> ClientBlockRenderDataType {
+        let render_type: String = table.get("type").unwrap();
+        match render_type.as_str() {
+            "air" => ClientBlockRenderDataType::Air,
+            "cube" => ClientBlockRenderDataType::Cube(ClientBlockCubeRenderData {
+                front: table.get("front").unwrap(),
+                back: table.get("back").unwrap(),
+                right: table.get("right").unwrap(),
+                left: table.get("left").unwrap(),
+                up: table.get("up").unwrap(),
+                down: table.get("down").unwrap(),
+            }),
+            _ => unimplemented!(),
+        }
     }
 }
