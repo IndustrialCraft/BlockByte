@@ -183,8 +183,8 @@ impl ChunkPosition {
 }
 #[derive(PartialEq, Eq, Hash)]
 pub struct Identifier {
-    namespace: String,
-    key: String,
+    pub namespace: String,
+    pub key: String,
 }
 impl Identifier {
     pub fn new<N: Into<String>, K: Into<String>>(namespace: N, key: K) -> Arc<Self> {

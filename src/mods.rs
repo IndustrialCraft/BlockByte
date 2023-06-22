@@ -2,6 +2,7 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     path::{Path, PathBuf},
+    str::FromStr,
     sync::Arc,
 };
 
@@ -49,7 +50,18 @@ impl Mod {
         path_buf.pop();
         let mod_identifier = descriptor["id"].as_str().unwrap().to_string();
         Ok(Mod {
-            lua: Lua::new(),
+            lua: {
+                let lua = Lua::new();
+                lua.context(|ctx| {
+                    ctx.set_named_registry_value("mod_id", mod_identifier.clone())
+                        .unwrap();
+                });
+                lua.context(|ctx| {
+                    ctx.set_named_registry_value("mod_path", path.to_str().unwrap())
+                        .unwrap();
+                });
+                lua
+            },
             path: path.to_path_buf(),
             namespace: mod_identifier,
         })
@@ -164,11 +176,13 @@ pub struct BlockRegistryWrapper<'a> {
 }
 impl<'a> UserData for BlockRegistryWrapper<'a> {
     fn add_methods<'lua, T: rlua::UserDataMethods<'lua, Self>>(_methods: &mut T) {
-        _methods.add_method("register", |_, this, (id, data): (String, Table)| {
+        _methods.add_method("register", |ctx, this, (id, data): (String, Table)| {
+            let mod_id: String = ctx.named_registry_value("mod_id").unwrap();
+
             println!("registered block {}", id);
             this.block_registry
                 .borrow_mut()
-                .register(Identifier::parse(id).unwrap(), |client_id| {
+                .register(Identifier::new(mod_id, id), |client_id| {
                     let block = Arc::new(Block {
                         default_state: client_id,
                     });
@@ -211,5 +225,67 @@ impl<'a> BlockRegistryWrapper<'a> {
             }),
             _ => unimplemented!(),
         }
+    }
+}
+pub struct ClientContentData {
+    pub images: HashMap<Identifier, Vec<u8>>,
+    pub sounds: HashMap<Identifier, Vec<u8>>,
+}
+#[derive(Clone)]
+pub struct ClientContentDataWrapper<'a> {
+    pub client_content: &'a RefCell<ClientContentData>,
+}
+impl ClientContentData {
+    pub fn new() -> Self {
+        ClientContentData {
+            images: HashMap::new(),
+            sounds: HashMap::new(),
+        }
+    }
+}
+impl<'a> UserData for ClientContentDataWrapper<'a> {
+    fn add_methods<'lua, T: rlua::UserDataMethods<'lua, Self>>(_methods: &mut T) {
+        _methods.add_method(
+            "register_image",
+            |ctx, this, (id, path): (String, String)| {
+                let mod_id: String = ctx.named_registry_value("mod_id").unwrap();
+                let mod_path: String = ctx.named_registry_value("mod_path").unwrap();
+                let id = Identifier {
+                    namespace: mod_id,
+                    key: id,
+                };
+                this.client_content.borrow_mut().images.insert(
+                    id,
+                    std::fs::read(
+                        PathBuf::from_str(mod_path.as_str())
+                            .unwrap()
+                            .join(Path::new(path.as_str())),
+                    ) //todo: fix directory travelsal attack
+                    .unwrap(),
+                );
+                Ok(())
+            },
+        );
+        _methods.add_method(
+            "register_sound",
+            |ctx, this, (id, path): (String, String)| {
+                let mod_id: String = ctx.named_registry_value("mod_id").unwrap();
+                let mod_path: String = ctx.named_registry_value("mod_path").unwrap();
+                let id = Identifier {
+                    namespace: mod_id,
+                    key: id,
+                };
+                this.client_content.borrow_mut().sounds.insert(
+                    id,
+                    std::fs::read(
+                        PathBuf::from_str(mod_path.as_str())
+                            .unwrap()
+                            .join(Path::new(path.as_str())),
+                    ) //todo: fix directory travelsal attack
+                    .unwrap(),
+                );
+                Ok(())
+            },
+        );
     }
 }

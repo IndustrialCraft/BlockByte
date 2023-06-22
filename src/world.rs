@@ -122,7 +122,7 @@ impl Chunk {
             entities: Mutex::new(Vec::new()),
             viewers: Mutex::new(HashSet::new()),
         });
-        chunk.set_block(0, 0, 0, BlockData::Simple(5));
+        chunk.set_block(0, 0, 0, BlockData::Simple(1));
         chunk
     }
     pub fn set_block(&self, offset_x: u8, offset_y: u8, offset_z: u8, block: BlockData) {
@@ -338,8 +338,8 @@ impl Entity {
     }
     pub fn get_chunks_to_load_at(position: &Position) -> HashSet<ChunkPosition> {
         let chunk_pos = position.to_chunk_pos();
-        let vertical_view_distance = 20;
-        let horizontal_view_distance = 16;
+        let vertical_view_distance = 10;
+        let horizontal_view_distance = 8;
         let mut positions = HashSet::new();
         for x in (-vertical_view_distance)..=vertical_view_distance {
             for y in (-horizontal_view_distance)..=horizontal_view_distance {

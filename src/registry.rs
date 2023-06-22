@@ -1,8 +1,9 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc};
 
 use json::{array, object, JsonValue};
+use zip::{write::FileOptions, ZipWriter};
 
-use crate::util::Identifier;
+use crate::{mods::ClientContentData, util::Identifier};
 
 pub struct BlockRegistry {
     blocks: HashMap<Arc<Identifier>, Arc<Block>>,
@@ -48,6 +49,9 @@ impl BlockRegistry {
         self.id_generator += block_states.len() as u32;
         Ok(numeric_id)
     }
+    pub fn block_by_identifier(&self, id: &Arc<Identifier>) -> Option<&Arc<Block>> {
+        self.blocks.get(id)
+    }
 }
 
 pub struct Block {
@@ -86,7 +90,41 @@ pub struct ClientBlockCubeRenderData {
 
 pub struct ClientContent {}
 impl ClientContent {
-    pub fn generate_content(block_registry: &BlockRegistry) -> JsonValue {
+    pub fn generate_zip(
+        path: &Path,
+        block_registry: &BlockRegistry,
+        client_content: ClientContentData,
+    ) {
+        std::fs::remove_file(path).ok();
+        let file = File::create(path).unwrap();
+        let mut zip_writer = ZipWriter::new(file);
+        let options = FileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .unix_permissions(0o444);
+        zip_writer.start_file("content.json", options).unwrap();
+        zip_writer
+            .write_all(
+                Self::generate_content_json(block_registry)
+                    .dump()
+                    .as_str()
+                    .as_bytes(),
+            )
+            .unwrap();
+        for image in client_content.images {
+            let mut file_name = image.0.to_string();
+            file_name.push_str(".png");
+            zip_writer.start_file(file_name, options).unwrap();
+            zip_writer.write_all(image.1.as_slice()).unwrap();
+        }
+        for sound in client_content.sounds {
+            let mut file_name = sound.0.to_string();
+            file_name.push_str(".wav");
+            zip_writer.start_file(file_name, options).unwrap();
+            zip_writer.write_all(sound.1.as_slice()).unwrap();
+        }
+        zip_writer.finish().unwrap();
+    }
+    pub fn generate_content_json(block_registry: &BlockRegistry) -> JsonValue {
         let mut blocks = array![];
         for block in block_registry.states.iter().skip(1).enumerate() {
             let client_data = &block.1.client_data;

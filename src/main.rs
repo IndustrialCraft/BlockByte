@@ -27,7 +27,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use mods::{BlockRegistryWrapper, ModManager};
+use mods::{BlockRegistryWrapper, ClientContentDataWrapper, ModManager};
 use net::PlayerConnection;
 use registry::BlockRegistry;
 use util::{Identifier, Location, Position};
@@ -77,6 +77,20 @@ impl Server {
                 block_registry: &block_registry,
             },
         );
+        {
+            let client_content = RefCell::new(mods::ClientContentData::new());
+            mods.call_event(
+                "clientContentInit",
+                ClientContentDataWrapper {
+                    client_content: &client_content,
+                },
+            );
+            registry::ClientContent::generate_zip(
+                &Path::new("client_content.zip"),
+                &block_registry.borrow(),
+                client_content.into_inner(),
+            );
+        }
         Arc::new_cyclic(|this| Server {
             this: this.clone(),
             new_players,
