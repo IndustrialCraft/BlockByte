@@ -1,6 +1,4 @@
 use std::net::TcpStream;
-use std::sync::Arc;
-use std::sync::Mutex;
 
 use endio::LERead;
 use endio::LEWrite;

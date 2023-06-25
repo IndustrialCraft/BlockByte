@@ -150,7 +150,11 @@ impl Server {
         while let Ok(connection) = self.new_players.try_recv() {
             Entity::new(
                 &self.get_spawn_location(),
-                world::EntityData::Player(connection),
+                self.entity_registry
+                    .entity_by_identifier(&Identifier::new("test", "player"))
+                    .unwrap()
+                    .clone(),
+                Some(connection),
             );
         }
         let worlds: Vec<Arc<World>> = self

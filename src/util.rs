@@ -1,4 +1,4 @@
-use std::{cell::RefCell, fmt::Display, sync::Arc};
+use std::{fmt::Display, sync::Arc};
 
 use crate::world::{Chunk, World};
 

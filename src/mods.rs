@@ -6,12 +6,9 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, bail, Context, Result};
-use rlua::{
-    Function, Lua, MultiValue, Table, UserData,
-    Value::{self, Nil},
-};
-use tungstenite::stream;
+use anyhow::{bail, Context, Result};
+use rlua::{Function, Lua, Table, UserData, Value};
+
 use walkdir::WalkDir;
 
 use crate::{
@@ -21,7 +18,6 @@ use crate::{
         EntityRegistry, Item, ItemRegistry,
     },
     util::Identifier,
-    world::EntityData,
 };
 
 struct Mod {
