@@ -17,9 +17,11 @@ use walkdir::WalkDir;
 use crate::{
     registry::{
         Block, BlockRegistry, BlockState, ClientBlockCubeRenderData, ClientBlockRenderData,
-        ClientBlockRenderDataType,
+        ClientBlockRenderDataType, ClientEntityData, ClientItemModel, ClientItemRenderData,
+        EntityRegistry, Item, ItemRegistry,
     },
     util::Identifier,
+    world::EntityData,
 };
 
 struct Mod {
@@ -83,7 +85,6 @@ impl Mod {
                         event_list
                             .set(event_list.len().unwrap() + 1, callback)
                             .unwrap();
-                        println!("registered event {}", event.to_str().unwrap());
                         ctx.set_named_registry_value(event_name.as_str(), event_list)
                             .unwrap();
                         Ok(())
@@ -113,11 +114,13 @@ impl Mod {
         self.lua.context(|ctx| {
             ctx.scope(|scope| {
                 let event_name = "event_".to_string() + event;
-                let event_list: Table = ctx.named_registry_value(event_name.as_str()).unwrap();
-                let wrapped = scope.create_nonstatic_userdata(param).unwrap();
-                for callback in event_list.sequence_values() {
-                    let callback: Function = callback.unwrap();
-                    callback.call::<_, ()>(wrapped.clone()).unwrap();
+                if let Ok(event_list) = ctx.named_registry_value::<str, Table>(event_name.as_str())
+                {
+                    let wrapped = scope.create_nonstatic_userdata(param).unwrap();
+                    for callback in event_list.sequence_values() {
+                        let callback: Function = callback.unwrap();
+                        callback.call::<_, ()>(wrapped.clone()).unwrap();
+                    }
                 }
             });
         });
@@ -150,6 +153,9 @@ impl ModManager {
             let path = mod_path.path();
             let name = mod_path.file_name().to_str().unwrap().to_string();
             if let Ok(loaded_mod) = Mod::new(path.as_path()) {
+                if mods.contains_key(&loaded_mod.namespace) {
+                    panic!("mod {} loaded twice", loaded_mod.namespace);
+                }
                 mods.insert(loaded_mod.namespace.clone(), loaded_mod);
             } else {
                 println!("loading mod '{}' failed", name);
@@ -179,7 +185,6 @@ impl<'a> UserData for BlockRegistryWrapper<'a> {
         _methods.add_method("register", |ctx, this, (id, data): (String, Table)| {
             let mod_id: String = ctx.named_registry_value("mod_id").unwrap();
 
-            println!("registered block {}", id);
             this.block_registry
                 .borrow_mut()
                 .register(Identifier::new(mod_id, id), |client_id| {
@@ -227,9 +232,103 @@ impl<'a> BlockRegistryWrapper<'a> {
         }
     }
 }
+
+#[derive(Clone)]
+pub struct ItemRegistryWrapper<'a> {
+    pub block_registry: &'a BlockRegistry,
+    pub item_registry: &'a RefCell<ItemRegistry>,
+}
+impl<'a> UserData for ItemRegistryWrapper<'a> {
+    fn add_methods<'lua, T: rlua::UserDataMethods<'lua, Self>>(_methods: &mut T) {
+        _methods.add_method("register", |ctx, this, (id, data): (String, Table)| {
+            let mod_id: String = ctx.named_registry_value("mod_id").unwrap();
+
+            this.item_registry
+                .borrow_mut()
+                .register(Identifier::new(mod_id, id), |client_id| {
+                    Arc::new(Item {
+                        client_data: ItemRegistryWrapper::client_data_from_table(
+                            data.get("client").unwrap(),
+                            this.block_registry,
+                        ),
+                        id: client_id,
+                    })
+                })
+                .unwrap();
+            Ok(())
+        })
+    }
+}
+impl<'a> ItemRegistryWrapper<'a> {
+    fn client_data_from_table(
+        table: Table,
+        block_registry: &BlockRegistry,
+    ) -> ClientItemRenderData {
+        ClientItemRenderData {
+            name: table.get("name").unwrap(),
+            model: Self::client_render_model_from_table(
+                table.get("model").unwrap(),
+                block_registry,
+            ),
+        }
+    }
+    fn client_render_model_from_table(
+        table: Table,
+        block_registry: &BlockRegistry,
+    ) -> ClientItemModel {
+        let render_type: String = table.get("type").unwrap();
+        match render_type.as_str() {
+            "texture" => ClientItemModel::Texture(table.get("texture").unwrap()),
+            "block" => ClientItemModel::Block(
+                block_registry
+                    .block_by_identifier(&Identifier::parse(table.get("block").unwrap()).unwrap())
+                    .unwrap()
+                    .clone(),
+            ),
+            _ => unimplemented!(),
+        }
+    }
+}
+#[derive(Clone)]
+pub struct EntityRegistryWrapper<'a> {
+    pub entity_registry: &'a RefCell<EntityRegistry>,
+}
+impl<'a> UserData for EntityRegistryWrapper<'a> {
+    fn add_methods<'lua, T: rlua::UserDataMethods<'lua, Self>>(_methods: &mut T) {
+        _methods.add_method("register", |ctx, this, (id, data): (String, Table)| {
+            let mod_id: String = ctx.named_registry_value("mod_id").unwrap();
+
+            this.entity_registry
+                .borrow_mut()
+                .register(Identifier::new(mod_id, id), |client_id| {
+                    Arc::new(crate::registry::EntityData {
+                        client_data: EntityRegistryWrapper::client_data_from_table(
+                            data.get("client").unwrap(),
+                        ),
+                        id: client_id,
+                    })
+                })
+                .unwrap();
+            Ok(())
+        })
+    }
+}
+impl<'a> EntityRegistryWrapper<'a> {
+    fn client_data_from_table(table: Table) -> ClientEntityData {
+        ClientEntityData {
+            model: table.get::<&str, String>("model").unwrap() + ".bbm",
+            texture: table.get("texture").unwrap(),
+            hitbox_w: table.get("hitbox_w").unwrap(),
+            hitbox_h: table.get("hitbox_h").unwrap(),
+            hitbox_d: table.get("hitbox_d").unwrap(),
+            animations: table.get("animations").unwrap(),
+        }
+    }
+}
 pub struct ClientContentData {
     pub images: HashMap<Identifier, Vec<u8>>,
     pub sounds: HashMap<Identifier, Vec<u8>>,
+    pub models: HashMap<Identifier, Vec<u8>>,
 }
 #[derive(Clone)]
 pub struct ClientContentDataWrapper<'a> {
@@ -240,6 +339,7 @@ impl ClientContentData {
         ClientContentData {
             images: HashMap::new(),
             sounds: HashMap::new(),
+            models: HashMap::new(),
         }
     }
 }
@@ -276,6 +376,27 @@ impl<'a> UserData for ClientContentDataWrapper<'a> {
                     key: id,
                 };
                 this.client_content.borrow_mut().sounds.insert(
+                    id,
+                    std::fs::read(
+                        PathBuf::from_str(mod_path.as_str())
+                            .unwrap()
+                            .join(Path::new(path.as_str())),
+                    ) //todo: fix directory travelsal attack
+                    .unwrap(),
+                );
+                Ok(())
+            },
+        );
+        _methods.add_method(
+            "register_model",
+            |ctx, this, (id, path): (String, String)| {
+                let mod_id: String = ctx.named_registry_value("mod_id").unwrap();
+                let mod_path: String = ctx.named_registry_value("mod_path").unwrap();
+                let id = Identifier {
+                    namespace: mod_id,
+                    key: id,
+                };
+                this.client_content.borrow_mut().models.insert(
                     id,
                     std::fs::read(
                         PathBuf::from_str(mod_path.as_str())

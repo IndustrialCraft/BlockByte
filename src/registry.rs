@@ -45,8 +45,8 @@ impl BlockRegistry {
         let numeric_id = self.id_generator;
         let (block, mut block_states) = creator.call_once((self.id_generator,));
         self.blocks.insert(id, block);
-        self.states.append(&mut block_states);
         self.id_generator += block_states.len() as u32;
+        self.states.append(&mut block_states);
         Ok(numeric_id)
     }
     pub fn block_by_identifier(&self, id: &Arc<Identifier>) -> Option<&Arc<Block>> {
@@ -88,11 +88,92 @@ pub struct ClientBlockCubeRenderData {
     pub down: String,
 }
 
+pub struct ItemRegistry {
+    items: HashMap<Arc<Identifier>, Arc<Item>>,
+    id_generator: u32,
+}
+impl ItemRegistry {
+    pub fn new() -> Self {
+        ItemRegistry {
+            items: HashMap::new(),
+            id_generator: 0,
+        }
+    }
+    pub fn register<F>(&mut self, id: Arc<Identifier>, creator: F) -> Result<Arc<Item>, ()>
+    where
+        F: FnOnce(u32) -> Arc<Item>,
+    {
+        if self.items.get(&id).is_some() {
+            return Err(());
+        }
+        let item = creator.call_once((self.id_generator,));
+        self.items.insert(id, item.clone());
+        self.id_generator += 1;
+        Ok(item)
+    }
+    pub fn item_by_identifier(&self, id: &Arc<Identifier>) -> Option<&Arc<Item>> {
+        self.items.get(id)
+    }
+}
+pub struct Item {
+    pub client_data: ClientItemRenderData,
+    pub id: u32,
+}
+pub struct ClientItemRenderData {
+    pub name: String,
+    pub model: ClientItemModel,
+}
+pub enum ClientItemModel {
+    Texture(String),
+    Block(Arc<Block>),
+}
+pub struct EntityRegistry {
+    entities: HashMap<Arc<Identifier>, Arc<EntityData>>,
+    id_generator: u32,
+}
+impl EntityRegistry {
+    pub fn new() -> Self {
+        EntityRegistry {
+            entities: HashMap::new(),
+            id_generator: 0,
+        }
+    }
+    pub fn register<F>(&mut self, id: Arc<Identifier>, creator: F) -> Result<Arc<EntityData>, ()>
+    where
+        F: FnOnce(u32) -> Arc<EntityData>,
+    {
+        if self.entities.get(&id).is_some() {
+            return Err(());
+        }
+        let entity = creator.call_once((self.id_generator,));
+        self.entities.insert(id, entity.clone());
+        self.id_generator += 1;
+        Ok(entity)
+    }
+    pub fn entity_by_identifier(&self, id: &Arc<Identifier>) -> Option<&Arc<EntityData>> {
+        self.entities.get(id)
+    }
+}
+pub struct EntityData {
+    pub id: u32,
+    pub client_data: ClientEntityData,
+}
+pub struct ClientEntityData {
+    pub model: String,
+    pub texture: String,
+    pub hitbox_w: f32,
+    pub hitbox_h: f32,
+    pub hitbox_d: f32,
+    pub animations: Vec<String>,
+}
+
 pub struct ClientContent {}
 impl ClientContent {
     pub fn generate_zip(
         path: &Path,
         block_registry: &BlockRegistry,
+        item_registry: &ItemRegistry,
+        entity_registry: &EntityRegistry,
         client_content: ClientContentData,
     ) {
         std::fs::remove_file(path).ok();
@@ -104,7 +185,7 @@ impl ClientContent {
         zip_writer.start_file("content.json", options).unwrap();
         zip_writer
             .write_all(
-                Self::generate_content_json(block_registry)
+                Self::generate_content_json(block_registry, item_registry, entity_registry)
                     .dump()
                     .as_str()
                     .as_bytes(),
@@ -122,9 +203,19 @@ impl ClientContent {
             zip_writer.start_file(file_name, options).unwrap();
             zip_writer.write_all(sound.1.as_slice()).unwrap();
         }
+        for model in client_content.models {
+            let mut file_name = model.0.to_string();
+            file_name.push_str(".bbm");
+            zip_writer.start_file(file_name, options).unwrap();
+            zip_writer.write_all(model.1.as_slice()).unwrap();
+        }
         zip_writer.finish().unwrap();
     }
-    pub fn generate_content_json(block_registry: &BlockRegistry) -> JsonValue {
+    pub fn generate_content_json(
+        block_registry: &BlockRegistry,
+        item_registry: &ItemRegistry,
+        entity_registry: &EntityRegistry,
+    ) -> JsonValue {
         let mut blocks = array![];
         for block in block_registry.states.iter().skip(1).enumerate() {
             let client_data = &block.1.client_data;
@@ -152,8 +243,31 @@ impl ClientContent {
                 })
                 .unwrap();
         }
+        let mut items = array![];
+        for item in item_registry.items.values().into_iter().enumerate() {
+            let model = match &item.1.client_data.model {
+                ClientItemModel::Texture(texture) => {
+                    ("texture", JsonValue::String(texture.clone()))
+                }
+                ClientItemModel::Block(block) => ("block", JsonValue::from(block.default_state)),
+            };
+            items
+                .push(object! {
+                    id: item.0,
+                    name: item.1.client_data.name.clone(),
+                    modelType: model.0,
+                    modelValue: model.1
+                })
+                .unwrap();
+        }
+        let mut entities = array![];
+        for entity in entity_registry.entities.values().into_iter().enumerate() {
+            entities.push(object! {id: entity.0,model:entity.1.client_data.model.clone(),texture:entity.1.client_data.texture.clone(),hitboxW:entity.1.client_data.hitbox_w,hitboxH:entity.1.client_data.hitbox_h,hitboxD:entity.1.client_data.hitbox_d,animations:entity.1.client_data.animations.clone()}).unwrap();
+        }
         object! {
-            blocks: blocks
+            blocks: blocks,
+            items: items,
+            entities: entities,
         }
     }
 }

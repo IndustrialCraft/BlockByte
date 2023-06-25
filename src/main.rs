@@ -27,9 +27,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use mods::{BlockRegistryWrapper, ClientContentDataWrapper, ModManager};
+use mods::{
+    BlockRegistryWrapper, ClientContentDataWrapper, EntityRegistryWrapper, ItemRegistryWrapper,
+    ModManager,
+};
 use net::PlayerConnection;
-use registry::BlockRegistry;
+use registry::{BlockRegistry, EntityRegistry, ItemRegistry};
 use util::{Identifier, Location, Position};
 use world::{Entity, World};
 
@@ -62,6 +65,8 @@ fn main() {
 pub struct Server {
     this: Weak<Server>,
     block_registry: BlockRegistry,
+    item_registry: ItemRegistry,
+    entity_registry: EntityRegistry,
     worlds: Mutex<HashMap<Arc<Identifier>, Arc<World>>>,
     new_players: Receiver<PlayerConnection>,
     mods: ModManager,
@@ -71,10 +76,25 @@ impl Server {
         let new_players = Server::create_listener_thread(port);
         let mods = ModManager::load_mods(Path::new("mods"));
         let block_registry = RefCell::new(BlockRegistry::new());
+        let item_registry = RefCell::new(ItemRegistry::new());
+        let entity_registry = RefCell::new(EntityRegistry::new());
         mods.call_event(
-            "registryInit",
+            "blockRegistryInit",
             BlockRegistryWrapper {
                 block_registry: &block_registry,
+            },
+        );
+        mods.call_event(
+            "itemRegistryInit",
+            ItemRegistryWrapper {
+                block_registry: &block_registry.borrow(),
+                item_registry: &item_registry,
+            },
+        );
+        mods.call_event(
+            "entityRegistryInit",
+            EntityRegistryWrapper {
+                entity_registry: &entity_registry,
             },
         );
         {
@@ -88,6 +108,8 @@ impl Server {
             registry::ClientContent::generate_zip(
                 &Path::new("client_content.zip"),
                 &block_registry.borrow(),
+                &item_registry.borrow(),
+                &entity_registry.borrow(),
                 client_content.into_inner(),
             );
         }
@@ -96,6 +118,8 @@ impl Server {
             new_players,
             worlds: Mutex::new(HashMap::new()),
             block_registry: block_registry.into_inner(),
+            item_registry: item_registry.into_inner(),
+            entity_registry: entity_registry.into_inner(),
             mods,
         })
     }
