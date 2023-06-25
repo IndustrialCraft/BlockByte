@@ -165,6 +165,18 @@ impl Chunk {
             }
             _ => panic!("tried to add non player entity as chunk viewer"),
         }
+        for entity in self.entities.lock().unwrap().iter() {
+            if Arc::ptr_eq(entity, &viewer) {
+                continue;
+            }
+            let add_message = entity.create_add_message(entity.get_location().position);
+            match viewer.data.lock().unwrap().deref_mut() {
+                EntityData::Player(connection) => {
+                    connection.send(&add_message);
+                }
+                _ => panic!("tried to add non player entity as chunk viewer"),
+            }
+        }
         self.viewers
             .lock()
             .unwrap()
@@ -181,6 +193,18 @@ impl Chunk {
                 ));
             }
             _ => panic!("tried to remove non player entity from chunk viewers list"),
+        }
+        for entity in self.entities.lock().unwrap().iter() {
+            if Arc::ptr_eq(entity, &viewer) {
+                continue;
+            }
+            let remove_message = NetworkMessageS2C::DeleteEntity(entity.client_id);
+            match viewer.data.lock().unwrap().deref_mut() {
+                EntityData::Player(connection) => {
+                    connection.send(&remove_message);
+                }
+                _ => panic!("tried to add non player entity as chunk viewer"),
+            }
         }
         self.viewers
             .lock()
@@ -281,7 +305,7 @@ pub struct Entity {
     client_id: u32,
     id: Uuid,
 }
-const ENTITY_CLIENT_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
+static ENTITY_CLIENT_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
 impl Entity {
     pub fn new<T: Into<ChunkLocation>>(location: T, data: EntityData) -> Arc<Entity> {
         let location: ChunkLocation = location.into();
