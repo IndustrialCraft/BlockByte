@@ -18,6 +18,7 @@ use crate::{
     net::{NetworkMessageS2C, PlayerConnection},
     registry::EntityData,
     util::{ChunkLocation, ChunkPosition, Location, Position},
+    worldgen::{FlatWorldGenerator, WorldGenerator},
     Server,
 };
 
@@ -26,6 +27,7 @@ pub struct World {
     this: Weak<Self>,
     chunks: Mutex<HashMap<ChunkPosition, Arc<Chunk>>>,
     unload_timer: RelaxedCounter,
+    world_generator: Box<dyn WorldGenerator>,
 }
 impl World {
     const UNLOAD_TIME: usize = 100;
@@ -35,6 +37,10 @@ impl World {
             chunks: Mutex::new(HashMap::new()),
             server,
             unload_timer: RelaxedCounter::new(0),
+            world_generator: Box::new(FlatWorldGenerator {
+                height: -5,
+                simple_id: 1,
+            }),
         })
     }
     pub fn load_chunk(&self, position: ChunkPosition) -> Arc<Chunk> {
@@ -113,15 +119,12 @@ impl Chunk {
     pub fn new(position: ChunkPosition, world: Arc<World>) -> Arc<Self> {
         let chunk = Arc::new(Chunk {
             position,
+            blocks: Mutex::new(world.world_generator.generate(position)),
             world,
-            blocks: Mutex::new(array_init(|_| {
-                array_init(|_| array_init(|_| BlockData::Simple(0)))
-            })),
             unload_timer: RelaxedCounter::new(0),
             entities: Mutex::new(Vec::new()),
             viewers: Mutex::new(HashSet::new()),
         });
-        chunk.set_block(0, 0, 0, BlockData::Simple(1));
         chunk
     }
     pub fn set_block(&self, offset_x: u8, offset_y: u8, offset_z: u8, block: BlockData) {

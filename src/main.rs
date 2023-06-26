@@ -11,6 +11,7 @@ mod net;
 mod registry;
 mod util;
 mod world;
+mod worldgen;
 
 use std::{
     cell::RefCell,
