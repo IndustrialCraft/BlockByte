@@ -323,23 +323,25 @@ impl PlayerConnection {
             self.closed = true;
         }
     }
-    pub fn try_recv(&mut self) -> Option<NetworkMessageC2S> {
-        match self.socket.read_message() {
-            Ok(tungstenite::Message::Binary(message)) => {
-                match NetworkMessageC2S::from_data(message.as_slice()) {
-                    Some(message) => Some(message),
-                    None => {
-                        self.closed = true;
-                        None
+    pub fn receive_messages(&mut self) -> Vec<NetworkMessageC2S> {
+        let mut messages = Vec::new();
+        while let Ok(message) = self.socket.read_message() {
+            match message {
+                tungstenite::Message::Binary(message) => {
+                    match NetworkMessageC2S::from_data(message.as_slice()) {
+                        Some(message) => messages.push(message),
+                        None => {
+                            self.closed = true;
+                        }
                     }
                 }
+                tungstenite::Message::Close(_) => {
+                    self.closed = true;
+                }
+                _ => {}
             }
-            Ok(tungstenite::Message::Close(_)) => {
-                self.closed = true;
-                None
-            }
-            _ => None,
         }
+        messages
     }
     pub fn is_closed(&self) -> bool {
         self.closed | !self.socket.can_write()

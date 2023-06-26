@@ -6,6 +6,7 @@ use std::{
         atomic::{AtomicBool, AtomicU32},
         Arc, Mutex, Weak,
     },
+    time::Instant,
 };
 
 use array_init::array_init;
@@ -261,6 +262,7 @@ pub struct Entity {
     removed: AtomicBool,
     client_id: u32,
     id: Uuid,
+    animation_controller: Mutex<AnimationController>,
 }
 static ENTITY_CLIENT_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
 impl Entity {
@@ -282,6 +284,7 @@ impl Entity {
             teleport: Mutex::new(None),
             player_data: Mutex::new(player_data),
             rotation: Mutex::new(0.),
+            animation_controller: Mutex::new(AnimationController::new(weak.clone(), 1)),
         });
         chunk.add_entity(entity.clone());
         let add_message = entity.create_add_message(position);
@@ -305,6 +308,7 @@ impl Entity {
         }
     }
     pub fn create_add_message(&self, position: Position) -> NetworkMessageS2C {
+        let animation_controller = self.animation_controller.lock().unwrap();
         NetworkMessageS2C::AddEntity(
             self.entity_type.id,
             self.client_id,
@@ -312,8 +316,8 @@ impl Entity {
             position.y,
             position.z,
             *self.rotation.lock().unwrap(),
-            0, /*todo animation*/
-            0.,
+            animation_controller.animation,
+            animation_controller.animation_start_time,
         )
     }
     pub fn teleport<T: Into<ChunkLocation>>(&self, location: T, rotation: Option<f32>) {
@@ -322,7 +326,8 @@ impl Entity {
         self.move_to(location, rotation);
         self.try_send_message(&NetworkMessageS2C::TeleportPlayer(
             position.x, position.y, position.z,
-        ));
+        ))
+        .ok();
     }
     pub fn move_to<T: Into<ChunkLocation>>(&self, location: T, rotation: Option<f32>) {
         *self.teleport.lock().unwrap() = Some(location.into());
@@ -422,8 +427,16 @@ impl Entity {
         }
         *self.teleport.lock().unwrap() = None;
 
-        if let Some(connection) = self.player_data.lock().unwrap().deref_mut() {
-            while let Some(message) = connection.try_recv() {
+        if self.is_player() {
+            let messages = self
+                .player_data
+                .lock()
+                .unwrap()
+                .deref_mut()
+                .as_mut()
+                .unwrap()
+                .receive_messages();
+            for message in messages {
                 match message {
                     crate::net::NetworkMessageC2S::PlayerPosition(
                         x,
@@ -440,6 +453,10 @@ impl Entity {
                             },
                             Some(rotation),
                         );
+                        self.animation_controller
+                            .lock()
+                            .unwrap()
+                            .set_animation(Some(if moved { 2 } else { 1 }));
                     }
                     _ => {}
                 }
@@ -481,5 +498,32 @@ impl Entity {
 impl Hash for Entity {
     fn hash<H: ~const std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state)
+    }
+}
+pub struct AnimationController {
+    entity: Weak<Entity>,
+    animation: u32,
+    animation_start_time: f32,
+    default_animation: u32,
+}
+impl AnimationController {
+    pub fn new(entity: Weak<Entity>, default_animation: u32) -> Self {
+        AnimationController {
+            entity,
+            animation: default_animation,
+            animation_start_time: 0., //todo
+            default_animation,
+        }
+    }
+    pub fn set_animation(&mut self, animation: Option<u32>) {
+        let new_animation = animation.unwrap_or(self.default_animation);
+        if self.animation != new_animation {
+            self.animation = new_animation;
+            self.animation_start_time = 0.; //todo
+            let entity = self.entity.upgrade().unwrap();
+            entity.location.lock().unwrap().chunk.announce_to_viewers(
+                NetworkMessageS2C::EntityAnimation(entity.client_id, self.animation),
+            );
+        }
     }
 }
