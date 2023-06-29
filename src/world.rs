@@ -12,13 +12,15 @@ use std::{
 use array_init::array_init;
 use atomic_counter::{AtomicCounter, RelaxedCounter};
 use endio::LEWrite;
+use json::{array, object};
 use libflate::zlib::Encoder;
 use uuid::Uuid;
 
 use crate::{
+    inventory::{Inventory, InventoryViewer, ItemStack},
     net::{NetworkMessageS2C, PlayerConnection},
-    registry::EntityData,
-    util::{ChunkLocation, ChunkPosition, Location, Position},
+    registry::{EntityData, InteractionResult},
+    util::{BlockPosition, ChunkLocation, ChunkPosition, Identifier, Location, Position},
     worldgen::{FlatWorldGenerator, WorldGenerator},
     Server,
 };
@@ -31,7 +33,7 @@ pub struct World {
     world_generator: Box<dyn WorldGenerator>,
 }
 impl World {
-    const UNLOAD_TIME: usize = 100;
+    const UNLOAD_TIME: usize = 1000;
     pub fn new(server: Arc<Server>) -> Arc<Self> {
         Arc::new_cyclic(|this| World {
             this: this.clone(),
@@ -43,6 +45,35 @@ impl World {
                 simple_id: 1,
             }),
         })
+    }
+    pub fn set_block(&self, position: BlockPosition, block: BlockData) {
+        let chunk_offset = position.chunk_offset();
+        self.load_chunk(position.to_chunk_pos()).set_block(
+            chunk_offset.0,
+            chunk_offset.1,
+            chunk_offset.2,
+            block,
+        );
+    }
+    pub fn get_block(&self, position: BlockPosition) -> BlockData {
+        let chunk_offset = position.chunk_offset();
+        self.load_chunk(position.to_chunk_pos()).get_block(
+            chunk_offset.0,
+            chunk_offset.1,
+            chunk_offset.2,
+        )
+    }
+    pub fn replace_block<F>(&self, position: BlockPosition, replacer: F)
+    where
+        F: FnOnce(BlockData) -> Option<BlockData>,
+    {
+        let chunk_offset = position.chunk_offset();
+        let chunk = self.load_chunk(position.to_chunk_pos());
+        let new_block =
+            replacer.call_once((chunk.get_block(chunk_offset.0, chunk_offset.1, chunk_offset.2),));
+        if let Some(new_block) = new_block {
+            chunk.set_block(chunk_offset.0, chunk_offset.1, chunk_offset.2, new_block);
+        }
     }
     pub fn load_chunk(&self, position: ChunkPosition) -> Arc<Chunk> {
         let mut chunks = self.chunks.lock().unwrap();
@@ -94,6 +125,7 @@ impl World {
         }
     }
 }
+#[derive(Clone)]
 pub enum BlockData {
     Simple(u32),
     Data,
@@ -116,7 +148,7 @@ pub struct Chunk {
     unload_timer: RelaxedCounter,
 }
 impl Chunk {
-    const UNLOAD_TIME: usize = 40;
+    const UNLOAD_TIME: usize = 200;
     pub fn new(position: ChunkPosition, world: Arc<World>) -> Arc<Self> {
         let chunk = Arc::new(Chunk {
             position,
@@ -137,6 +169,9 @@ impl Chunk {
         ));
         self.blocks.lock().unwrap()[offset_x as usize][offset_y as usize][offset_z as usize] =
             block;
+    }
+    pub fn get_block(&self, offset_x: u8, offset_y: u8, offset_z: u8) -> BlockData {
+        self.blocks.lock().unwrap()[offset_x as usize][offset_y as usize][offset_z as usize].clone()
     }
     fn add_entity(&self, entity: Arc<Entity>) {
         self.entities.lock().unwrap().push(entity);
@@ -252,17 +287,51 @@ impl PartialEq for ChunkViewer {
     }
 }
 impl Eq for ChunkViewer {}
+
+pub struct PlayerData {
+    player: Weak<Entity>,
+    connection: PlayerConnection,
+    slot: u32,
+}
+impl PlayerData {
+    pub fn new(player: Weak<Entity>, connection: PlayerConnection) -> Self {
+        PlayerData {
+            player,
+            connection,
+            slot: u32::MAX,
+        }
+    }
+    pub fn set_hand_slot(&mut self, slot: u32) {
+        let player = self.player.upgrade().unwrap();
+        let inventory = player.inventory.lock().unwrap();
+        let slot = if slot == u32::MAX {
+            inventory.get_size() - 1
+        } else {
+            slot % inventory.get_size()
+        };
+        let inventory_viewer = inventory.get_viewer(&player).unwrap();
+        self.connection.send(&NetworkMessageS2C::GuiData(
+                object! {id: inventory_viewer.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 1, 1, 1]},
+            ));
+        self.slot = slot;
+        self.connection.send(&NetworkMessageS2C::GuiData(
+                object! {id: inventory_viewer.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 0, 0, 1]},
+            ));
+    }
+}
+
 pub struct Entity {
     this: Weak<Self>,
     location: Mutex<ChunkLocation>,
     rotation: Mutex<f32>,
     teleport: Mutex<Option<ChunkLocation>>,
     entity_type: Arc<EntityData>,
-    player_data: Mutex<Option<PlayerConnection>>,
+    player_data: Mutex<Option<PlayerData>>,
     removed: AtomicBool,
     client_id: u32,
     id: Uuid,
     animation_controller: Mutex<AnimationController>,
+    inventory: Mutex<Inventory>,
 }
 static ENTITY_CLIENT_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
 impl Entity {
@@ -282,10 +351,45 @@ impl Entity {
             client_id: ENTITY_CLIENT_ID_GENERATOR.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
             id: Uuid::new_v4(),
             teleport: Mutex::new(None),
-            player_data: Mutex::new(player_data),
+            player_data: Mutex::new(
+                player_data.map(|connection| PlayerData::new(weak.clone(), connection)),
+            ),
             rotation: Mutex::new(0.),
             animation_controller: Mutex::new(AnimationController::new(weak.clone(), 1)),
+            inventory: Mutex::new(Inventory::new(9)),
         });
+        entity
+            .inventory
+            .lock()
+            .unwrap()
+            .set_item(
+                1,
+                Some(ItemStack::new(
+                    chunk
+                        .world
+                        .server
+                        .item_registry
+                        .item_by_identifier(&Identifier::new("test", "stone_block"))
+                        .unwrap()
+                        .clone(),
+                    5,
+                )),
+            )
+            .unwrap();
+        entity
+            .inventory
+            .lock()
+            .unwrap()
+            .add_viewer(InventoryViewer::new(Arc::downgrade(&entity), {
+                let mut slots = Vec::with_capacity(9);
+                for i in 0..9 {
+                    slots.push(((i as f32 * 0.13) - (4.5 * 0.13), -0.5));
+                }
+                slots
+            })); //todo: only add if is player
+        if let Some(player_data) = entity.player_data.lock().unwrap().as_mut() {
+            player_data.set_hand_slot(0);
+        }
         chunk.add_entity(entity.clone());
         let add_message = entity.create_add_message(position);
         for viewer in chunk.viewers.lock().unwrap().iter() {
@@ -299,9 +403,12 @@ impl Entity {
         }
         entity
     }
+    pub fn get_id(&self) -> &Uuid {
+        &self.id
+    }
     pub fn try_send_message(&self, message: &NetworkMessageS2C) -> Result<(), ()> {
-        if let Some(connection) = self.player_data.lock().unwrap().deref_mut() {
-            connection.send(message);
+        if let Some(player) = self.player_data.lock().unwrap().deref_mut() {
+            player.connection.send(message);
             Ok(())
         } else {
             Err(())
@@ -435,6 +542,7 @@ impl Entity {
                 .deref_mut()
                 .as_mut()
                 .unwrap()
+                .connection
                 .receive_messages();
             for message in messages {
                 match message {
@@ -458,6 +566,41 @@ impl Entity {
                             .unwrap()
                             .set_animation(Some(if moved { 2 } else { 1 }));
                     }
+                    crate::net::NetworkMessageC2S::RequestBlockBreakTime(id, _) => {
+                        self.try_send_message(&NetworkMessageS2C::BlockBreakTimeResponse(id, 1.))
+                            .unwrap();
+                        //todo: check time
+                    }
+                    crate::net::NetworkMessageC2S::BreakBlock(x, y, z) => {
+                        let block_position = BlockPosition { x, y, z };
+                        let world = &self.get_location().chunk.world;
+                        world.set_block(block_position, BlockData::Simple(0));
+                    }
+                    crate::net::NetworkMessageC2S::RightClickBlock(x, y, z, face, _) => {
+                        let hand_slot = self.player_data.lock().unwrap().as_ref().unwrap().slot;
+                        let mut right_click_result = InteractionResult::Ignored;
+                        self.inventory
+                            .lock()
+                            .unwrap()
+                            .modify_item(hand_slot, |stack| {
+                                if let Some(stack) = stack {
+                                    right_click_result =
+                                        stack.item_type.clone().on_right_click_block(
+                                            stack,
+                                            self.this.upgrade().unwrap(),
+                                            BlockPosition { x, y, z },
+                                            face,
+                                        );
+                                }
+                            })
+                            .unwrap();
+                    }
+                    crate::net::NetworkMessageC2S::MouseScroll(scroll_x, scroll_y) => {
+                        let mut player_data = self.player_data.lock().unwrap();
+                        let player_data = player_data.as_mut().unwrap();
+                        let new_slot = player_data.slot as i32 - scroll_y;
+                        player_data.set_hand_slot(new_slot as u32);
+                    }
                     _ => {}
                 }
             }
@@ -474,7 +617,7 @@ impl Entity {
                 .lock()
                 .unwrap()
                 .as_ref()
-                .map(|connection| connection.is_closed())
+                .map(|connection| connection.connection.is_closed())
                 .unwrap_or(false)
     }
     pub fn post_remove(&self) {

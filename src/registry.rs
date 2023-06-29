@@ -3,7 +3,12 @@ use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc};
 use json::{array, object, JsonValue};
 use zip::{write::FileOptions, ZipWriter};
 
-use crate::{mods::ClientContentData, util::Identifier};
+use crate::{
+    inventory::ItemStack,
+    mods::ClientContentData,
+    util::{BlockPosition, Face, Identifier},
+    world::{BlockData, Entity},
+};
 
 pub struct BlockRegistry {
     blocks: HashMap<Arc<Identifier>, Arc<Block>>,
@@ -118,6 +123,35 @@ impl ItemRegistry {
 pub struct Item {
     pub client_data: ClientItemRenderData,
     pub id: u32,
+    pub place_block: Option<Arc<Block>>,
+}
+impl Item {
+    pub fn on_right_click_block(
+        &self,
+        item: &mut ItemStack,
+        player: Arc<Entity>,
+        block_position: BlockPosition,
+        block_face: Face,
+    ) -> InteractionResult {
+        if let Some(place) = &self.place_block {
+            let world = player.get_location().chunk.world.clone();
+            world.replace_block(
+                block_position.offset_by_face(block_face),
+                |block| match block {
+                    BlockData::Simple(0) => {
+                        item.add_count(-1);
+                        Some(BlockData::Simple(place.default_state))
+                    }
+                    _ => None,
+                },
+            );
+        }
+        InteractionResult::Ignored
+    }
+}
+pub enum InteractionResult {
+    Consumed,
+    Ignored,
 }
 pub struct ClientItemRenderData {
     pub name: String,

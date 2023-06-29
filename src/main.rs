@@ -6,6 +6,7 @@
     const_trait_impl
 )]
 
+mod inventory;
 mod mods;
 mod net;
 mod registry;
@@ -52,6 +53,7 @@ fn main() {
     let server = Server::new(4321);
     let start_time = Instant::now();
     let mut tick_count: u32 = 0;
+    println!("server started");
     while running.load(std::sync::atomic::Ordering::Relaxed) {
         server.tick();
         //println!("tick: {}", tick_count);
@@ -168,6 +170,10 @@ impl Server {
         for world in worlds {
             world.tick();
         }
+        self.worlds
+            .lock()
+            .unwrap()
+            .drain_filter(|_, world| world.should_unload());
     }
     pub fn destroy(&self) {
         for world in self.worlds.lock().unwrap().drain() {

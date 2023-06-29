@@ -248,6 +248,15 @@ impl<'a> UserData for ItemRegistryWrapper<'a> {
                             this.block_registry,
                         ),
                         id: client_id,
+                        place_block: data
+                            .get("place")
+                            .map(|block| {
+                                this.block_registry
+                                    .block_by_identifier(&Identifier::parse(block).unwrap())
+                                    .unwrap()
+                                    .clone()
+                            })
+                            .ok(),
                     })
                 })
                 .unwrap();
