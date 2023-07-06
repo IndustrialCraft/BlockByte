@@ -20,5 +20,8 @@ walkdir = "2.3.3"
 zip = "0.6.6"
 noise = "0.8.2"
 splines = "4.2.0"
+fxhash = "0.2.1"
+threadpool = "1.8.1"
+sha256 = "1.1.4"
 [profile.release]
 debug = true

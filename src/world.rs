@@ -1,17 +1,18 @@
 use std::{
-    collections::{HashMap, HashSet},
     hash::Hash,
     ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicBool, AtomicU32},
         Arc, Mutex, Weak,
     },
+    thread,
     time::Instant,
 };
 
 use array_init::array_init;
 use atomic_counter::{AtomicCounter, RelaxedCounter};
 use endio::LEWrite;
+use fxhash::{FxHashMap, FxHashSet};
 use json::{array, object};
 use libflate::zlib::Encoder;
 use uuid::Uuid;

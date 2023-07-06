@@ -1,4 +1,6 @@
 use array_init::array_init;
+use noise::{Fbm, NoiseFn, OpenSimplex};
+use splines::{Key, Spline};
 
 use crate::{util::ChunkPosition, world::BlockData};
 

@@ -17,6 +17,7 @@ mod worldgen;
 use std::{
     cell::RefCell,
     collections::HashMap,
+    hash::Hash,
     net::TcpListener,
     path::Path,
     process,
@@ -26,9 +27,11 @@ use std::{
         Arc, Mutex, Weak,
     },
     thread::{self, spawn},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
+use fxhash::FxHashMap;
+use json::object;
 use mods::{
     BlockRegistryWrapper, ClientContentDataWrapper, EntityRegistryWrapper, ItemRegistryWrapper,
     ModManager,
