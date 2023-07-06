@@ -204,15 +204,12 @@ pub struct ClientEntityData {
 pub struct ClientContent {}
 impl ClientContent {
     pub fn generate_zip(
-        path: &Path,
         block_registry: &BlockRegistry,
         item_registry: &ItemRegistry,
         entity_registry: &EntityRegistry,
         client_content: ClientContentData,
-    ) {
-        std::fs::remove_file(path).ok();
-        let file = File::create(path).unwrap();
-        let mut zip_writer = ZipWriter::new(file);
+    ) -> Vec<u8> {
+        let mut zip_writer = ZipWriter::new(std::io::Cursor::new(Vec::new()));
         let options = FileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
             .unix_permissions(0o444);
@@ -243,7 +240,7 @@ impl ClientContent {
             zip_writer.start_file(file_name, options).unwrap();
             zip_writer.write_all(model.1.as_slice()).unwrap();
         }
-        zip_writer.finish().unwrap();
+        zip_writer.finish().unwrap().into_inner()
     }
     pub fn generate_content_json(
         block_registry: &BlockRegistry,

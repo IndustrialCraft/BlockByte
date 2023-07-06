@@ -22,29 +22,32 @@ use crate::{
     net::{NetworkMessageS2C, PlayerConnection},
     registry::{EntityData, InteractionResult},
     util::{BlockPosition, ChunkLocation, ChunkPosition, Identifier, Location, Position},
-    worldgen::{FlatWorldGenerator, WorldGenerator},
+    worldgen::{BasicWorldGenerator, FlatWorldGenerator, WorldGenerator},
     Server,
 };
 
 pub struct World {
     server: Arc<Server>,
     this: Weak<Self>,
-    chunks: Mutex<HashMap<ChunkPosition, Arc<Chunk>>>,
+    chunks: Mutex<FxHashMap<ChunkPosition, Arc<Chunk>>>,
     unload_timer: RelaxedCounter,
-    world_generator: Box<dyn WorldGenerator>,
+    world_generator: Box<dyn WorldGenerator + Send + Sync>,
 }
 impl World {
     const UNLOAD_TIME: usize = 1000;
     pub fn new(server: Arc<Server>) -> Arc<Self> {
         Arc::new_cyclic(|this| World {
             this: this.clone(),
-            chunks: Mutex::new(HashMap::new()),
+            chunks: Mutex::new(FxHashMap::default()),
             server,
             unload_timer: RelaxedCounter::new(0),
-            world_generator: Box::new(FlatWorldGenerator {
-                height: -5,
-                simple_id: 1,
-            }),
+            world_generator: Box::new(
+                /*FlatWorldGenerator {
+                    height: -5,
+                    simple_id: 1,
+                }*/
+                BasicWorldGenerator::new(1),
+            ),
         })
     }
     pub fn set_block(&self, position: BlockPosition, block: BlockData) {
@@ -145,7 +148,7 @@ pub struct Chunk {
     pub world: Arc<World>,
     blocks: Mutex<[[[BlockData; 16]; 16]; 16]>,
     entities: Mutex<Vec<Arc<Entity>>>,
-    viewers: Mutex<HashSet<ChunkViewer>>,
+    viewers: Mutex<FxHashSet<ChunkViewer>>,
     unload_timer: RelaxedCounter,
 }
 impl Chunk {
@@ -157,7 +160,7 @@ impl Chunk {
             world,
             unload_timer: RelaxedCounter::new(0),
             entities: Mutex::new(Vec::new()),
-            viewers: Mutex::new(HashSet::new()),
+            viewers: Mutex::new(FxHashSet::default()),
         });
         chunk
     }
@@ -189,16 +192,21 @@ impl Chunk {
                 }
             }
         }
+        let thread_viewer = viewer.clone();
+        let position = self.position.clone();
+        //thread::spawn(move || {
         let mut encoder = Encoder::new(Vec::new()).unwrap();
         for id in blocks {
             encoder.write_be(id).unwrap();
         }
-        viewer.try_send_message(&NetworkMessageS2C::LoadChunk(
-            self.position.x,
-            self.position.y,
-            self.position.z,
+        thread_viewer.try_send_message(&NetworkMessageS2C::LoadChunk(
+            position.x,
+            position.y,
+            position.z,
             encoder.finish().into_result().unwrap(),
         ));
+        //});
+
         for entity in self.entities.lock().unwrap().iter() {
             if Arc::ptr_eq(entity, &viewer) {
                 continue;
@@ -443,11 +451,11 @@ impl Entity {
             *self.rotation.lock().unwrap() = rotation;
         }
     }
-    pub fn get_chunks_to_load_at(position: &Position) -> HashSet<ChunkPosition> {
+    pub fn get_chunks_to_load_at(position: &Position) -> FxHashSet<ChunkPosition> {
         let chunk_pos = position.to_chunk_pos();
-        let vertical_view_distance = 10;
+        let vertical_view_distance = 18;
         let horizontal_view_distance = 8;
-        let mut positions = HashSet::new();
+        let mut positions = FxHashSet::default();
         for x in (-vertical_view_distance)..=vertical_view_distance {
             for y in (-horizontal_view_distance)..=horizontal_view_distance {
                 for z in (-vertical_view_distance)..=vertical_view_distance {

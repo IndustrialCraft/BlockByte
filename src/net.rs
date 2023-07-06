@@ -1,7 +1,9 @@
+use std::fmt::Binary;
 use std::net::TcpStream;
 
 use endio::LERead;
 use endio::LEWrite;
+use json::JsonValue;
 use tungstenite::WebSocket;
 
 use crate::util::BlockPosition;
@@ -225,6 +227,7 @@ pub enum NetworkMessageC2S {
     GuiScroll(String, i32, i32, bool),
     RightClick(bool),
     SendMessage(String),
+    ConnectionMode(u8),
 }
 impl NetworkMessageC2S {
     pub fn from_data(mut data: &[u8]) -> Option<Self> {
@@ -283,6 +286,7 @@ impl NetworkMessageC2S {
             )),
             11 => Some(NetworkMessageC2S::RightClick(data.read_be().unwrap())),
             12 => Some(NetworkMessageC2S::SendMessage(read_string(&mut data))),
+            13 => Some(NetworkMessageC2S::ConnectionMode(data.read_be().unwrap())),
             _ => None,
         }
     }
@@ -309,11 +313,34 @@ pub struct PlayerConnection {
     closed: bool,
 }
 impl PlayerConnection {
-    pub fn new(socket: WebSocket<TcpStream>) -> Self {
-        PlayerConnection {
-            socket,
-            closed: false,
+    pub fn new(mut socket: WebSocket<TcpStream>) -> Result<(Self, u8), ()> {
+        let mode_message = socket.read_message().map_err(|_| ())?;
+        match mode_message {
+            tungstenite::Message::Binary(message) => {
+                match NetworkMessageC2S::from_data(message.as_slice()) {
+                    Some(NetworkMessageC2S::ConnectionMode(mode)) => {
+                        socket.get_ref().set_nonblocking(true).map_err(|_| ())?;
+                        Ok((
+                            PlayerConnection {
+                                socket,
+                                closed: false,
+                            },
+                            mode,
+                        ))
+                    }
+                    _ => Err(()),
+                }
+            }
+            _ => Err(()),
         }
+    }
+    pub fn send_json(&mut self, json: JsonValue) {
+        self.socket
+            .write_message(tungstenite::Message::Text(json.dump()));
+    }
+    pub fn send_binary(&mut self, data: &Vec<u8>) {
+        self.socket
+            .write_message(tungstenite::Message::Binary(data.clone()));
     }
     pub fn send(&mut self, message: &NetworkMessageS2C) {
         if let Err(_) = self

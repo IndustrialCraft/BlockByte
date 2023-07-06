@@ -53,7 +53,7 @@ fn main() {
         })
         .unwrap();
     }
-    let server = Server::new(4321);
+    let server = Server::new(4321, "test server".to_string());
     let start_time = Instant::now();
     let mut tick_count: u32 = 0;
     println!("server started");
@@ -73,13 +73,14 @@ pub struct Server {
     block_registry: BlockRegistry,
     item_registry: ItemRegistry,
     entity_registry: EntityRegistry,
-    worlds: Mutex<HashMap<Arc<Identifier>, Arc<World>>>,
-    new_players: Receiver<PlayerConnection>,
-    mods: ModManager,
+    worlds: Mutex<FxHashMap<Arc<Identifier>, Arc<World>>>,
+    new_players: Mutex<Receiver<PlayerConnection>>,
+    mods: Mutex<ModManager>,
+    motd: String,
+    client_content: (Vec<u8>, String),
 }
 impl Server {
-    fn new(port: u16) -> Arc<Server> {
-        let new_players = Server::create_listener_thread(port);
+    fn new(port: u16, motd: String) -> Arc<Server> {
         let mods = ModManager::load_mods(Path::new("mods"));
         let block_registry = RefCell::new(BlockRegistry::new());
         let item_registry = RefCell::new(ItemRegistry::new());
@@ -103,7 +104,7 @@ impl Server {
                 entity_registry: &entity_registry,
             },
         );
-        {
+        let client_content = {
             let client_content = RefCell::new(mods::ClientContentData::new());
             mods.call_event(
                 "clientContentInit",
@@ -111,22 +112,25 @@ impl Server {
                     client_content: &client_content,
                 },
             );
-            registry::ClientContent::generate_zip(
-                &Path::new("client_content.zip"),
+            let client_content = registry::ClientContent::generate_zip(
                 &block_registry.borrow(),
                 &item_registry.borrow(),
                 &entity_registry.borrow(),
                 client_content.into_inner(),
             );
-        }
+            let hash = sha256::digest(client_content.as_slice());
+            (client_content, hash)
+        };
         Arc::new_cyclic(|this| Server {
             this: this.clone(),
-            new_players,
-            worlds: Mutex::new(HashMap::new()),
+            new_players: Mutex::new(Server::create_listener_thread(this.clone(), port)),
+            worlds: Mutex::new(FxHashMap::default()),
             block_registry: block_registry.into_inner(),
             item_registry: item_registry.into_inner(),
             entity_registry: entity_registry.into_inner(),
-            mods,
+            mods: Mutex::new(mods),
+            motd,
+            client_content,
         })
     }
     pub fn get_or_create_world(&self, identifier: Arc<Identifier>) -> Arc<World> {
@@ -153,7 +157,7 @@ impl Server {
         }
     }
     pub fn tick(&self) {
-        while let Ok(connection) = self.new_players.try_recv() {
+        while let Ok(connection) = self.new_players.lock().unwrap().try_recv() {
             Entity::new(
                 &self.get_spawn_location(),
                 self.entity_registry
@@ -183,18 +187,32 @@ impl Server {
             world.1.destroy();
         }
     }
-    fn create_listener_thread(port: u16) -> Receiver<PlayerConnection> {
+    fn create_listener_thread(game_server: Weak<Server>, port: u16) -> Receiver<PlayerConnection> {
         let (tx, rx) = channel();
         spawn(move || {
             let server = TcpListener::bind(("127.0.0.1", port)).unwrap();
             for stream in server.incoming() {
                 if let Ok(stream) = stream {
                     let tx = tx.clone();
+                    let server = game_server.upgrade().unwrap();
                     spawn(move || {
-                        let mut websocket = tungstenite::accept(stream).unwrap();
-                        //todo: username and key message
-                        websocket.get_mut().set_nonblocking(true).unwrap();
-                        tx.send(PlayerConnection::new(websocket)).unwrap();
+                        let websocket = tungstenite::accept(stream).unwrap();
+                        let player_connection = PlayerConnection::new(websocket);
+                        if let Ok(mut connection) = player_connection {
+                            match connection.1 {
+                                0 => tx.send(connection.0).unwrap(),
+                                1 => {
+                                    let json = object! {
+                                        motd: server.motd.clone(),
+                                        time: SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis().to_string(),
+                                        client_content_hash: server.client_content.1.clone()
+                                    };
+                                    connection.0.send_json(json);
+                                }
+                                2 => connection.0.send_binary(&server.client_content.0),
+                                _ => {}
+                            }
+                        }
                     });
                 }
             }
