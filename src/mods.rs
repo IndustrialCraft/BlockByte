@@ -207,6 +207,10 @@ impl<'a> BlockRegistryWrapper<'a> {
             block_type: BlockRegistryWrapper::client_render_type_from_table(
                 table.get("render_type").unwrap(),
             ),
+            dynamic: table
+                .get("dynamic")
+                .ok()
+                .map(|table| Self::client_dynamic_from_table(table)),
             fluid: table.get("fluid").unwrap_or(false),
             render_data: table.get("render_data").unwrap_or(0),
             transparent: table.get("transparent").unwrap_or(false),
@@ -225,6 +229,14 @@ impl<'a> BlockRegistryWrapper<'a> {
                 down: table.get("down").unwrap(),
             }),
             _ => unimplemented!(),
+        }
+    }
+    fn client_dynamic_from_table(table: Table) -> ClientBlockDynamicData {
+        ClientBlockDynamicData {
+            model: table.get("model").unwrap(),
+            texture: table.get("texture").unwrap(),
+            animations: table.get("animations").unwrap(),
+            items: table.get("items").unwrap(),
         }
     }
 }
@@ -327,6 +339,7 @@ impl<'a> EntityRegistryWrapper<'a> {
             hitbox_h: table.get("hitbox_h").unwrap(),
             hitbox_d: table.get("hitbox_d").unwrap(),
             animations: table.get("animations").unwrap(),
+            items: table.get("items").unwrap(),
         }
     }
 }

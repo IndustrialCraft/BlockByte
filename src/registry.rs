@@ -29,6 +29,7 @@ impl BlockRegistry {
                     state_id: id,
                     client_data: ClientBlockRenderData {
                         block_type: ClientBlockRenderDataType::Air,
+                        dynamic: None,
                         fluid: false,
                         render_data: 0,
                         transparent: false,
@@ -76,9 +77,16 @@ impl BlockState {
 
 pub struct ClientBlockRenderData {
     pub block_type: ClientBlockRenderDataType,
+    pub dynamic: Option<ClientBlockDynamicData>,
     pub fluid: bool,
     pub render_data: u8,
     pub transparent: bool,
+}
+pub struct ClientBlockDynamicData {
+    pub model: String,
+    pub texture: String,
+    pub animations: Vec<String>,
+    pub items: Vec<String>,
 }
 pub enum ClientBlockRenderDataType {
     Air,
@@ -199,6 +207,7 @@ pub struct ClientEntityData {
     pub hitbox_h: f32,
     pub hitbox_d: f32,
     pub animations: Vec<String>,
+    pub items: Vec<String>,
 }
 
 pub struct ClientContent {}
@@ -254,10 +263,19 @@ impl ClientContent {
                 transparent: client_data.transparent,
                 fluid: client_data.fluid,
                 render_data: client_data.render_data
-
             };
+            if let Some(dynamic) = &client_data.dynamic {
+                model_json["dynamic"] = object! {
+                    model: dynamic.model.clone(),
+                    texture: dynamic.texture.clone(),
+                    animations: dynamic.animations.clone(),
+                    items: dynamic.items.clone()
+                };
+            }
             match &client_data.block_type {
-                ClientBlockRenderDataType::Air => {}
+                ClientBlockRenderDataType::Air => {
+                    model_json.insert("type", "air").unwrap();
+                }
                 ClientBlockRenderDataType::Cube(cube_data) => {
                     model_json.insert("type", "cube").unwrap();
                     model_json.insert("north", cube_data.front.clone()).unwrap();
@@ -293,7 +311,7 @@ impl ClientContent {
         }
         let mut entities = array![];
         for entity in entity_registry.entities.values().into_iter().enumerate() {
-            entities.push(object! {id: entity.0,model:entity.1.client_data.model.clone(),texture:entity.1.client_data.texture.clone(),hitboxW:entity.1.client_data.hitbox_w,hitboxH:entity.1.client_data.hitbox_h,hitboxD:entity.1.client_data.hitbox_d,animations:entity.1.client_data.animations.clone()}).unwrap();
+            entities.push(object! {id: entity.1.id,model:entity.1.client_data.model.clone(),texture:entity.1.client_data.texture.clone(),hitboxW:entity.1.client_data.hitbox_w,hitboxH:entity.1.client_data.hitbox_h,hitboxD:entity.1.client_data.hitbox_d,animations:entity.1.client_data.animations.clone(),items:entity.1.client_data.items.clone()}).unwrap();
         }
         object! {
             blocks: blocks,

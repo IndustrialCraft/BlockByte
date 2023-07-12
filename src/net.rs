@@ -83,14 +83,11 @@ impl NetworkMessageS2C {
                 data.write_be(*item_index).unwrap();
                 data.write_be(*item_id).unwrap();
             }
-            Self::BlockAddItem(x, y, z, x_offset, y_offset, z_offset, item_index, item_id) => {
+            Self::BlockAddItem(x, y, z, item_index, item_id) => {
                 data.write_be(9u8).unwrap();
                 data.write_be(*x).unwrap();
                 data.write_be(*y).unwrap();
                 data.write_be(*z).unwrap();
-                data.write_be(*x_offset).unwrap();
-                data.write_be(*y_offset).unwrap();
-                data.write_be(*z_offset).unwrap();
                 data.write_be(*item_index).unwrap();
                 data.write_be(*item_id).unwrap();
             }
@@ -174,7 +171,7 @@ pub enum NetworkMessageS2C {
     GuiData(json::JsonValue) = 6,
     BlockBreakTimeResponse(u32, f32) = 7,
     EntityAddItem(u32, u32, u32) = 8,
-    BlockAddItem(i32, i32, i32, f32, f32, f32, u32, u32) = 9,
+    BlockAddItem(i32, i32, i32, u32, u32) = 9,
     BlockRemoveItem(i32, i32, i32, u32) = 10,
     BlockMoveItem(i32, i32, i32, f32, f32, f32, u32) = 11,
     Knockback(f32, f32, f32, bool) = 12,
