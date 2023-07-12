@@ -101,7 +101,12 @@ impl World {
             .map(|c| c.clone())
             .collect();
         for chunk in chunks_to_tick {
-            chunk.tick();
+            self.server
+                .thread_pool_tasks
+                .send(Box::new(move || {
+                    chunk.tick();
+                }))
+                .unwrap();
         }
         let non_empty = {
             let mut chunks = self.chunks.lock().unwrap();
@@ -194,18 +199,24 @@ impl Chunk {
         }
         let thread_viewer = viewer.clone();
         let position = self.position.clone();
-        //thread::spawn(move || {
-        let mut encoder = Encoder::new(Vec::new()).unwrap();
-        for id in blocks {
-            encoder.write_be(id).unwrap();
-        }
-        thread_viewer.try_send_message(&NetworkMessageS2C::LoadChunk(
-            position.x,
-            position.y,
-            position.z,
-            encoder.finish().into_result().unwrap(),
-        ));
-        //});
+        self.world
+            .server
+            .thread_pool_tasks
+            .send(Box::new(move || {
+                let mut encoder = Encoder::new(Vec::new()).unwrap();
+                for id in blocks {
+                    encoder.write_be(id).unwrap();
+                }
+                thread_viewer
+                    .try_send_message(&NetworkMessageS2C::LoadChunk(
+                        position.x,
+                        position.y,
+                        position.z,
+                        encoder.finish().into_result().unwrap(),
+                    ))
+                    .ok();
+            }))
+            .unwrap();
 
         for entity in self.entities.lock().unwrap().iter() {
             if Arc::ptr_eq(entity, &viewer) {

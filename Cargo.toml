@@ -23,5 +23,6 @@ splines = "4.2.0"
 fxhash = "0.2.1"
 threadpool = "1.8.1"
 sha256 = "1.1.4"
+crossbeam-channel = "0.5.8"
 [profile.release]
 debug = true

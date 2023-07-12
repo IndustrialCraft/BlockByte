@@ -21,15 +21,12 @@ use std::{
     net::TcpListener,
     path::Path,
     process,
-    sync::{
-        atomic::AtomicBool,
-        mpsc::{channel, Receiver},
-        Arc, Mutex, Weak,
-    },
+    sync::{atomic::AtomicBool, Arc, Mutex, Weak},
     thread::{self, spawn},
     time::{Duration, Instant, SystemTime},
 };
 
+use crossbeam_channel::{Receiver, Sender};
 use fxhash::FxHashMap;
 use json::object;
 use mods::{
@@ -38,6 +35,7 @@ use mods::{
 };
 use net::PlayerConnection;
 use registry::{BlockRegistry, EntityRegistry, ItemRegistry};
+use threadpool::ThreadPool;
 use util::{Identifier, Location, Position};
 use world::{Entity, World};
 
@@ -78,7 +76,11 @@ pub struct Server {
     mods: Mutex<ModManager>,
     motd: String,
     client_content: (Vec<u8>, String),
+    thread_pool: Mutex<ThreadPool>,
+    pub thread_pool_tasks: Sender<Box<dyn FnOnce() + Send>>,
+    thread_pool_tasks_rc: Receiver<Box<dyn FnOnce() + Send>>,
 }
+
 impl Server {
     fn new(port: u16, motd: String) -> Arc<Server> {
         let mods = ModManager::load_mods(Path::new("mods"));
@@ -121,6 +123,7 @@ impl Server {
             let hash = sha256::digest(client_content.as_slice());
             (client_content, hash)
         };
+        let (thread_pool_tasks, thread_pool_tasks_rc) = crossbeam_channel::unbounded();
         Arc::new_cyclic(|this| Server {
             this: this.clone(),
             new_players: Mutex::new(Server::create_listener_thread(this.clone(), port)),
@@ -131,6 +134,12 @@ impl Server {
             mods: Mutex::new(mods),
             motd,
             client_content,
+            thread_pool: Mutex::new(ThreadPool::with_name(
+                "blockbyte_server_thread_pool".to_string(),
+                4,
+            )),
+            thread_pool_tasks,
+            thread_pool_tasks_rc,
         })
     }
     pub fn get_or_create_world(&self, identifier: Arc<Identifier>) -> Arc<World> {
@@ -181,6 +190,15 @@ impl Server {
             .lock()
             .unwrap()
             .drain_filter(|_, world| world.should_unload());
+        while self.thread_pool_tasks_rc.len() > 0 {
+            while let Ok(task) = self.thread_pool_tasks_rc.try_recv() {
+                self.thread_pool
+                    .lock()
+                    .unwrap()
+                    .execute(|| task.call_once(()));
+            }
+            self.thread_pool.lock().unwrap().join();
+        }
     }
     pub fn destroy(&self) {
         for world in self.worlds.lock().unwrap().drain() {
@@ -188,7 +206,7 @@ impl Server {
         }
     }
     fn create_listener_thread(game_server: Weak<Server>, port: u16) -> Receiver<PlayerConnection> {
-        let (tx, rx) = channel();
+        let (tx, rx) = crossbeam_channel::unbounded();
         spawn(move || {
             let server = TcpListener::bind(("127.0.0.1", port)).unwrap();
             for stream in server.incoming() {

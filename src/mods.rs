@@ -13,9 +13,9 @@ use walkdir::WalkDir;
 
 use crate::{
     registry::{
-        Block, BlockRegistry, BlockState, ClientBlockCubeRenderData, ClientBlockRenderData,
-        ClientBlockRenderDataType, ClientEntityData, ClientItemModel, ClientItemRenderData,
-        EntityRegistry, Item, ItemRegistry,
+        Block, BlockRegistry, BlockState, ClientBlockCubeRenderData, ClientBlockDynamicData,
+        ClientBlockRenderData, ClientBlockRenderDataType, ClientEntityData, ClientItemModel,
+        ClientItemRenderData, EntityRegistry, Item, ItemRegistry,
     },
     util::Identifier,
 };
