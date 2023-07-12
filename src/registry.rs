@@ -287,7 +287,7 @@ impl ClientContent {
                 }
             }
             blocks
-                .push(object! {id: block.0+1,
+                .push(object! {id: block.1.state_id,
                     model: model_json
                 })
                 .unwrap();
@@ -302,7 +302,7 @@ impl ClientContent {
             };
             items
                 .push(object! {
-                    id: item.0,
+                    id: item.1.id,
                     name: item.1.client_data.name.clone(),
                     modelType: model.0,
                     modelValue: model.1
