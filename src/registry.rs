@@ -249,6 +249,12 @@ impl ClientContent {
             zip_writer.start_file(file_name, options).unwrap();
             zip_writer.write_all(model.1.as_slice()).unwrap();
         }
+        {
+            zip_writer.start_file("font.ttf", options).unwrap();
+            zip_writer
+                .write_all(std::fs::read("font.ttf").unwrap().as_slice())
+                .unwrap();
+        }
         zip_writer.finish().unwrap().into_inner()
     }
     pub fn generate_content_json(
