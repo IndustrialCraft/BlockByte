@@ -333,7 +333,7 @@ impl<'a> UserData for EntityRegistryWrapper<'a> {
 impl<'a> EntityRegistryWrapper<'a> {
     fn client_data_from_table(table: Table) -> ClientEntityData {
         ClientEntityData {
-            model: table.get::<&str, String>("model").unwrap() + ".bbm",
+            model: table.get::<&str, String>("model").unwrap(),
             texture: table.get("texture").unwrap(),
             hitbox_w: table.get("hitbox_w").unwrap(),
             hitbox_h: table.get("hitbox_h").unwrap(),
