@@ -459,14 +459,16 @@ impl Entity {
         .ok();
     }
     pub fn move_to<T: Into<ChunkLocation>>(&self, location: T, rotation: Option<f32>) {
-        *self.teleport.lock().unwrap() = Some(location.into());
+        {
+            *self.teleport.lock().unwrap() = Some(location.into());
+        }
         if let Some(rotation) = rotation {
             *self.rotation.lock().unwrap() = rotation;
         }
     }
     pub fn get_chunks_to_load_at(position: &Position) -> FxHashSet<ChunkPosition> {
         let chunk_pos = position.to_chunk_pos();
-        let vertical_view_distance = 18;
+        let vertical_view_distance = 15;
         let horizontal_view_distance = 8;
         let mut positions = FxHashSet::default();
         for x in (-vertical_view_distance)..=vertical_view_distance {

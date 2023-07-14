@@ -142,17 +142,15 @@ impl Item {
         block_face: Face,
     ) -> InteractionResult {
         if let Some(place) = &self.place_block {
+            let block_position = block_position.offset_by_face(block_face);
             let world = player.get_location().chunk.world.clone();
-            world.replace_block(
-                block_position.offset_by_face(block_face),
-                |block| match block {
-                    BlockData::Simple(0) => {
-                        item.add_count(-1);
-                        Some(BlockData::Simple(place.default_state))
-                    }
-                    _ => None,
-                },
-            );
+            world.replace_block(block_position, |block| match block {
+                BlockData::Simple(0) => {
+                    item.add_count(-1);
+                    Some(BlockData::Simple(place.default_state))
+                }
+                _ => None,
+            });
         }
         InteractionResult::Ignored
     }

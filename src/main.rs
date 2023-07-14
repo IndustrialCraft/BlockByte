@@ -57,7 +57,6 @@ fn main() {
     println!("server started");
     while running.load(std::sync::atomic::Ordering::Relaxed) {
         server.tick();
-        //println!("tick: {}", tick_count);
         while tick_count as u128 * 50 > Instant::now().duration_since(start_time).as_millis() {
             thread::sleep(Duration::from_millis(1));
         }
