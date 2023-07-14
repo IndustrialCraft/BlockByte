@@ -29,12 +29,9 @@ use std::{
 use crossbeam_channel::{Receiver, Sender};
 use fxhash::FxHashMap;
 use json::object;
-use mods::{
-    BlockRegistryWrapper, ClientContentDataWrapper, EntityRegistryWrapper, ItemRegistryWrapper,
-    ModManager,
-};
+use mods::ModManager;
 use net::PlayerConnection;
-use registry::{BlockRegistry, EntityRegistry, ItemRegistry};
+use registry::{Block, BlockRegistry, BlockState, EntityData, EntityRegistry, Item, ItemRegistry};
 use threadpool::ThreadPool;
 use util::{Identifier, Location, Position};
 use world::{Entity, World};
@@ -70,7 +67,7 @@ pub struct Server {
     block_registry: BlockRegistry,
     item_registry: ItemRegistry,
     entity_registry: EntityRegistry,
-    worlds: Mutex<FxHashMap<Arc<Identifier>, Arc<World>>>,
+    worlds: Mutex<FxHashMap<Identifier, Arc<World>>>,
     new_players: Mutex<Receiver<PlayerConnection>>,
     mods: Mutex<ModManager>,
     motd: String,
@@ -82,42 +79,54 @@ pub struct Server {
 
 impl Server {
     fn new(port: u16, motd: String) -> Arc<Server> {
-        let mods = ModManager::load_mods(Path::new("mods"));
+        let loaded_mods = ModManager::load_mods(Path::new("mods"));
         let block_registry = RefCell::new(BlockRegistry::new());
         let item_registry = RefCell::new(ItemRegistry::new());
         let entity_registry = RefCell::new(EntityRegistry::new());
-        mods.call_event(
-            "blockRegistryInit",
-            BlockRegistryWrapper {
-                block_registry: &block_registry,
-            },
-        );
-        mods.call_event(
-            "itemRegistryInit",
-            ItemRegistryWrapper {
-                block_registry: &block_registry.borrow(),
-                item_registry: &item_registry,
-            },
-        );
-        mods.call_event(
-            "entityRegistryInit",
-            EntityRegistryWrapper {
-                entity_registry: &entity_registry,
-            },
-        );
+        for block_data in loaded_mods.1 {
+            block_registry
+                .borrow_mut()
+                .register(block_data.id, |id| {
+                    let block = Arc::new(Block { default_state: id });
+                    let state = vec![BlockState {
+                        state_id: id,
+                        client_data: block_data.client,
+                        parent: block.clone(),
+                    }];
+                    (block, state)
+                })
+                .unwrap();
+        }
+        for item_data in loaded_mods.2 {
+            item_registry
+                .borrow_mut()
+                .register(item_data.id, |id| {
+                    Arc::new(Item {
+                        id,
+                        client_data: item_data.client,
+                        place_block: None,
+                    })
+                })
+                .unwrap();
+        }
+        for entity_data in loaded_mods.3 {
+            entity_registry
+                .borrow_mut()
+                .register(entity_data.id, |id| {
+                    Arc::new(EntityData {
+                        id,
+                        client_data: entity_data.client,
+                    })
+                })
+                .unwrap();
+        }
         let client_content = {
-            let client_content = RefCell::new(mods::ClientContentData::new());
-            mods.call_event(
-                "clientContentInit",
-                ClientContentDataWrapper {
-                    client_content: &client_content,
-                },
-            );
+            //todo HIGH PRIORITY: make consistent between runs so hash is always same(it is different because hashmap's hasher is randomly seeded)
             let client_content = registry::ClientContent::generate_zip(
                 &block_registry.borrow(),
                 &item_registry.borrow(),
                 &entity_registry.borrow(),
-                client_content.into_inner(),
+                loaded_mods.4,
             );
             let hash = sha256::digest(client_content.as_slice());
             (client_content, hash)
@@ -130,7 +139,7 @@ impl Server {
             block_registry: block_registry.into_inner(),
             item_registry: item_registry.into_inner(),
             entity_registry: entity_registry.into_inner(),
-            mods: Mutex::new(mods),
+            mods: Mutex::new(loaded_mods.0),
             motd,
             client_content,
             thread_pool: Mutex::new(ThreadPool::with_name(
@@ -141,7 +150,7 @@ impl Server {
             thread_pool_tasks_rc,
         })
     }
-    pub fn get_or_create_world(&self, identifier: Arc<Identifier>) -> Arc<World> {
+    pub fn get_or_create_world(&self, identifier: Identifier) -> Arc<World> {
         let mut worlds = self.worlds.lock().unwrap();
         if let Some(world) = worlds.get(&identifier) {
             return world.clone();

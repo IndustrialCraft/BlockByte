@@ -186,19 +186,19 @@ impl ChunkPosition {
         (xd * xd + yd * yd + zd * zd) as u32
     }
 }
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Identifier {
     pub namespace: String,
     pub key: String,
 }
 impl Identifier {
-    pub fn new<N: Into<String>, K: Into<String>>(namespace: N, key: K) -> Arc<Self> {
-        Arc::new(Identifier {
+    pub fn new<N: Into<String>, K: Into<String>>(namespace: N, key: K) -> Self {
+        Identifier {
             namespace: namespace.into(),
             key: key.into(),
-        })
+        }
     }
-    pub fn parse(value: String) -> Result<Arc<Self>, ()> {
+    pub fn parse(value: &str) -> Result<Self, ()> {
         let mut split = value.split(":");
         let namespace = split.next().ok_or(())?;
         let key = split.next().ok_or(())?;

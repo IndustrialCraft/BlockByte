@@ -11,7 +11,7 @@ use crate::{
 };
 
 pub struct BlockRegistry {
-    blocks: HashMap<Arc<Identifier>, Arc<Block>>,
+    blocks: HashMap<Identifier, Arc<Block>>,
     states: Vec<BlockState>,
     id_generator: u32,
 }
@@ -41,7 +41,7 @@ impl BlockRegistry {
             .expect("couldn't register air");
         block_registry
     }
-    pub fn register<F>(&mut self, id: Arc<Identifier>, creator: F) -> Result<u32, ()>
+    pub fn register<F>(&mut self, id: Identifier, creator: F) -> Result<u32, ()>
     where
         F: FnOnce(u32) -> (Arc<Block>, Vec<BlockState>),
     {
@@ -55,7 +55,7 @@ impl BlockRegistry {
         self.states.append(&mut block_states);
         Ok(numeric_id)
     }
-    pub fn block_by_identifier(&self, id: &Arc<Identifier>) -> Option<&Arc<Block>> {
+    pub fn block_by_identifier(&self, id: &Identifier) -> Option<&Arc<Block>> {
         self.blocks.get(id)
     }
 }
@@ -74,7 +74,7 @@ impl BlockState {
         self.state_id
     }
 }
-
+#[derive(Clone, Debug)]
 pub struct ClientBlockRenderData {
     pub block_type: ClientBlockRenderDataType,
     pub dynamic: Option<ClientBlockDynamicData>,
@@ -82,16 +82,19 @@ pub struct ClientBlockRenderData {
     pub render_data: u8,
     pub transparent: bool,
 }
+#[derive(Clone, Debug)]
 pub struct ClientBlockDynamicData {
     pub model: String,
     pub texture: String,
     pub animations: Vec<String>,
     pub items: Vec<String>,
 }
+#[derive(Clone, Debug)]
 pub enum ClientBlockRenderDataType {
     Air,
     Cube(ClientBlockCubeRenderData),
 }
+#[derive(Clone, Debug)]
 pub struct ClientBlockCubeRenderData {
     pub front: String,
     pub back: String,
@@ -102,7 +105,7 @@ pub struct ClientBlockCubeRenderData {
 }
 
 pub struct ItemRegistry {
-    items: HashMap<Arc<Identifier>, Arc<Item>>,
+    items: HashMap<Identifier, Arc<Item>>,
     id_generator: u32,
 }
 impl ItemRegistry {
@@ -112,7 +115,7 @@ impl ItemRegistry {
             id_generator: 0,
         }
     }
-    pub fn register<F>(&mut self, id: Arc<Identifier>, creator: F) -> Result<Arc<Item>, ()>
+    pub fn register<F>(&mut self, id: Identifier, creator: F) -> Result<Arc<Item>, ()>
     where
         F: FnOnce(u32) -> Arc<Item>,
     {
@@ -124,7 +127,7 @@ impl ItemRegistry {
         self.id_generator += 1;
         Ok(item)
     }
-    pub fn item_by_identifier(&self, id: &Arc<Identifier>) -> Option<&Arc<Item>> {
+    pub fn item_by_identifier(&self, id: &Identifier) -> Option<&Arc<Item>> {
         self.items.get(id)
     }
 }
@@ -159,16 +162,18 @@ pub enum InteractionResult {
     Consumed,
     Ignored,
 }
+#[derive(Clone)]
 pub struct ClientItemRenderData {
     pub name: String,
     pub model: ClientItemModel,
 }
+#[derive(Clone)]
 pub enum ClientItemModel {
     Texture(String),
-    Block(Arc<Block>),
+    Block(Identifier),
 }
 pub struct EntityRegistry {
-    entities: HashMap<Arc<Identifier>, Arc<EntityData>>,
+    entities: HashMap<Identifier, Arc<EntityData>>,
     id_generator: u32,
 }
 impl EntityRegistry {
@@ -178,7 +183,7 @@ impl EntityRegistry {
             id_generator: 0,
         }
     }
-    pub fn register<F>(&mut self, id: Arc<Identifier>, creator: F) -> Result<Arc<EntityData>, ()>
+    pub fn register<F>(&mut self, id: Identifier, creator: F) -> Result<Arc<EntityData>, ()>
     where
         F: FnOnce(u32) -> Arc<EntityData>,
     {
@@ -190,7 +195,7 @@ impl EntityRegistry {
         self.id_generator += 1;
         Ok(entity)
     }
-    pub fn entity_by_identifier(&self, id: &Arc<Identifier>) -> Option<&Arc<EntityData>> {
+    pub fn entity_by_identifier(&self, id: &Identifier) -> Option<&Arc<EntityData>> {
         self.entities.get(id)
     }
 }
@@ -198,6 +203,7 @@ pub struct EntityData {
     pub id: u32,
     pub client_data: ClientEntityData,
 }
+#[derive(Clone)]
 pub struct ClientEntityData {
     pub model: String,
     pub texture: String,
@@ -302,7 +308,15 @@ impl ClientContent {
                 ClientItemModel::Texture(texture) => {
                     ("texture", JsonValue::String(texture.clone()))
                 }
-                ClientItemModel::Block(block) => ("block", JsonValue::from(block.default_state)),
+                ClientItemModel::Block(block) => (
+                    "block",
+                    JsonValue::from(
+                        block_registry
+                            .block_by_identifier(block)
+                            .unwrap()
+                            .default_state,
+                    ),
+                ),
             };
             items
                 .push(object! {

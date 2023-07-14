@@ -2,13 +2,14 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     path::{Path, PathBuf},
+    rc,
     str::FromStr,
     sync::Arc,
 };
 
 use anyhow::{bail, Context, Result};
-use rlua::{Function, Lua, Table, UserData, Value};
 
+use rhai::{Dynamic, Engine, ImmutableString};
 use walkdir::WalkDir;
 
 use crate::{
@@ -21,7 +22,6 @@ use crate::{
 };
 
 struct Mod {
-    lua: Lua,
     path: PathBuf,
     namespace: String,
 }
@@ -48,79 +48,27 @@ impl Mod {
         path_buf.pop();
         let mod_identifier = descriptor["id"].as_str().unwrap().to_string();
         Ok(Mod {
-            lua: {
-                let lua = Lua::new();
-                lua.context(|ctx| {
-                    ctx.set_named_registry_value("mod_id", mod_identifier.clone())
-                        .unwrap();
-                });
-                lua.context(|ctx| {
-                    ctx.set_named_registry_value("mod_path", path.to_str().unwrap())
-                        .unwrap();
-                });
-                lua
-            },
             path: path.to_path_buf(),
             namespace: mod_identifier,
         })
     }
-    pub fn load_scripts(&self) {
-        self.lua.context(|ctx| {
-            let globals = ctx.globals();
-            globals
-                .set(
-                    "registerEvent",
-                    ctx.create_function(|ctx, (event, callback): (rlua::String, Function)| {
-                        let event_name = "event_".to_string() + event.to_str().unwrap();
-                        let event_list: Value =
-                            ctx.named_registry_value(event_name.as_str()).unwrap();
-                        let event_list = match event_list {
-                            Value::Table(table) => table,
-                            _ => ctx.create_table().unwrap(),
-                        };
-                        event_list
-                            .set(event_list.len().unwrap() + 1, callback)
-                            .unwrap();
-                        ctx.set_named_registry_value(event_name.as_str(), event_list)
-                            .unwrap();
-                        Ok(())
-                    })
-                    .unwrap(),
-                )
-                .unwrap();
-            for script in WalkDir::new({
-                let mut scripts_path = self.path.clone();
-                scripts_path.push("scripts");
-                scripts_path
-            })
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|entry| entry.metadata().unwrap().is_file())
-            {
-                ctx.load(std::fs::read(script.path()).unwrap().as_slice())
-                    .exec()
-                    .unwrap();
+    pub fn load_scripts(&self, engine: &Engine) {
+        for script in WalkDir::new({
+            let mut scripts_path = self.path.clone();
+            scripts_path.push("scripts");
+            scripts_path
+        })
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|entry| entry.metadata().unwrap().is_file())
+        {
+            if let Err(error) = engine.eval_file::<()>(script.into_path()) {
+                println!("script error: {}", error.to_string());
             }
-        });
+            //todo
+        }
     }
-    pub fn call_event<T>(&self, event: &str, param: T)
-    where
-        T: UserData,
-    {
-        self.lua.context(|ctx| {
-            ctx.scope(|scope| {
-                let event_name = "event_".to_string() + event;
-                if let Ok(event_list) = ctx.named_registry_value::<str, Table>(event_name.as_str())
-                {
-                    let wrapped = scope.create_nonstatic_userdata(param).unwrap();
-                    for callback in event_list.sequence_values() {
-                        let callback: Function = callback.unwrap();
-                        callback.call::<_, ()>(wrapped.clone()).unwrap();
-                    }
-                }
-            });
-        });
-    }
+    pub fn call_event<T>(&self, event: &str, param: T) {}
     pub fn read_resource(&self, id: Arc<Identifier>) -> Result<Vec<u8>> {
         if id.get_namespace() == &self.namespace {
             let mut full_path = self.path.clone();
@@ -142,7 +90,15 @@ pub struct ModManager {
     mods: HashMap<String, Mod>,
 }
 impl ModManager {
-    pub fn load_mods(path: &Path) -> Self {
+    pub fn load_mods(
+        path: &Path,
+    ) -> (
+        Self,
+        Vec<BlockBuilder>,
+        Vec<ItemBuilder>,
+        Vec<EntityBuilder>,
+        ClientContentData,
+    ) {
         let mut mods = HashMap::new();
         for mod_path in std::fs::read_dir(path).unwrap() {
             let mod_path = mod_path.unwrap();
@@ -157,200 +113,197 @@ impl ModManager {
                 println!("loading mod '{}' failed", name);
             }
         }
+        let mut loading_engine = Engine::new();
+        let current_mod_path = rc::Rc::new(RefCell::new(PathBuf::new()));
+        let content = rc::Rc::new(RefCell::new(ClientContentData::new()));
+        let blocks = rc::Rc::new(RefCell::new(Vec::new()));
+        let items = rc::Rc::new(RefCell::new(Vec::new()));
+        let entities = rc::Rc::new(RefCell::new(Vec::new()));
+        let registered_blocks = blocks.clone();
+        let registered_items = items.clone();
+        let registered_entities = entities.clone();
+        loading_engine
+            .register_type_with_name::<BlockBuilder>("BlockBuilder")
+            .register_fn("create_block", BlockBuilder::new)
+            .register_fn("client_type_air", BlockBuilder::client_type_air)
+            .register_fn("client_type_cube", BlockBuilder::client_type_cube)
+            .register_fn("client_fluid", BlockBuilder::client_fluid)
+            .register_fn("client_transparent", BlockBuilder::client_transparent)
+            .register_fn("client_render_data", BlockBuilder::client_render_data)
+            .register_fn("register", move |this: &mut BlockBuilder| {
+                registered_blocks.borrow_mut().push(this.clone())
+            });
+        loading_engine
+            .register_type_with_name::<ItemBuilder>("ItemBuilder")
+            .register_fn("create_item", ItemBuilder::new)
+            .register_fn("client_name", ItemBuilder::client_name)
+            .register_fn("client_model_texture", ItemBuilder::client_model_texture)
+            .register_fn("client_model_block", ItemBuilder::client_model_block)
+            .register_fn("register", move |this: &mut ItemBuilder| {
+                registered_items.borrow_mut().push(this.clone())
+            });
+        loading_engine
+            .register_type_with_name::<EntityBuilder>("EntityBuilder")
+            .register_fn("create_entity", EntityBuilder::new)
+            .register_fn("client_model", EntityBuilder::client_model)
+            .register_fn("client_hitbox", EntityBuilder::client_hitbox)
+            .register_fn("client_add_animation", EntityBuilder::client_add_animation)
+            .register_fn("client_add_item", EntityBuilder::client_add_item)
+            .register_fn("register", move |this: &mut EntityBuilder| {
+                registered_entities.borrow_mut().push(this.clone())
+            });
+
+        let mut content_register = |name: &str, content_type: ContentType| {
+            let register_current_mod_path = current_mod_path.clone();
+            let register_content = content.clone();
+            loading_engine.register_fn(name, move |id: &str, path: &str| {
+                let start_path = { register_current_mod_path.borrow().clone() };
+                let mut full_path = start_path.clone();
+                full_path.push(path);
+                if !full_path.starts_with(start_path) {
+                    panic!("path travelsal attack");
+                }
+                register_content.borrow_mut().by_type(content_type).insert(
+                    Identifier::parse(id).unwrap(),
+                    std::fs::read(full_path).unwrap(),
+                )
+            });
+        };
+        content_register.call_mut(("register_image", ContentType::Image));
+        content_register.call_mut(("register_sound", ContentType::Sound));
+        content_register.call_mut(("register_model", ContentType::Model));
         for loaded_mod in &mods {
-            loaded_mod.1.load_scripts();
+            current_mod_path.replace(loaded_mod.1.path.clone());
+            loaded_mod.1.load_scripts(&loading_engine);
         }
-        ModManager { mods }
+        let blocks = blocks.borrow().clone(); //todo: dont't clone
+        let items = items.borrow().clone();
+        let entities = entities.borrow().clone();
+        let content = content.borrow().clone();
+        (ModManager { mods }, blocks, items, entities, content)
     }
-    pub fn call_event<T>(&self, event: &str, param: T)
-    where
-        T: UserData + Clone,
-    {
+    /*pub fn call_event<T>(&self, event: &str, param: T) {
+        //todo
         for loaded_mod in &self.mods {
             loaded_mod.1.call_event(event, param.clone());
         }
-    }
+    }*/
 }
-
-#[derive(Clone)]
-pub struct BlockRegistryWrapper<'a> {
-    pub block_registry: &'a RefCell<BlockRegistry>,
+#[derive(Clone, Debug)]
+pub struct BlockBuilder {
+    pub id: Identifier,
+    pub client: ClientBlockRenderData,
 }
-impl<'a> UserData for BlockRegistryWrapper<'a> {
-    fn add_methods<'lua, T: rlua::UserDataMethods<'lua, Self>>(_methods: &mut T) {
-        _methods.add_method("register", |ctx, this, (id, data): (String, Table)| {
-            let mod_id: String = ctx.named_registry_value("mod_id").unwrap();
-
-            this.block_registry
-                .borrow_mut()
-                .register(Identifier::new(mod_id, id), |client_id| {
-                    let block = Arc::new(Block {
-                        default_state: client_id,
-                    });
-                    let state = BlockState {
-                        state_id: client_id,
-                        client_data: BlockRegistryWrapper::client_data_from_table(
-                            data.get("client").unwrap(),
-                        ),
-                        parent: block.clone(),
-                    };
-                    (block, vec![state])
-                })
-                .unwrap();
-            Ok(())
-        })
-    }
-}
-impl<'a> BlockRegistryWrapper<'a> {
-    fn client_data_from_table(table: Table) -> ClientBlockRenderData {
-        ClientBlockRenderData {
-            block_type: BlockRegistryWrapper::client_render_type_from_table(
-                table.get("render_type").unwrap(),
-            ),
-            dynamic: table
-                .get("dynamic")
-                .ok()
-                .map(|table| Self::client_dynamic_from_table(table)),
-            fluid: table.get("fluid").unwrap_or(false),
-            render_data: table.get("render_data").unwrap_or(0),
-            transparent: table.get("transparent").unwrap_or(false),
+impl BlockBuilder {
+    pub fn new(id: &str) -> Self {
+        BlockBuilder {
+            id: Identifier::parse(id).unwrap(),
+            client: ClientBlockRenderData {
+                block_type: ClientBlockRenderDataType::Air,
+                dynamic: None,
+                fluid: false,
+                render_data: 0,
+                transparent: false,
+            },
         }
     }
-    fn client_render_type_from_table(table: Table) -> ClientBlockRenderDataType {
-        let render_type: String = table.get("type").unwrap();
-        match render_type.as_str() {
-            "air" => ClientBlockRenderDataType::Air,
-            "cube" => ClientBlockRenderDataType::Cube(ClientBlockCubeRenderData {
-                front: table.get("front").unwrap(),
-                back: table.get("back").unwrap(),
-                right: table.get("right").unwrap(),
-                left: table.get("left").unwrap(),
-                up: table.get("up").unwrap(),
-                down: table.get("down").unwrap(),
-            }),
-            _ => unimplemented!(),
-        }
+    pub fn client_type_air(&mut self) {
+        self.client.block_type = ClientBlockRenderDataType::Air;
     }
-    fn client_dynamic_from_table(table: Table) -> ClientBlockDynamicData {
-        ClientBlockDynamicData {
-            model: table.get("model").unwrap(),
-            texture: table.get("texture").unwrap(),
-            animations: table.get("animations").unwrap(),
-            items: table.get("items").unwrap(),
-        }
+    pub fn client_type_cube(
+        &mut self,
+        front: &str,
+        back: &str,
+        right: &str,
+        left: &str,
+        up: &str,
+        down: &str,
+    ) {
+        self.client.block_type = ClientBlockRenderDataType::Cube(ClientBlockCubeRenderData {
+            front: front.to_string(),
+            back: back.to_string(),
+            right: right.to_string(),
+            left: left.to_string(),
+            up: up.to_string(),
+            down: down.to_string(),
+        });
     }
-}
-
-#[derive(Clone)]
-pub struct ItemRegistryWrapper<'a> {
-    pub block_registry: &'a BlockRegistry,
-    pub item_registry: &'a RefCell<ItemRegistry>,
-}
-impl<'a> UserData for ItemRegistryWrapper<'a> {
-    fn add_methods<'lua, T: rlua::UserDataMethods<'lua, Self>>(_methods: &mut T) {
-        _methods.add_method("register", |ctx, this, (id, data): (String, Table)| {
-            let mod_id: String = ctx.named_registry_value("mod_id").unwrap();
-
-            this.item_registry
-                .borrow_mut()
-                .register(Identifier::new(mod_id, id), |client_id| {
-                    Arc::new(Item {
-                        client_data: ItemRegistryWrapper::client_data_from_table(
-                            data.get("client").unwrap(),
-                            this.block_registry,
-                        ),
-                        id: client_id,
-                        place_block: data
-                            .get("place")
-                            .map(|block| {
-                                this.block_registry
-                                    .block_by_identifier(&Identifier::parse(block).unwrap())
-                                    .unwrap()
-                                    .clone()
-                            })
-                            .ok(),
-                    })
-                })
-                .unwrap();
-            Ok(())
-        })
+    pub fn client_fluid(&mut self, fluid: bool) {
+        self.client.fluid = fluid;
     }
-}
-impl<'a> ItemRegistryWrapper<'a> {
-    fn client_data_from_table(
-        table: Table,
-        block_registry: &BlockRegistry,
-    ) -> ClientItemRenderData {
-        ClientItemRenderData {
-            name: table.get("name").unwrap(),
-            model: Self::client_render_model_from_table(
-                table.get("model").unwrap(),
-                block_registry,
-            ),
-        }
+    pub fn client_transparent(&mut self, transparent: bool) {
+        self.client.transparent = transparent;
     }
-    fn client_render_model_from_table(
-        table: Table,
-        block_registry: &BlockRegistry,
-    ) -> ClientItemModel {
-        let render_type: String = table.get("type").unwrap();
-        match render_type.as_str() {
-            "texture" => ClientItemModel::Texture(table.get("texture").unwrap()),
-            "block" => ClientItemModel::Block(
-                block_registry
-                    .block_by_identifier(&Identifier::parse(table.get("block").unwrap()).unwrap())
-                    .unwrap()
-                    .clone(),
-            ),
-            _ => unimplemented!(),
-        }
+    pub fn client_render_data(&mut self, render_data: u8) {
+        self.client.render_data = render_data;
     }
 }
 #[derive(Clone)]
-pub struct EntityRegistryWrapper<'a> {
-    pub entity_registry: &'a RefCell<EntityRegistry>,
+pub struct ItemBuilder {
+    pub id: Identifier,
+    pub client: ClientItemRenderData,
 }
-impl<'a> UserData for EntityRegistryWrapper<'a> {
-    fn add_methods<'lua, T: rlua::UserDataMethods<'lua, Self>>(_methods: &mut T) {
-        _methods.add_method("register", |ctx, this, (id, data): (String, Table)| {
-            let mod_id: String = ctx.named_registry_value("mod_id").unwrap();
-
-            this.entity_registry
-                .borrow_mut()
-                .register(Identifier::new(mod_id, id), |client_id| {
-                    Arc::new(crate::registry::EntityData {
-                        client_data: EntityRegistryWrapper::client_data_from_table(
-                            data.get("client").unwrap(),
-                        ),
-                        id: client_id,
-                    })
-                })
-                .unwrap();
-            Ok(())
-        })
-    }
-}
-impl<'a> EntityRegistryWrapper<'a> {
-    fn client_data_from_table(table: Table) -> ClientEntityData {
-        ClientEntityData {
-            model: table.get::<&str, String>("model").unwrap(),
-            texture: table.get("texture").unwrap(),
-            hitbox_w: table.get("hitbox_w").unwrap(),
-            hitbox_h: table.get("hitbox_h").unwrap(),
-            hitbox_d: table.get("hitbox_d").unwrap(),
-            animations: table.get("animations").unwrap(),
-            items: table.get("items").unwrap(),
+impl ItemBuilder {
+    pub fn new(id: Identifier) -> Self {
+        ItemBuilder {
+            client: ClientItemRenderData {
+                name: id.to_string(),
+                model: ClientItemModel::Texture(String::new()),
+            },
+            id,
         }
     }
+    pub fn client_name(&mut self, name: &str) {
+        self.client.name = name.to_string();
+    }
+    pub fn client_model_texture(&mut self, texture: &str) {
+        self.client.model = ClientItemModel::Texture(texture.to_string());
+    }
+    pub fn client_model_block(&mut self, block: &str) {
+        self.client.model = ClientItemModel::Block(Identifier::parse(block).unwrap());
+    }
 }
+#[derive(Clone)]
+pub struct EntityBuilder {
+    pub id: Identifier,
+    pub client: ClientEntityData,
+}
+impl EntityBuilder {
+    pub fn new(id: Identifier) -> Self {
+        EntityBuilder {
+            id,
+            client: ClientEntityData {
+                model: String::new(),
+                texture: String::new(),
+                hitbox_w: 1.,
+                hitbox_h: 1.,
+                hitbox_d: 1.,
+                animations: Vec::new(),
+                items: Vec::new(),
+            },
+        }
+    }
+    pub fn client_model(&mut self, model: &str, texture: &str) {
+        self.client.model = model.to_string();
+        self.client.texture = texture.to_string();
+    }
+    pub fn client_hitbox(&mut self, width: f32, height: f32, depth: f32) {
+        self.client.hitbox_w = width;
+        self.client.hitbox_h = height;
+        self.client.hitbox_d = depth;
+    }
+    pub fn client_add_animation(&mut self, animation: &str) {
+        self.client.animations.push(animation.to_string());
+    }
+    pub fn client_add_item(&mut self, item: &str) {
+        self.client.items.push(item.to_string());
+    }
+}
+#[derive(Clone)]
 pub struct ClientContentData {
     pub images: HashMap<Identifier, Vec<u8>>,
     pub sounds: HashMap<Identifier, Vec<u8>>,
     pub models: HashMap<Identifier, Vec<u8>>,
-}
-#[derive(Clone)]
-pub struct ClientContentDataWrapper<'a> {
-    pub client_content: &'a RefCell<ClientContentData>,
 }
 impl ClientContentData {
     pub fn new() -> Self {
@@ -360,71 +313,17 @@ impl ClientContentData {
             models: HashMap::new(),
         }
     }
-}
-impl<'a> UserData for ClientContentDataWrapper<'a> {
-    fn add_methods<'lua, T: rlua::UserDataMethods<'lua, Self>>(_methods: &mut T) {
-        _methods.add_method(
-            "register_image",
-            |ctx, this, (id, path): (String, String)| {
-                let mod_id: String = ctx.named_registry_value("mod_id").unwrap();
-                let mod_path: String = ctx.named_registry_value("mod_path").unwrap();
-                let id = Identifier {
-                    namespace: mod_id,
-                    key: id,
-                };
-                this.client_content.borrow_mut().images.insert(
-                    id,
-                    std::fs::read(
-                        PathBuf::from_str(mod_path.as_str())
-                            .unwrap()
-                            .join(Path::new(path.as_str())),
-                    ) //todo: fix directory travelsal attack
-                    .unwrap(),
-                );
-                Ok(())
-            },
-        );
-        _methods.add_method(
-            "register_sound",
-            |ctx, this, (id, path): (String, String)| {
-                let mod_id: String = ctx.named_registry_value("mod_id").unwrap();
-                let mod_path: String = ctx.named_registry_value("mod_path").unwrap();
-                let id = Identifier {
-                    namespace: mod_id,
-                    key: id,
-                };
-                this.client_content.borrow_mut().sounds.insert(
-                    id,
-                    std::fs::read(
-                        PathBuf::from_str(mod_path.as_str())
-                            .unwrap()
-                            .join(Path::new(path.as_str())),
-                    ) //todo: fix directory travelsal attack
-                    .unwrap(),
-                );
-                Ok(())
-            },
-        );
-        _methods.add_method(
-            "register_model",
-            |ctx, this, (id, path): (String, String)| {
-                let mod_id: String = ctx.named_registry_value("mod_id").unwrap();
-                let mod_path: String = ctx.named_registry_value("mod_path").unwrap();
-                let id = Identifier {
-                    namespace: mod_id,
-                    key: id,
-                };
-                this.client_content.borrow_mut().models.insert(
-                    id,
-                    std::fs::read(
-                        PathBuf::from_str(mod_path.as_str())
-                            .unwrap()
-                            .join(Path::new(path.as_str())),
-                    ) //todo: fix directory travelsal attack
-                    .unwrap(),
-                );
-                Ok(())
-            },
-        );
+    fn by_type(&mut self, content_type: ContentType) -> &mut HashMap<Identifier, Vec<u8>> {
+        match content_type {
+            ContentType::Image => &mut self.images,
+            ContentType::Sound => &mut self.sounds,
+            ContentType::Model => &mut self.models,
+        }
     }
+}
+#[derive(Clone, Copy)]
+enum ContentType {
+    Image,
+    Sound,
+    Model,
 }
