@@ -487,7 +487,7 @@ impl Entity {
     }
     pub fn tick(&self) {
         if let Some(teleport_location) = self.teleport.lock().unwrap().deref() {
-            let old_location = self.location.lock().unwrap().clone();
+            let old_location = { self.location.lock().unwrap().clone() };
             let new_location: ChunkLocation = teleport_location.clone();
 
             *self.location.lock().unwrap() = new_location.clone();
@@ -552,8 +552,9 @@ impl Entity {
                     *self.rotation.lock().unwrap(),
                 ));
         }
-        *self.teleport.lock().unwrap() = None;
-
+        {
+            *self.teleport.lock().unwrap() = None;
+        }
         if self.is_player() {
             let messages = self
                 .player_data
@@ -577,7 +578,7 @@ impl Entity {
                         self.move_to(
                             &Location {
                                 position: Position { x, y, z },
-                                world: self.location.lock().unwrap().chunk.world.clone(),
+                                world: { self.location.lock().unwrap().chunk.world.clone() },
                             },
                             Some(rotation),
                         );
