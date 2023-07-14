@@ -98,16 +98,6 @@ impl NetworkMessageS2C {
                 data.write_be(*z).unwrap();
                 data.write_be(*item_index).unwrap();
             }
-            Self::BlockMoveItem(x, y, z, x_offset, y_offset, z_offset, item_index) => {
-                data.write_be(11u8).unwrap();
-                data.write_be(*x).unwrap();
-                data.write_be(*y).unwrap();
-                data.write_be(*z).unwrap();
-                data.write_be(*x_offset).unwrap();
-                data.write_be(*y_offset).unwrap();
-                data.write_be(*z_offset).unwrap();
-                data.write_be(*item_index).unwrap();
-            }
             Self::Knockback(x, y, z, set) => {
                 data.write_be(12u8).unwrap();
                 data.write_be(*x).unwrap();
@@ -173,7 +163,6 @@ pub enum NetworkMessageS2C {
     EntityAddItem(u32, u32, u32) = 8,
     BlockAddItem(i32, i32, i32, u32, u32) = 9,
     BlockRemoveItem(i32, i32, i32, u32) = 10,
-    BlockMoveItem(i32, i32, i32, f32, f32, f32, u32) = 11,
     Knockback(f32, f32, f32, bool) = 12,
     FluidSelectable(bool) = 13,
     PlaySound(String, f32, f32, f32, f32, f32, bool) = 14,
