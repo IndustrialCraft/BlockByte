@@ -101,12 +101,7 @@ impl World {
             .map(|c| c.clone())
             .collect();
         for chunk in chunks_to_tick {
-            self.server
-                .thread_pool_tasks
-                .send(Box::new(move || {
-                    chunk.tick();
-                }))
-                .unwrap();
+            chunk.tick();
         }
         let non_empty = {
             let mut chunks = self.chunks.lock().unwrap();
@@ -264,9 +259,16 @@ impl Chunk {
         if self.viewers.lock().unwrap().len() > 0 {
             self.unload_timer.reset();
         }
-        for entity in entities {
-            entity.tick();
-        }
+        self.world
+            .server
+            .thread_pool_tasks
+            .send(Box::new(move || {
+                for entity in entities {
+                    entity.tick();
+                }
+            }))
+            .unwrap();
+
         let mut removed_entities = Vec::new();
         self.entities.lock().unwrap().drain_filter(|entity| {
             let not_same_chunk = entity.get_location().chunk.position != self.position;
