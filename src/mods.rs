@@ -130,18 +130,34 @@ impl ModManager {
             .register_fn("client_fluid", BlockBuilder::client_fluid)
             .register_fn("client_transparent", BlockBuilder::client_transparent)
             .register_fn("client_render_data", BlockBuilder::client_render_data)
-            .register_fn("register", move |this: &mut BlockBuilder| {
-                registered_blocks.borrow_mut().push(this.clone())
-            });
+            .register_fn("client_dynamic", BlockBuilder::client_dynamic)
+            .register_fn(
+                "client_dynamic_add_animation",
+                BlockBuilder::client_dynamic_add_animation,
+            )
+            .register_fn(
+                "client_dynamic_add_item",
+                BlockBuilder::client_dynamic_add_item,
+            )
+            .register_fn(
+                "register",
+                move |this: &mut rc::Rc<RefCell<BlockBuilder>>| {
+                    registered_blocks.borrow_mut().push(this.clone())
+                },
+            );
         loading_engine
             .register_type_with_name::<ItemBuilder>("ItemBuilder")
             .register_fn("create_item", ItemBuilder::new)
             .register_fn("client_name", ItemBuilder::client_name)
             .register_fn("client_model_texture", ItemBuilder::client_model_texture)
             .register_fn("client_model_block", ItemBuilder::client_model_block)
-            .register_fn("register", move |this: &mut ItemBuilder| {
-                registered_items.borrow_mut().push(this.clone())
-            });
+            .register_fn("place", ItemBuilder::place)
+            .register_fn(
+                "register",
+                move |this: &mut rc::Rc<RefCell<ItemBuilder>>| {
+                    registered_items.borrow_mut().push(this.clone())
+                },
+            );
         loading_engine
             .register_type_with_name::<EntityBuilder>("EntityBuilder")
             .register_fn("create_entity", EntityBuilder::new)
@@ -149,9 +165,12 @@ impl ModManager {
             .register_fn("client_hitbox", EntityBuilder::client_hitbox)
             .register_fn("client_add_animation", EntityBuilder::client_add_animation)
             .register_fn("client_add_item", EntityBuilder::client_add_item)
-            .register_fn("register", move |this: &mut EntityBuilder| {
-                registered_entities.borrow_mut().push(this.clone())
-            });
+            .register_fn(
+                "register",
+                move |this: &mut rc::Rc<RefCell<EntityBuilder>>| {
+                    registered_entities.borrow_mut().push(this.clone())
+                },
+            );
 
         let mut content_register = |name: &str, content_type: ContentType| {
             let register_current_mod_path = current_mod_path.clone();
@@ -166,7 +185,7 @@ impl ModManager {
                 register_content.borrow_mut().by_type(content_type).insert(
                     Identifier::parse(id).unwrap(),
                     std::fs::read(full_path).unwrap(),
-                )
+                );
             });
         };
         content_register.call_mut(("register_image", ContentType::Image));
@@ -176,9 +195,23 @@ impl ModManager {
             current_mod_path.replace(loaded_mod.1.path.clone());
             loaded_mod.1.load_scripts(&loading_engine);
         }
-        let blocks = blocks.borrow().clone(); //todo: dont't clone
-        let items = items.borrow().clone();
-        let entities = entities.borrow().clone();
+        let blocks = blocks
+            .borrow()
+            .iter()
+            .map(|block| block.borrow().clone())
+            .collect();
+        let items = items
+            .borrow()
+            .iter()
+            .map(|item| item.borrow().clone())
+            .collect();
+        let entities = entities
+            .borrow()
+            .iter()
+            .map(|entity| entity.borrow().clone())
+            .collect();
+
+        //println!("{blocks:#?}\n{items:#?}\n{entities:#?}");
         let content = content.borrow().clone();
         (ModManager { mods }, blocks, items, entities, content)
     }
@@ -195,8 +228,8 @@ pub struct BlockBuilder {
     pub client: ClientBlockRenderData,
 }
 impl BlockBuilder {
-    pub fn new(id: &str) -> Self {
-        BlockBuilder {
+    pub fn new(id: &str) -> rc::Rc<RefCell<Self>> {
+        rc::Rc::new(RefCell::new(BlockBuilder {
             id: Identifier::parse(id).unwrap(),
             client: ClientBlockRenderData {
                 block_type: ClientBlockRenderDataType::Air,
@@ -205,73 +238,133 @@ impl BlockBuilder {
                 render_data: 0,
                 transparent: false,
             },
-        }
+        }))
     }
-    pub fn client_type_air(&mut self) {
-        self.client.block_type = ClientBlockRenderDataType::Air;
+    pub fn client_type_air(this: &mut rc::Rc<RefCell<Self>>) -> rc::Rc<RefCell<Self>> {
+        this.borrow_mut().client.block_type = ClientBlockRenderDataType::Air;
+        this.clone()
     }
     pub fn client_type_cube(
-        &mut self,
+        this: &mut rc::Rc<RefCell<Self>>,
         front: &str,
         back: &str,
         right: &str,
         left: &str,
         up: &str,
         down: &str,
-    ) {
-        self.client.block_type = ClientBlockRenderDataType::Cube(ClientBlockCubeRenderData {
-            front: front.to_string(),
-            back: back.to_string(),
-            right: right.to_string(),
-            left: left.to_string(),
-            up: up.to_string(),
-            down: down.to_string(),
+    ) -> rc::Rc<RefCell<Self>> {
+        this.borrow_mut().client.block_type =
+            ClientBlockRenderDataType::Cube(ClientBlockCubeRenderData {
+                front: front.to_string(),
+                back: back.to_string(),
+                right: right.to_string(),
+                left: left.to_string(),
+                up: up.to_string(),
+                down: down.to_string(),
+            });
+        this.clone()
+    }
+    pub fn client_fluid(this: &mut rc::Rc<RefCell<Self>>, fluid: bool) -> rc::Rc<RefCell<Self>> {
+        this.borrow_mut().client.fluid = fluid;
+        this.clone()
+    }
+    pub fn client_transparent(
+        this: &mut rc::Rc<RefCell<Self>>,
+        transparent: bool,
+    ) -> rc::Rc<RefCell<Self>> {
+        this.borrow_mut().client.transparent = transparent;
+        this.clone()
+    }
+    pub fn client_render_data(
+        this: &mut rc::Rc<RefCell<Self>>,
+        render_data: i64,
+    ) -> rc::Rc<RefCell<Self>> {
+        this.borrow_mut().client.render_data = render_data as u8;
+        this.clone()
+    }
+    pub fn client_dynamic(
+        this: &mut rc::Rc<RefCell<Self>>,
+        model: &str,
+        texture: &str,
+    ) -> rc::Rc<RefCell<Self>> {
+        this.borrow_mut().client.dynamic = Some(ClientBlockDynamicData {
+            model: model.to_string(),
+            texture: texture.to_string(),
+            animations: Vec::new(),
+            items: Vec::new(),
         });
+        this.clone()
     }
-    pub fn client_fluid(&mut self, fluid: bool) {
-        self.client.fluid = fluid;
+    pub fn client_dynamic_add_animation(
+        this: &mut rc::Rc<RefCell<Self>>,
+        animation: &str,
+    ) -> rc::Rc<RefCell<Self>> {
+        //todo: result
+        if let Some(dynamic) = &mut this.borrow_mut().client.dynamic {
+            dynamic.animations.push(animation.to_string());
+        }
+        this.clone()
     }
-    pub fn client_transparent(&mut self, transparent: bool) {
-        self.client.transparent = transparent;
-    }
-    pub fn client_render_data(&mut self, render_data: u8) {
-        self.client.render_data = render_data;
+    pub fn client_dynamic_add_item(
+        this: &mut rc::Rc<RefCell<Self>>,
+        item: &str,
+    ) -> rc::Rc<RefCell<Self>> {
+        //todo: result
+        if let Some(dynamic) = &mut this.borrow_mut().client.dynamic {
+            dynamic.items.push(item.to_string());
+        }
+        this.clone()
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ItemBuilder {
     pub id: Identifier,
     pub client: ClientItemRenderData,
+    pub place: Option<Identifier>,
 }
 impl ItemBuilder {
-    pub fn new(id: Identifier) -> Self {
-        ItemBuilder {
+    pub fn new(id: &str) -> rc::Rc<RefCell<Self>> {
+        rc::Rc::new(RefCell::new(ItemBuilder {
             client: ClientItemRenderData {
                 name: id.to_string(),
                 model: ClientItemModel::Texture(String::new()),
             },
-            id,
-        }
+            place: None,
+            id: Identifier::parse(id).unwrap(),
+        }))
     }
-    pub fn client_name(&mut self, name: &str) {
-        self.client.name = name.to_string();
+    pub fn client_name(this: &mut rc::Rc<RefCell<Self>>, name: &str) -> rc::Rc<RefCell<Self>> {
+        this.borrow_mut().client.name = name.to_string();
+        this.clone()
     }
-    pub fn client_model_texture(&mut self, texture: &str) {
-        self.client.model = ClientItemModel::Texture(texture.to_string());
+    pub fn client_model_texture(
+        this: &mut rc::Rc<RefCell<Self>>,
+        texture: &str,
+    ) -> rc::Rc<RefCell<Self>> {
+        this.borrow_mut().client.model = ClientItemModel::Texture(texture.to_string());
+        this.clone()
     }
-    pub fn client_model_block(&mut self, block: &str) {
-        self.client.model = ClientItemModel::Block(Identifier::parse(block).unwrap());
+    pub fn client_model_block(
+        this: &mut rc::Rc<RefCell<Self>>,
+        block: &str,
+    ) -> rc::Rc<RefCell<Self>> {
+        this.borrow_mut().client.model = ClientItemModel::Block(Identifier::parse(block).unwrap());
+        this.clone()
+    }
+    pub fn place(this: &mut rc::Rc<RefCell<Self>>, place: &str) -> rc::Rc<RefCell<Self>> {
+        this.borrow_mut().place = Some(Identifier::parse(place).unwrap());
+        this.clone()
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct EntityBuilder {
     pub id: Identifier,
     pub client: ClientEntityData,
 }
 impl EntityBuilder {
-    pub fn new(id: Identifier) -> Self {
-        EntityBuilder {
-            id,
+    pub fn new(id: &str) -> rc::Rc<RefCell<Self>> {
+        rc::Rc::new(RefCell::new(EntityBuilder {
+            id: Identifier::parse(id).unwrap(),
             client: ClientEntityData {
                 model: String::new(),
                 texture: String::new(),
@@ -281,22 +374,47 @@ impl EntityBuilder {
                 animations: Vec::new(),
                 items: Vec::new(),
             },
+        }))
+    }
+    pub fn client_model(
+        this: &mut rc::Rc<RefCell<Self>>,
+        model: &str,
+        texture: &str,
+    ) -> rc::Rc<RefCell<Self>> {
+        {
+            let mut borrowed = this.borrow_mut();
+            borrowed.client.model = model.to_string();
+            borrowed.client.texture = texture.to_string();
         }
+        this.clone()
     }
-    pub fn client_model(&mut self, model: &str, texture: &str) {
-        self.client.model = model.to_string();
-        self.client.texture = texture.to_string();
+    pub fn client_hitbox(
+        this: &mut rc::Rc<RefCell<Self>>,
+        width: f64,
+        height: f64,
+        depth: f64,
+    ) -> rc::Rc<RefCell<Self>> {
+        {
+            let mut borrowed = this.borrow_mut();
+            borrowed.client.hitbox_w = width as f32;
+            borrowed.client.hitbox_h = height as f32;
+            borrowed.client.hitbox_d = depth as f32;
+        }
+        this.clone()
     }
-    pub fn client_hitbox(&mut self, width: f32, height: f32, depth: f32) {
-        self.client.hitbox_w = width;
-        self.client.hitbox_h = height;
-        self.client.hitbox_d = depth;
+    pub fn client_add_animation(
+        this: &mut rc::Rc<RefCell<Self>>,
+        animation: &str,
+    ) -> rc::Rc<RefCell<Self>> {
+        this.borrow_mut()
+            .client
+            .animations
+            .push(animation.to_string());
+        this.clone()
     }
-    pub fn client_add_animation(&mut self, animation: &str) {
-        self.client.animations.push(animation.to_string());
-    }
-    pub fn client_add_item(&mut self, item: &str) {
-        self.client.items.push(item.to_string());
+    pub fn client_add_item(this: &mut rc::Rc<RefCell<Self>>, item: &str) -> rc::Rc<RefCell<Self>> {
+        this.borrow_mut().client.items.push(item.to_string());
+        this.clone()
     }
 }
 #[derive(Clone)]

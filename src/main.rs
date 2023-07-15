@@ -104,7 +104,13 @@ impl Server {
                     Arc::new(Item {
                         id,
                         client_data: item_data.client,
-                        place_block: None,
+                        place_block: item_data.place.map(|place| {
+                            block_registry
+                                .borrow()
+                                .block_by_identifier(&place)
+                                .unwrap()
+                                .clone()
+                        }),
                     })
                 })
                 .unwrap();
