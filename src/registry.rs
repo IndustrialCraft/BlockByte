@@ -1,7 +1,15 @@
-use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc};
+use std::{
+    collections::HashMap,
+    fs::File,
+    hash::BuildHasherDefault,
+    io::Write,
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 use json::{array, object, JsonValue};
-use zip::{write::FileOptions, ZipWriter};
+use twox_hash::XxHash64;
+use zip::{write::FileOptions, DateTime, ZipWriter};
 
 use crate::{
     inventory::ItemStack,
@@ -11,14 +19,14 @@ use crate::{
 };
 
 pub struct BlockRegistry {
-    blocks: HashMap<Identifier, Arc<Block>>,
+    blocks: HashMap<Identifier, Arc<Block>, BuildHasherDefault<XxHash64>>,
     states: Vec<BlockState>,
     id_generator: u32,
 }
 impl BlockRegistry {
     pub fn new() -> Self {
         let mut block_registry = BlockRegistry {
-            blocks: HashMap::new(),
+            blocks: Default::default(),
             states: Vec::new(),
             id_generator: 0,
         };
@@ -105,13 +113,13 @@ pub struct ClientBlockCubeRenderData {
 }
 
 pub struct ItemRegistry {
-    items: HashMap<Identifier, Arc<Item>>,
+    items: HashMap<Identifier, Arc<Item>, BuildHasherDefault<XxHash64>>,
     id_generator: u32,
 }
 impl ItemRegistry {
     pub fn new() -> Self {
         ItemRegistry {
-            items: HashMap::new(),
+            items: Default::default(),
             id_generator: 0,
         }
     }
@@ -173,13 +181,13 @@ pub enum ClientItemModel {
     Block(Identifier),
 }
 pub struct EntityRegistry {
-    entities: HashMap<Identifier, Arc<EntityData>>,
+    entities: HashMap<Identifier, Arc<EntityData>, BuildHasherDefault<XxHash64>>,
     id_generator: u32,
 }
 impl EntityRegistry {
     pub fn new() -> Self {
         EntityRegistry {
-            entities: HashMap::new(),
+            entities: Default::default(),
             id_generator: 0,
         }
     }
@@ -225,7 +233,8 @@ impl ClientContent {
         let mut zip_writer = ZipWriter::new(std::io::Cursor::new(Vec::new()));
         let options = FileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
-            .unix_permissions(0o444);
+            .unix_permissions(0o444)
+            .last_modified_time(DateTime::from_msdos(0, 0));
         zip_writer.start_file("content.json", options).unwrap();
         zip_writer
             .write_all(
