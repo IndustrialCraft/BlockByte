@@ -100,7 +100,6 @@ dependencies = [
  "rhai",
  "sha256",
  "splines",
- "threadpool",
  "tungstenite",
  "twox-hash",
  "uuid",

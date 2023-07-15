@@ -15,6 +15,7 @@ use endio::LEWrite;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{array, object};
 use libflate::zlib::Encoder;
+use rhai::{Engine, AST};
 use uuid::Uuid;
 
 use crate::{
@@ -197,7 +198,7 @@ impl Chunk {
         self.world
             .server
             .thread_pool_tasks
-            .send(Box::new(move || {
+            .send(Box::new(move |_| {
                 let mut encoder = Encoder::new(Vec::new()).unwrap();
                 for id in blocks {
                     encoder.write_be(id).unwrap();
@@ -262,9 +263,9 @@ impl Chunk {
         self.world
             .server
             .thread_pool_tasks
-            .send(Box::new(move || {
+            .send(Box::new(move |engine| {
                 for entity in entities {
-                    entity.tick();
+                    entity.tick(engine);
                 }
             }))
             .unwrap();
@@ -489,13 +490,13 @@ impl Entity {
         let location: &ChunkLocation = location.deref().into();
         location.clone()
     }
-    pub fn tick(&self) {
+    pub fn tick(&self, engine: &Engine) {
         if let Some(teleport_location) = self.teleport.lock().unwrap().deref() {
             let old_location = { self.location.lock().unwrap().clone() };
             let new_location: ChunkLocation = teleport_location.clone();
-
-            *self.location.lock().unwrap() = new_location.clone();
-
+            {
+                *self.location.lock().unwrap() = new_location.clone();
+            }
             if !Arc::ptr_eq(&old_location.chunk, &new_location.chunk) {
                 new_location.chunk.add_entity(self.this.upgrade().unwrap());
 
@@ -558,6 +559,9 @@ impl Entity {
         }
         {
             *self.teleport.lock().unwrap() = None;
+        }
+        if let Some(ticker) = self.entity_type.ticker.lock().unwrap().deref() {
+            ticker.call::<()>(engine, &AST::empty(), ()).unwrap();
         }
         if self.is_player() {
             let messages = self

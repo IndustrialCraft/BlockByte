@@ -10,6 +10,7 @@ mod inventory;
 mod mods;
 mod net;
 mod registry;
+mod threadpool;
 mod util;
 mod world;
 mod worldgen;
@@ -32,6 +33,7 @@ use json::object;
 use mods::ModManager;
 use net::PlayerConnection;
 use registry::{Block, BlockRegistry, BlockState, EntityData, EntityRegistry, Item, ItemRegistry};
+use rhai::Engine;
 use threadpool::ThreadPool;
 use util::{Identifier, Location, Position};
 use world::{Entity, World};
@@ -48,18 +50,20 @@ fn main() {
         })
         .unwrap();
     }
-    let server = Server::new(4321, "test server".to_string());
-    let start_time = Instant::now();
-    let mut tick_count: u32 = 0;
-    println!("server started");
-    while running.load(std::sync::atomic::Ordering::Relaxed) {
-        server.tick();
-        while tick_count as u128 * 50 > Instant::now().duration_since(start_time).as_millis() {
-            thread::sleep(Duration::from_millis(1));
+    {
+        let server = Server::new(4321, "test server".to_string());
+        let start_time = Instant::now();
+        let mut tick_count: u32 = 0;
+        println!("server started");
+        while running.load(std::sync::atomic::Ordering::Relaxed) {
+            server.tick();
+            while tick_count as u128 * 50 > Instant::now().duration_since(start_time).as_millis() {
+                thread::sleep(Duration::from_millis(1));
+            }
+            tick_count += 1;
         }
-        tick_count += 1;
+        server.destroy();
     }
-    server.destroy();
 }
 
 pub struct Server {
@@ -73,8 +77,8 @@ pub struct Server {
     motd: String,
     client_content: (Vec<u8>, String),
     thread_pool: Mutex<ThreadPool>,
-    pub thread_pool_tasks: Sender<Box<dyn FnOnce() + Send>>,
-    thread_pool_tasks_rc: Receiver<Box<dyn FnOnce() + Send>>,
+    pub thread_pool_tasks: Sender<Box<dyn FnOnce(&Engine) + Send>>,
+    thread_pool_tasks_rc: Receiver<Box<dyn FnOnce(&Engine) + Send>>,
 }
 
 impl Server {
@@ -122,6 +126,7 @@ impl Server {
                     Arc::new(EntityData {
                         id,
                         client_data: entity_data.client,
+                        ticker: Mutex::new(entity_data.ticker),
                     })
                 })
                 .unwrap();
@@ -148,10 +153,7 @@ impl Server {
             mods: Mutex::new(loaded_mods.0),
             motd,
             client_content,
-            thread_pool: Mutex::new(ThreadPool::with_name(
-                "blockbyte_server_thread_pool".to_string(),
-                4,
-            )),
+            thread_pool: Mutex::new(ThreadPool::new(4)),
             thread_pool_tasks,
             thread_pool_tasks_rc,
         })
@@ -206,12 +208,11 @@ impl Server {
             .drain_filter(|_, world| world.should_unload());
         while self.thread_pool_tasks_rc.len() > 0 {
             while let Ok(task) = self.thread_pool_tasks_rc.try_recv() {
-                self.thread_pool
-                    .lock()
-                    .unwrap()
-                    .execute(|| task.call_once(()));
+                self.thread_pool.lock().unwrap().execute(task);
             }
-            self.thread_pool.lock().unwrap().join();
+            while !self.thread_pool.lock().unwrap().all_tasks_finished() {
+                std::hint::spin_loop();
+            }
         }
     }
     pub fn destroy(&self) {

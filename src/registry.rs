@@ -210,6 +210,7 @@ impl EntityRegistry {
 pub struct EntityData {
     pub id: u32,
     pub client_data: ClientEntityData,
+    pub ticker: Mutex<Option<rhai::FnPtr>>,
 }
 #[derive(Clone)]
 pub struct ClientEntityData {

@@ -1,15 +1,16 @@
 use std::{
-    cell::RefCell,
     collections::HashMap,
+    hash::BuildHasherDefault,
     path::{Path, PathBuf},
     rc,
     str::FromStr,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use anyhow::{bail, Context, Result};
 
-use rhai::{Dynamic, Engine, ImmutableString};
+use rhai::{Dynamic, Engine, FnPtr, Func, ImmutableString, AST};
+use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
 use crate::{
@@ -114,11 +115,11 @@ impl ModManager {
             }
         }
         let mut loading_engine = Engine::new();
-        let current_mod_path = rc::Rc::new(RefCell::new(PathBuf::new()));
-        let content = rc::Rc::new(RefCell::new(ClientContentData::new()));
-        let blocks = rc::Rc::new(RefCell::new(Vec::new()));
-        let items = rc::Rc::new(RefCell::new(Vec::new()));
-        let entities = rc::Rc::new(RefCell::new(Vec::new()));
+        let current_mod_path = Arc::new(Mutex::new(PathBuf::new()));
+        let content = Arc::new(Mutex::new(ClientContentData::new()));
+        let blocks = Arc::new(Mutex::new(Vec::new()));
+        let items = Arc::new(Mutex::new(Vec::new()));
+        let entities = Arc::new(Mutex::new(Vec::new()));
         let registered_blocks = blocks.clone();
         let registered_items = items.clone();
         let registered_entities = entities.clone();
@@ -139,12 +140,9 @@ impl ModManager {
                 "client_dynamic_add_item",
                 BlockBuilder::client_dynamic_add_item,
             )
-            .register_fn(
-                "register",
-                move |this: &mut rc::Rc<RefCell<BlockBuilder>>| {
-                    registered_blocks.borrow_mut().push(this.clone())
-                },
-            );
+            .register_fn("register", move |this: &mut Arc<Mutex<BlockBuilder>>| {
+                registered_blocks.lock().unwrap().push(this.clone())
+            });
         loading_engine
             .register_type_with_name::<ItemBuilder>("ItemBuilder")
             .register_fn("create_item", ItemBuilder::new)
@@ -152,12 +150,9 @@ impl ModManager {
             .register_fn("client_model_texture", ItemBuilder::client_model_texture)
             .register_fn("client_model_block", ItemBuilder::client_model_block)
             .register_fn("place", ItemBuilder::place)
-            .register_fn(
-                "register",
-                move |this: &mut rc::Rc<RefCell<ItemBuilder>>| {
-                    registered_items.borrow_mut().push(this.clone())
-                },
-            );
+            .register_fn("register", move |this: &mut Arc<Mutex<ItemBuilder>>| {
+                registered_items.lock().unwrap().push(this.clone())
+            });
         loading_engine
             .register_type_with_name::<EntityBuilder>("EntityBuilder")
             .register_fn("create_entity", EntityBuilder::new)
@@ -165,54 +160,63 @@ impl ModManager {
             .register_fn("client_hitbox", EntityBuilder::client_hitbox)
             .register_fn("client_add_animation", EntityBuilder::client_add_animation)
             .register_fn("client_add_item", EntityBuilder::client_add_item)
-            .register_fn(
-                "register",
-                move |this: &mut rc::Rc<RefCell<EntityBuilder>>| {
-                    registered_entities.borrow_mut().push(this.clone())
-                },
-            );
+            .register_fn("tick", EntityBuilder::tick)
+            .register_fn("register", move |this: &mut Arc<Mutex<EntityBuilder>>| {
+                registered_entities.lock().unwrap().push(this.clone())
+            });
 
         let mut content_register = |name: &str, content_type: ContentType| {
             let register_current_mod_path = current_mod_path.clone();
             let register_content = content.clone();
             loading_engine.register_fn(name, move |id: &str, path: &str| {
-                let start_path = { register_current_mod_path.borrow().clone() };
+                let start_path = { register_current_mod_path.lock().unwrap().clone() };
                 let mut full_path = start_path.clone();
                 full_path.push(path);
                 if !full_path.starts_with(start_path) {
                     panic!("path travelsal attack");
                 }
-                register_content.borrow_mut().by_type(content_type).insert(
-                    Identifier::parse(id).unwrap(),
-                    std::fs::read(full_path).unwrap(),
-                );
+                register_content
+                    .lock()
+                    .unwrap()
+                    .by_type(content_type)
+                    .insert(
+                        Identifier::parse(id).unwrap(),
+                        std::fs::read(full_path).unwrap(),
+                    );
             });
         };
         content_register.call_mut(("register_image", ContentType::Image));
         content_register.call_mut(("register_sound", ContentType::Sound));
         content_register.call_mut(("register_model", ContentType::Model));
         for loaded_mod in &mods {
-            current_mod_path.replace(loaded_mod.1.path.clone());
+            {
+                let mut path = current_mod_path.lock().unwrap();
+                path.clear();
+                path.push(loaded_mod.1.path.clone());
+            }
             loaded_mod.1.load_scripts(&loading_engine);
         }
         let blocks = blocks
-            .borrow()
+            .lock()
+            .unwrap()
             .iter()
-            .map(|block| block.borrow().clone())
+            .map(|block| block.lock().unwrap().clone())
             .collect();
         let items = items
-            .borrow()
+            .lock()
+            .unwrap()
             .iter()
-            .map(|item| item.borrow().clone())
+            .map(|item| item.lock().unwrap().clone())
             .collect();
         let entities = entities
-            .borrow()
+            .lock()
+            .unwrap()
             .iter()
-            .map(|entity| entity.borrow().clone())
+            .map(|entity| entity.lock().unwrap().clone())
             .collect();
 
         //println!("{blocks:#?}\n{items:#?}\n{entities:#?}");
-        let content = content.borrow().clone();
+        let content = content.lock().unwrap().clone();
         (ModManager { mods }, blocks, items, entities, content)
     }
     /*pub fn call_event<T>(&self, event: &str, param: T) {
@@ -228,8 +232,8 @@ pub struct BlockBuilder {
     pub client: ClientBlockRenderData,
 }
 impl BlockBuilder {
-    pub fn new(id: &str) -> rc::Rc<RefCell<Self>> {
-        rc::Rc::new(RefCell::new(BlockBuilder {
+    pub fn new(id: &str) -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(BlockBuilder {
             id: Identifier::parse(id).unwrap(),
             client: ClientBlockRenderData {
                 block_type: ClientBlockRenderDataType::Air,
@@ -240,20 +244,20 @@ impl BlockBuilder {
             },
         }))
     }
-    pub fn client_type_air(this: &mut rc::Rc<RefCell<Self>>) -> rc::Rc<RefCell<Self>> {
-        this.borrow_mut().client.block_type = ClientBlockRenderDataType::Air;
+    pub fn client_type_air(this: &mut Arc<Mutex<Self>>) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().client.block_type = ClientBlockRenderDataType::Air;
         this.clone()
     }
     pub fn client_type_cube(
-        this: &mut rc::Rc<RefCell<Self>>,
+        this: &mut Arc<Mutex<Self>>,
         front: &str,
         back: &str,
         right: &str,
         left: &str,
         up: &str,
         down: &str,
-    ) -> rc::Rc<RefCell<Self>> {
-        this.borrow_mut().client.block_type =
+    ) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().client.block_type =
             ClientBlockRenderDataType::Cube(ClientBlockCubeRenderData {
                 front: front.to_string(),
                 back: back.to_string(),
@@ -264,30 +268,24 @@ impl BlockBuilder {
             });
         this.clone()
     }
-    pub fn client_fluid(this: &mut rc::Rc<RefCell<Self>>, fluid: bool) -> rc::Rc<RefCell<Self>> {
-        this.borrow_mut().client.fluid = fluid;
+    pub fn client_fluid(this: &mut Arc<Mutex<Self>>, fluid: bool) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().client.fluid = fluid;
         this.clone()
     }
-    pub fn client_transparent(
-        this: &mut rc::Rc<RefCell<Self>>,
-        transparent: bool,
-    ) -> rc::Rc<RefCell<Self>> {
-        this.borrow_mut().client.transparent = transparent;
+    pub fn client_transparent(this: &mut Arc<Mutex<Self>>, transparent: bool) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().client.transparent = transparent;
         this.clone()
     }
-    pub fn client_render_data(
-        this: &mut rc::Rc<RefCell<Self>>,
-        render_data: i64,
-    ) -> rc::Rc<RefCell<Self>> {
-        this.borrow_mut().client.render_data = render_data as u8;
+    pub fn client_render_data(this: &mut Arc<Mutex<Self>>, render_data: i64) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().client.render_data = render_data as u8;
         this.clone()
     }
     pub fn client_dynamic(
-        this: &mut rc::Rc<RefCell<Self>>,
+        this: &mut Arc<Mutex<Self>>,
         model: &str,
         texture: &str,
-    ) -> rc::Rc<RefCell<Self>> {
-        this.borrow_mut().client.dynamic = Some(ClientBlockDynamicData {
+    ) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().client.dynamic = Some(ClientBlockDynamicData {
             model: model.to_string(),
             texture: texture.to_string(),
             animations: Vec::new(),
@@ -296,21 +294,18 @@ impl BlockBuilder {
         this.clone()
     }
     pub fn client_dynamic_add_animation(
-        this: &mut rc::Rc<RefCell<Self>>,
+        this: &mut Arc<Mutex<Self>>,
         animation: &str,
-    ) -> rc::Rc<RefCell<Self>> {
+    ) -> Arc<Mutex<Self>> {
         //todo: result
-        if let Some(dynamic) = &mut this.borrow_mut().client.dynamic {
+        if let Some(dynamic) = &mut this.lock().unwrap().client.dynamic {
             dynamic.animations.push(animation.to_string());
         }
         this.clone()
     }
-    pub fn client_dynamic_add_item(
-        this: &mut rc::Rc<RefCell<Self>>,
-        item: &str,
-    ) -> rc::Rc<RefCell<Self>> {
+    pub fn client_dynamic_add_item(this: &mut Arc<Mutex<Self>>, item: &str) -> Arc<Mutex<Self>> {
         //todo: result
-        if let Some(dynamic) = &mut this.borrow_mut().client.dynamic {
+        if let Some(dynamic) = &mut this.lock().unwrap().client.dynamic {
             dynamic.items.push(item.to_string());
         }
         this.clone()
@@ -323,8 +318,8 @@ pub struct ItemBuilder {
     pub place: Option<Identifier>,
 }
 impl ItemBuilder {
-    pub fn new(id: &str) -> rc::Rc<RefCell<Self>> {
-        rc::Rc::new(RefCell::new(ItemBuilder {
+    pub fn new(id: &str) -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(ItemBuilder {
             client: ClientItemRenderData {
                 name: id.to_string(),
                 model: ClientItemModel::Texture(String::new()),
@@ -333,26 +328,21 @@ impl ItemBuilder {
             id: Identifier::parse(id).unwrap(),
         }))
     }
-    pub fn client_name(this: &mut rc::Rc<RefCell<Self>>, name: &str) -> rc::Rc<RefCell<Self>> {
-        this.borrow_mut().client.name = name.to_string();
+    pub fn client_name(this: &mut Arc<Mutex<Self>>, name: &str) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().client.name = name.to_string();
         this.clone()
     }
-    pub fn client_model_texture(
-        this: &mut rc::Rc<RefCell<Self>>,
-        texture: &str,
-    ) -> rc::Rc<RefCell<Self>> {
-        this.borrow_mut().client.model = ClientItemModel::Texture(texture.to_string());
+    pub fn client_model_texture(this: &mut Arc<Mutex<Self>>, texture: &str) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().client.model = ClientItemModel::Texture(texture.to_string());
         this.clone()
     }
-    pub fn client_model_block(
-        this: &mut rc::Rc<RefCell<Self>>,
-        block: &str,
-    ) -> rc::Rc<RefCell<Self>> {
-        this.borrow_mut().client.model = ClientItemModel::Block(Identifier::parse(block).unwrap());
+    pub fn client_model_block(this: &mut Arc<Mutex<Self>>, block: &str) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().client.model =
+            ClientItemModel::Block(Identifier::parse(block).unwrap());
         this.clone()
     }
-    pub fn place(this: &mut rc::Rc<RefCell<Self>>, place: &str) -> rc::Rc<RefCell<Self>> {
-        this.borrow_mut().place = Some(Identifier::parse(place).unwrap());
+    pub fn place(this: &mut Arc<Mutex<Self>>, place: &str) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().place = Some(Identifier::parse(place).unwrap());
         this.clone()
     }
 }
@@ -360,10 +350,11 @@ impl ItemBuilder {
 pub struct EntityBuilder {
     pub id: Identifier,
     pub client: ClientEntityData,
+    pub ticker: Option<FnPtr>,
 }
 impl EntityBuilder {
-    pub fn new(id: &str) -> rc::Rc<RefCell<Self>> {
-        rc::Rc::new(RefCell::new(EntityBuilder {
+    pub fn new(id: &str) -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(EntityBuilder {
             id: Identifier::parse(id).unwrap(),
             client: ClientEntityData {
                 model: String::new(),
@@ -374,64 +365,70 @@ impl EntityBuilder {
                 animations: Vec::new(),
                 items: Vec::new(),
             },
+            ticker: None,
         }))
     }
+    pub fn tick(this: &mut Arc<Mutex<Self>>, callback: FnPtr) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().ticker = Some(callback);
+        this.clone()
+    }
     pub fn client_model(
-        this: &mut rc::Rc<RefCell<Self>>,
+        this: &mut Arc<Mutex<Self>>,
         model: &str,
         texture: &str,
-    ) -> rc::Rc<RefCell<Self>> {
+    ) -> Arc<Mutex<Self>> {
         {
-            let mut borrowed = this.borrow_mut();
+            let mut borrowed = this.lock().unwrap();
             borrowed.client.model = model.to_string();
             borrowed.client.texture = texture.to_string();
         }
         this.clone()
     }
     pub fn client_hitbox(
-        this: &mut rc::Rc<RefCell<Self>>,
+        this: &mut Arc<Mutex<Self>>,
         width: f64,
         height: f64,
         depth: f64,
-    ) -> rc::Rc<RefCell<Self>> {
+    ) -> Arc<Mutex<Self>> {
         {
-            let mut borrowed = this.borrow_mut();
+            let mut borrowed = this.lock().unwrap();
             borrowed.client.hitbox_w = width as f32;
             borrowed.client.hitbox_h = height as f32;
             borrowed.client.hitbox_d = depth as f32;
         }
         this.clone()
     }
-    pub fn client_add_animation(
-        this: &mut rc::Rc<RefCell<Self>>,
-        animation: &str,
-    ) -> rc::Rc<RefCell<Self>> {
-        this.borrow_mut()
+    pub fn client_add_animation(this: &mut Arc<Mutex<Self>>, animation: &str) -> Arc<Mutex<Self>> {
+        this.lock()
+            .unwrap()
             .client
             .animations
             .push(animation.to_string());
         this.clone()
     }
-    pub fn client_add_item(this: &mut rc::Rc<RefCell<Self>>, item: &str) -> rc::Rc<RefCell<Self>> {
-        this.borrow_mut().client.items.push(item.to_string());
+    pub fn client_add_item(this: &mut Arc<Mutex<Self>>, item: &str) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().client.items.push(item.to_string());
         this.clone()
     }
 }
 #[derive(Clone)]
 pub struct ClientContentData {
-    pub images: HashMap<Identifier, Vec<u8>>,
-    pub sounds: HashMap<Identifier, Vec<u8>>,
-    pub models: HashMap<Identifier, Vec<u8>>,
+    pub images: HashMap<Identifier, Vec<u8>, BuildHasherDefault<XxHash64>>,
+    pub sounds: HashMap<Identifier, Vec<u8>, BuildHasherDefault<XxHash64>>,
+    pub models: HashMap<Identifier, Vec<u8>, BuildHasherDefault<XxHash64>>,
 }
 impl ClientContentData {
     pub fn new() -> Self {
         ClientContentData {
-            images: HashMap::new(),
-            sounds: HashMap::new(),
-            models: HashMap::new(),
+            images: Default::default(),
+            sounds: Default::default(),
+            models: Default::default(),
         }
     }
-    fn by_type(&mut self, content_type: ContentType) -> &mut HashMap<Identifier, Vec<u8>> {
+    fn by_type(
+        &mut self,
+        content_type: ContentType,
+    ) -> &mut HashMap<Identifier, Vec<u8>, BuildHasherDefault<XxHash64>> {
         match content_type {
             ContentType::Image => &mut self.images,
             ContentType::Sound => &mut self.sounds,
