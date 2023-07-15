@@ -41,6 +41,7 @@ impl BlockRegistry {
                         fluid: false,
                         render_data: 0,
                         transparent: false,
+                        selectable: false,
                     },
                     parent: block.clone(),
                 }];
@@ -89,6 +90,7 @@ pub struct ClientBlockRenderData {
     pub fluid: bool,
     pub render_data: u8,
     pub transparent: bool,
+    pub selectable: bool,
 }
 #[derive(Clone, Debug)]
 pub struct ClientBlockDynamicData {
@@ -282,7 +284,8 @@ impl ClientContent {
             let mut model_json = object! {
                 transparent: client_data.transparent,
                 fluid: client_data.fluid,
-                render_data: client_data.render_data
+                render_data: client_data.render_data,
+                selectable: client_data.selectable
             };
             if let Some(dynamic) = &client_data.dynamic {
                 model_json["dynamic"] = object! {

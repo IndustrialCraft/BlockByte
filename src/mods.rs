@@ -130,6 +130,7 @@ impl ModManager {
             .register_fn("client_type_cube", BlockBuilder::client_type_cube)
             .register_fn("client_fluid", BlockBuilder::client_fluid)
             .register_fn("client_transparent", BlockBuilder::client_transparent)
+            .register_fn("client_selectable", BlockBuilder::client_selectable)
             .register_fn("client_render_data", BlockBuilder::client_render_data)
             .register_fn("client_dynamic", BlockBuilder::client_dynamic)
             .register_fn(
@@ -241,6 +242,7 @@ impl BlockBuilder {
                 fluid: false,
                 render_data: 0,
                 transparent: false,
+                selectable: true,
             },
         }))
     }
@@ -274,6 +276,10 @@ impl BlockBuilder {
     }
     pub fn client_transparent(this: &mut Arc<Mutex<Self>>, transparent: bool) -> Arc<Mutex<Self>> {
         this.lock().unwrap().client.transparent = transparent;
+        this.clone()
+    }
+    pub fn client_selectable(this: &mut Arc<Mutex<Self>>, selectable: bool) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().client.selectable = selectable;
         this.clone()
     }
     pub fn client_render_data(this: &mut Arc<Mutex<Self>>, render_data: i64) -> Arc<Mutex<Self>> {
