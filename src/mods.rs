@@ -316,7 +316,7 @@ impl BlockBuilder {
         this.clone()
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ItemBuilder {
     pub id: Identifier,
     pub client: ClientItemRenderData,
@@ -356,7 +356,7 @@ impl ItemBuilder {
         this.clone()
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct EntityBuilder {
     pub id: Identifier,
     pub client: ClientEntityData,
