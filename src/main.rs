@@ -34,9 +34,11 @@ use mods::ModManager;
 use net::PlayerConnection;
 use registry::{Block, BlockRegistry, BlockState, EntityData, EntityRegistry, Item, ItemRegistry};
 use rhai::Engine;
+use splines::Spline;
 use threadpool::ThreadPool;
 use util::{Identifier, Location, Position};
 use world::{Entity, World};
+use worldgen::{BasicWorldGenerator, Biome};
 
 fn main() {
     let running = Arc::new(AtomicBool::new(true));
@@ -79,6 +81,7 @@ pub struct Server {
     thread_pool: Mutex<ThreadPool>,
     pub thread_pool_tasks: Sender<Box<dyn FnOnce(&Engine) + Send>>,
     thread_pool_tasks_rc: Receiver<Box<dyn FnOnce(&Engine) + Send>>,
+    world_generator_template: (Vec<Biome>,),
 }
 
 impl Server {
@@ -143,11 +146,11 @@ impl Server {
             (client_content, hash)
         };
         let (thread_pool_tasks, thread_pool_tasks_rc) = crossbeam_channel::unbounded();
+        let block_registry = block_registry.into_inner();
         Arc::new_cyclic(|this| Server {
             this: this.clone(),
             new_players: Mutex::new(Server::create_listener_thread(this.clone(), port)),
             worlds: Mutex::new(FxHashMap::default()),
-            block_registry: block_registry.into_inner(),
             item_registry: item_registry.into_inner(),
             entity_registry: entity_registry.into_inner(),
             mods: Mutex::new(loaded_mods.0),
@@ -156,6 +159,24 @@ impl Server {
             thread_pool: Mutex::new(ThreadPool::new(4)),
             thread_pool_tasks,
             thread_pool_tasks_rc,
+            world_generator_template: (loaded_mods
+                .5
+                .iter()
+                .map(|biome_template| {
+                    Biome::new(
+                        &block_registry,
+                        biome_template.top_block.clone(),
+                        biome_template.middle_block.clone(),
+                        biome_template.bottom_block.clone(),
+                        biome_template.water_block.clone(),
+                        Spline::from_vec(biome_template.spline_land.clone()),
+                        Spline::from_vec(biome_template.spline_height.clone()),
+                        Spline::from_vec(biome_template.spline_temperature.clone()),
+                        Spline::from_vec(biome_template.spline_moisture.clone()),
+                    )
+                })
+                .collect(),),
+            block_registry,
         })
     }
     pub fn get_or_create_world(&self, identifier: Identifier) -> Arc<World> {
@@ -163,7 +184,13 @@ impl Server {
         if let Some(world) = worlds.get(&identifier) {
             return world.clone();
         }
-        let world = World::new(self.this.upgrade().unwrap());
+        let world = World::new(
+            self.this.upgrade().unwrap(),
+            Box::new(BasicWorldGenerator::new(
+                1,
+                self.world_generator_template.0.clone(),
+            )),
+        );
         worlds.insert(identifier, world.clone());
         world
     }

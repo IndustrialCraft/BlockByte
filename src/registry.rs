@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{hash_map::Keys, HashMap},
     fs::File,
     hash::BuildHasherDefault,
     io::Write,
@@ -67,20 +67,46 @@ impl BlockRegistry {
     pub fn block_by_identifier(&self, id: &Identifier) -> Option<&Arc<Block>> {
         self.blocks.get(id)
     }
+    pub fn state_by_ref(&self, block_state_ref: &BlockStateRef) -> &BlockState {
+        self.states.get(block_state_ref.state_id as usize).unwrap()
+    }
 }
 
 pub struct Block {
     pub default_state: u32,
 }
-
+impl Block {
+    pub fn get_default_state_ref(&self) -> BlockStateRef {
+        BlockStateRef {
+            state_id: self.default_state,
+        }
+    }
+}
+#[derive(Clone, Copy)]
+pub struct BlockStateRef {
+    state_id: u32,
+}
+impl BlockStateRef {
+    pub fn to_block_data(&self) -> BlockData {
+        BlockData::Simple(self.state_id)
+    }
+}
 pub struct BlockState {
     pub state_id: u32,
     pub client_data: ClientBlockRenderData,
     pub parent: Arc<Block>,
 }
 impl BlockState {
+    pub fn to_block_data(&self) -> BlockData {
+        BlockData::Simple(self.state_id)
+    }
     pub fn get_full_id(&self) -> u32 {
         self.state_id
+    }
+    pub fn get_ref(&self) -> BlockStateRef {
+        BlockStateRef {
+            state_id: self.get_full_id(),
+        }
     }
 }
 #[derive(Clone, Debug)]
@@ -125,6 +151,9 @@ impl ItemRegistry {
             id_generator: 0,
         }
     }
+    pub fn list(&self) -> Keys<Identifier, Arc<Item>> {
+        self.items.keys()
+    }
     pub fn register<F>(&mut self, id: Identifier, creator: F) -> Result<Arc<Item>, ()>
     where
         F: FnOnce(u32) -> Arc<Item>,
@@ -164,6 +193,20 @@ impl Item {
                 }
                 _ => None,
             });
+            let target_chunk = world.get_chunk(block_position.to_chunk_pos()).unwrap();
+            target_chunk.announce_to_viewers(crate::net::NetworkMessageS2C::BlockAddItem(
+                block_position.x,
+                block_position.y,
+                block_position.z,
+                0,
+                1,
+            ));
+            target_chunk.announce_to_viewers(crate::net::NetworkMessageS2C::BlockAnimation(
+                block_position.x,
+                block_position.y,
+                block_position.z,
+                1,
+            ));
         }
         InteractionResult::Ignored
     }

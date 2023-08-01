@@ -10,6 +10,7 @@ use std::{
 use anyhow::{bail, Context, Result};
 
 use rhai::{Dynamic, Engine, FnPtr, Func, ImmutableString, AST};
+use splines::{Interpolate, Interpolation, Spline};
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
@@ -99,6 +100,7 @@ impl ModManager {
         Vec<ItemBuilder>,
         Vec<EntityBuilder>,
         ClientContentData,
+        Vec<BiomeBuilder>,
     ) {
         let mut mods = HashMap::new();
         for mod_path in std::fs::read_dir(path).unwrap() {
@@ -120,9 +122,12 @@ impl ModManager {
         let blocks = Arc::new(Mutex::new(Vec::new()));
         let items = Arc::new(Mutex::new(Vec::new()));
         let entities = Arc::new(Mutex::new(Vec::new()));
+        let biomes = Arc::new(Mutex::new(Vec::new()));
         let registered_blocks = blocks.clone();
         let registered_items = items.clone();
+        let registered_items_from_blocks = items.clone();
         let registered_entities = entities.clone();
+        let registered_biomes = biomes.clone();
         loading_engine
             .register_type_with_name::<BlockBuilder>("BlockBuilder")
             .register_fn("create_block", BlockBuilder::new)
@@ -143,7 +148,25 @@ impl ModManager {
             )
             .register_fn("register", move |this: &mut Arc<Mutex<BlockBuilder>>| {
                 registered_blocks.lock().unwrap().push(this.clone())
-            });
+            })
+            .register_fn(
+                "register_item",
+                move |this: &mut Arc<Mutex<BlockBuilder>>,
+                      item_id: &str,
+                      name: &str|
+                      -> Arc<Mutex<BlockBuilder>> {
+                    let mut item_builder = ItemBuilder::new(item_id);
+                    ItemBuilder::client_name(&mut item_builder, name);
+                    let block_id = { this.lock().unwrap().id.to_string() };
+                    ItemBuilder::client_model_block(&mut item_builder, block_id.as_str());
+                    ItemBuilder::place(&mut item_builder, block_id.as_str());
+                    registered_items_from_blocks
+                        .lock()
+                        .unwrap()
+                        .push(item_builder);
+                    this.clone()
+                },
+            );
         loading_engine
             .register_type_with_name::<ItemBuilder>("ItemBuilder")
             .register_fn("create_item", ItemBuilder::new)
@@ -165,6 +188,28 @@ impl ModManager {
             .register_fn("register", move |this: &mut Arc<Mutex<EntityBuilder>>| {
                 registered_entities.lock().unwrap().push(this.clone())
             });
+        loading_engine
+            .register_type_with_name::<BiomeBuilder>("BiomeBuilder")
+            .register_fn("create_biome", BiomeBuilder::new)
+            .register_fn("spline_add_height", BiomeBuilder::spline_add_height)
+            .register_fn("spline_add_land", BiomeBuilder::spline_add_land)
+            .register_fn(
+                "spline_add_temperature",
+                BiomeBuilder::spline_add_temperature,
+            )
+            .register_fn("spline_add_moisture", BiomeBuilder::spline_add_moisture)
+            .register_fn("register", move |this: &mut Arc<Mutex<BiomeBuilder>>| {
+                registered_biomes.lock().unwrap().push(this.clone())
+            });
+        /*loading_engine.register_fn(
+            "create_biome",
+            move |top: String, middle: String, bottom: String| {
+                registered_biomes
+                    .lock()
+                    .unwrap()
+                    .push((top, middle, bottom));
+            },
+        );*/
 
         let mut content_register = |name: &str, content_type: ContentType| {
             let register_current_mod_path = current_mod_path.clone();
@@ -215,10 +260,22 @@ impl ModManager {
             .iter()
             .map(|entity| entity.lock().unwrap().clone())
             .collect();
-
+        let biomes = biomes
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|biome| biome.lock().unwrap().clone())
+            .collect();
         //println!("{blocks:#?}\n{items:#?}\n{entities:#?}");
         let content = content.lock().unwrap().clone();
-        (ModManager { mods }, blocks, items, entities, content)
+        (
+            ModManager { mods },
+            blocks,
+            items,
+            entities,
+            content,
+            biomes,
+        )
     }
     /*pub fn call_event<T>(&self, event: &str, param: T) {
         //todo
@@ -226,6 +283,75 @@ impl ModManager {
             loaded_mod.1.call_event(event, param.clone());
         }
     }*/
+}
+#[derive(Clone)]
+pub struct BiomeBuilder {
+    pub id: Identifier,
+    pub top_block: Identifier,
+    pub middle_block: Identifier,
+    pub bottom_block: Identifier,
+    pub water_block: Identifier,
+    pub spline_height: Vec<splines::Key<f64, f64>>,
+    pub spline_land: Vec<splines::Key<f64, f64>>,
+    pub spline_temperature: Vec<splines::Key<f64, f64>>,
+    pub spline_moisture: Vec<splines::Key<f64, f64>>,
+}
+impl BiomeBuilder {
+    pub fn new(id: &str, top: &str, middle: &str, bottom: &str, water: &str) -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(BiomeBuilder {
+            id: Identifier::parse(id).unwrap(),
+            top_block: Identifier::parse(top).unwrap(),
+            middle_block: Identifier::parse(middle).unwrap(),
+            bottom_block: Identifier::parse(bottom).unwrap(),
+            water_block: Identifier::parse(water).unwrap(),
+            spline_height: Vec::new(),
+            spline_land: Vec::new(),
+            spline_temperature: Vec::new(),
+            spline_moisture: Vec::new(),
+        }))
+    }
+    pub fn spline_add_height(
+        this: &mut Arc<Mutex<Self>>,
+        key: f64,
+        value: f64,
+    ) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().spline_height.push(splines::Key::new(
+            key,
+            value,
+            Interpolation::Linear,
+        ));
+        this.clone()
+    }
+    pub fn spline_add_land(this: &mut Arc<Mutex<Self>>, key: f64, value: f64) -> Arc<Mutex<Self>> {
+        this.lock()
+            .unwrap()
+            .spline_land
+            .push(splines::Key::new(key, value, Interpolation::Linear));
+        this.clone()
+    }
+    pub fn spline_add_temperature(
+        this: &mut Arc<Mutex<Self>>,
+        key: f64,
+        value: f64,
+    ) -> Arc<Mutex<Self>> {
+        this.lock()
+            .unwrap()
+            .spline_temperature
+            .push(splines::Key::new(key, value, Interpolation::Linear));
+        this.clone()
+    }
+    pub fn spline_add_moisture(
+        this: &mut Arc<Mutex<Self>>,
+        key: f64,
+        value: f64,
+    ) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().spline_moisture.push(splines::Key::new(
+            key,
+            value,
+            Interpolation::Linear,
+        ));
+        this.clone()
+    }
 }
 #[derive(Clone, Debug)]
 pub struct BlockBuilder {

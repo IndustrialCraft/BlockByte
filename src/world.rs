@@ -36,19 +36,16 @@ pub struct World {
 }
 impl World {
     const UNLOAD_TIME: usize = 1000;
-    pub fn new(server: Arc<Server>) -> Arc<Self> {
+    pub fn new(
+        server: Arc<Server>,
+        world_generator: Box<dyn WorldGenerator + Send + Sync>,
+    ) -> Arc<Self> {
         Arc::new_cyclic(|this| World {
             this: this.clone(),
             chunks: Mutex::new(FxHashMap::default()),
             server,
             unload_timer: RelaxedCounter::new(0),
-            world_generator: Box::new(
-                /*FlatWorldGenerator {
-                    height: -5,
-                    simple_id: 1,
-                }*/
-                BasicWorldGenerator::new(1),
-            ),
+            world_generator,
         })
     }
     pub fn set_block(&self, position: BlockPosition, block: BlockData) {
@@ -381,24 +378,21 @@ impl Entity {
             animation_controller: Mutex::new(AnimationController::new(weak.clone(), 1)),
             inventory: Mutex::new(Inventory::new(9)),
         });
-        entity
-            .inventory
-            .lock()
-            .unwrap()
-            .set_item(
-                1,
-                Some(ItemStack::new(
-                    chunk
-                        .world
-                        .server
-                        .item_registry
-                        .item_by_identifier(&Identifier::new("test", "stone_block"))
-                        .unwrap()
-                        .clone(),
-                    5,
-                )),
-            )
-            .unwrap();
+        {
+            let item_registry = &chunk.world.server.item_registry;
+            let mut inventory = entity.inventory.lock().unwrap();
+            for (i, id) in item_registry.list().into_iter().enumerate() {
+                inventory
+                    .set_item(
+                        i as u32,
+                        Some(ItemStack::new(
+                            item_registry.item_by_identifier(id).unwrap().clone(),
+                            5,
+                        )),
+                    )
+                    .unwrap();
+            }
+        }
         entity
             .inventory
             .lock()
@@ -410,6 +404,7 @@ impl Entity {
                 }
                 slots
             })); //todo: only add if is player
+
         if let Some(player_data) = entity.player_data.lock().unwrap().as_mut() {
             player_data.set_hand_slot(0);
         }
@@ -424,6 +419,10 @@ impl Entity {
                 .load_chunk(chunk_position)
                 .add_viewer(entity.clone());
         }
+        /*entity.try_send_message(&NetworkMessageS2C::PlayerAbilities(
+            1.,
+            crate::net::MovementType::NoClip,
+        ));*/
         entity
     }
     pub fn get_id(&self) -> &Uuid {

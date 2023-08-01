@@ -2,7 +2,11 @@ use array_init::array_init;
 use noise::{Fbm, NoiseFn, OpenSimplex};
 use splines::{Key, Spline};
 
-use crate::{util::ChunkPosition, world::BlockData};
+use crate::{
+    registry::{BlockRegistry, BlockStateRef},
+    util::{ChunkPosition, Identifier},
+    world::BlockData,
+};
 
 pub trait WorldGenerator {
     fn generate(&self, position: ChunkPosition) -> [[[BlockData; 16]; 16]; 16];
@@ -36,9 +40,12 @@ pub struct BasicWorldGenerator {
     mountain_noise: NoiseWithSize,
     mountain_spline: Spline<f64, f64>,
     land_mountain_spline: Spline<f64, f64>,
+    temperature_noise: NoiseWithSize,
+    moisture_noise: NoiseWithSize,
+    biomes: Vec<Biome>,
 }
 impl BasicWorldGenerator {
-    pub fn new(seed: u64) -> Self {
+    pub fn new(seed: u64, biomes: Vec<Biome>) -> Self {
         Self {
             land_noise: NoiseWithSize::new((seed * 4561561) as u32, 5000.),
             land_height_spline: Spline::from_vec(vec![
@@ -76,6 +83,9 @@ impl BasicWorldGenerator {
                 Key::new(0.05, 1., splines::Interpolation::Linear),
                 Key::new(1., 1., splines::Interpolation::Linear),
             ]),
+            temperature_noise: NoiseWithSize::new((seed * 15618236) as u32, 1000.),
+            moisture_noise: NoiseWithSize::new((seed * 7489223) as u32, 1000.),
+            biomes,
         }
     }
     pub fn get_terrain_height_at(&self, x: i32, z: i32) -> i32 {
@@ -93,14 +103,36 @@ impl BasicWorldGenerator {
                 .get_splined(x, z, &self.land_mountain_spline)
                 * self.mountain_noise.get_splined(x, z, &self.mountain_spline))) as i32
     }
+    pub fn get_biome_at(&self, x: i32, z: i32) -> &Biome {
+        let height = self.get_terrain_height_at(x, z) as f64;
+        let x = x as f64;
+        let z = z as f64;
+        let land = self.land_noise.get(x, z);
+        let temperature = self.land_noise.get(x, z);
+        let moisture = self.land_noise.get(x, z);
+        let biome = self
+            .biomes
+            .iter()
+            .map(|biome| {
+                (
+                    biome,
+                    biome.get_fitness(land, height, temperature, moisture),
+                )
+            })
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .unwrap();
+        biome.0
+    }
 }
 impl WorldGenerator for BasicWorldGenerator {
     fn generate(&self, position: ChunkPosition) -> [[[BlockData; 16]; 16]; 16] {
-        let heights: [[i32; 16]; 16] = array_init(|x| {
+        let column_data: [[(i32, &Biome); 16]; 16] = array_init(|x| {
             array_init(|z| {
-                self.get_terrain_height_at(
-                    (x as i32) + (position.x * 16),
-                    (z as i32) + (position.z * 16),
+                let total_x = (x as i32) + (position.x * 16);
+                let total_z = (z as i32) + (position.z * 16);
+                (
+                    self.get_terrain_height_at(total_x, total_z),
+                    self.get_biome_at(total_x, total_z),
                 )
             })
         });
@@ -108,13 +140,27 @@ impl WorldGenerator for BasicWorldGenerator {
             array_init(|i| {
                 array_init(|z| {
                     let y = i as i32 + position.y * 16;
-                    BlockData::Simple(if y <= heights[x][z] {
+                    let (height, biome) = column_data[x][z];
+                    if y > height {
+                        if y > 0 {
+                            BlockData::Simple(0)
+                        } else {
+                            biome.water_block.to_block_data()
+                        }
+                    } else if y == height {
+                        biome.top_block.to_block_data()
+                    } else if y >= height - 4 {
+                        biome.middle_block.to_block_data()
+                    } else {
+                        biome.bottom_block.to_block_data()
+                    }
+                    /*BlockData::Simple(if y <= heights[x][z] {
                         1
                     } else if y <= 0 {
                         2
                     } else {
                         0
-                    })
+                    })*/
                 })
             })
         })
@@ -139,5 +185,65 @@ impl NoiseWithSize {
         spline
             .clamped_sample(self.noise.get([x / self.size, z / self.size]))
             .unwrap()
+    }
+}
+#[derive(Clone)]
+pub struct Biome {
+    top_block: BlockStateRef,
+    middle_block: BlockStateRef,
+    bottom_block: BlockStateRef,
+    water_block: BlockStateRef,
+    land_noise_spline: Spline<f64, f64>,
+    height_spline: Spline<f64, f64>,
+    temperature_noise_spline: Spline<f64, f64>,
+    moisture_noise_spline: Spline<f64, f64>,
+}
+impl Biome {
+    pub fn new(
+        block_registry: &BlockRegistry,
+        top_block: Identifier,
+        middle_block: Identifier,
+        bottom_block: Identifier,
+        water_block: Identifier,
+        land_noise_spline: Spline<f64, f64>,
+        height_spline: Spline<f64, f64>,
+        temperature_noise_spline: Spline<f64, f64>,
+        moisture_noise_spline: Spline<f64, f64>,
+    ) -> Self {
+        Biome {
+            top_block: block_registry
+                .block_by_identifier(&top_block)
+                .unwrap()
+                .get_default_state_ref(),
+            middle_block: block_registry
+                .block_by_identifier(&middle_block)
+                .unwrap()
+                .get_default_state_ref(),
+            bottom_block: block_registry
+                .block_by_identifier(&bottom_block)
+                .unwrap()
+                .get_default_state_ref(),
+            water_block: block_registry
+                .block_by_identifier(&water_block)
+                .unwrap()
+                .get_default_state_ref(),
+            land_noise_spline,
+            height_spline,
+            temperature_noise_spline,
+            moisture_noise_spline,
+        }
+    }
+    pub fn get_fitness(&self, land: f64, height: f64, temperature: f64, moisture: f64) -> f64 {
+        let fitness = self.land_noise_spline.clamped_sample(land).unwrap_or(1.)
+            * self.height_spline.clamped_sample(height).unwrap_or(1.)
+            * self
+                .temperature_noise_spline
+                .clamped_sample(temperature)
+                .unwrap_or(1.)
+            * self
+                .moisture_noise_spline
+                .clamped_sample(moisture)
+                .unwrap_or(1.);
+        fitness
     }
 }
