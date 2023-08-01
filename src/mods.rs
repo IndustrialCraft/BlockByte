@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 
-use rhai::{Dynamic, Engine, FnPtr, Func, ImmutableString, AST};
+use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, Func, ImmutableString, AST};
 use splines::{Interpolate, Interpolation, Spline};
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
@@ -54,7 +54,11 @@ impl Mod {
             namespace: mod_identifier,
         })
     }
-    pub fn load_scripts(&self, engine: &Engine) {
+    pub fn load_scripts(
+        &self,
+        engine: &Engine,
+        script_errors: &mut Vec<(String, Box<EvalAltResult>)>,
+    ) {
         for script in WalkDir::new({
             let mut scripts_path = self.path.clone();
             scripts_path.push("scripts");
@@ -65,7 +69,7 @@ impl Mod {
         .filter(|entry| entry.metadata().unwrap().is_file())
         {
             if let Err(error) = engine.eval_file::<()>(script.into_path()) {
-                println!("script error: {}", error.to_string());
+                script_errors.push((self.namespace.clone(), error));
             }
             //todo
         }
@@ -101,7 +105,9 @@ impl ModManager {
         Vec<EntityBuilder>,
         ClientContentData,
         Vec<BiomeBuilder>,
+        Vec<(String, Box<EvalAltResult>)>,
     ) {
+        let mut errors = Vec::new();
         let mut mods = HashMap::new();
         for mod_path in std::fs::read_dir(path).unwrap() {
             let mod_path = mod_path.unwrap();
@@ -240,7 +246,7 @@ impl ModManager {
                 path.clear();
                 path.push(loaded_mod.1.path.clone());
             }
-            loaded_mod.1.load_scripts(&loading_engine);
+            loaded_mod.1.load_scripts(&loading_engine, &mut errors);
         }
         let blocks = blocks
             .lock()
@@ -275,6 +281,7 @@ impl ModManager {
             entities,
             content,
             biomes,
+            errors,
         )
     }
     /*pub fn call_event<T>(&self, event: &str, param: T) {

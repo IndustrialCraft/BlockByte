@@ -87,6 +87,13 @@ pub struct Server {
 impl Server {
     fn new(port: u16, motd: String) -> Arc<Server> {
         let loaded_mods = ModManager::load_mods(Path::new("mods"));
+        for error in &loaded_mods.6 {
+            println!("script error from mod {}: {}", error.0, error.1.to_string());
+        }
+        if loaded_mods.6.len() > 0 {
+            println!("server stopped because of mod errors");
+            process::exit(0);
+        }
         let block_registry = RefCell::new(BlockRegistry::new());
         let item_registry = RefCell::new(ItemRegistry::new());
         let entity_registry = RefCell::new(EntityRegistry::new());
