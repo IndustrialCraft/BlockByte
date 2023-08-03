@@ -37,7 +37,7 @@ use rhai::Engine;
 use splines::Spline;
 use threadpool::ThreadPool;
 use util::{Identifier, Location, Position};
-use world::{Entity, World};
+use world::{Entity, Structure, World};
 use worldgen::{BasicWorldGenerator, Biome};
 
 fn main() {
@@ -82,6 +82,7 @@ pub struct Server {
     pub thread_pool_tasks: Sender<Box<dyn FnOnce(&Engine) + Send>>,
     thread_pool_tasks_rc: Receiver<Box<dyn FnOnce(&Engine) + Send>>,
     world_generator_template: (Vec<Biome>,),
+    structures: HashMap<Identifier, Arc<Structure>>,
 }
 
 impl Server {
@@ -152,6 +153,7 @@ impl Server {
             let hash = sha256::digest(client_content.as_slice());
             (client_content, hash)
         };
+        let structures = loaded_mods.0.load_structures(&block_registry.borrow());
         let (thread_pool_tasks, thread_pool_tasks_rc) = crossbeam_channel::unbounded();
         let block_registry = block_registry.into_inner();
         Arc::new_cyclic(|this| Server {
@@ -180,10 +182,16 @@ impl Server {
                         Spline::from_vec(biome_template.spline_height.clone()),
                         Spline::from_vec(biome_template.spline_temperature.clone()),
                         Spline::from_vec(biome_template.spline_moisture.clone()),
+                        biome_template
+                            .structures
+                            .iter()
+                            .map(|(chance, id)| (*chance, structures.get(id).unwrap().clone()))
+                            .collect(),
                     )
                 })
                 .collect(),),
             block_registry,
+            structures,
         })
     }
     pub fn get_or_create_world(&self, identifier: Identifier) -> Arc<World> {

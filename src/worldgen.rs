@@ -1,22 +1,23 @@
-use array_init::array_init;
-use noise::{Fbm, NoiseFn, OpenSimplex};
-use splines::{Key, Spline};
-
 use crate::{
     registry::{BlockRegistry, BlockStateRef},
-    util::{ChunkPosition, Identifier},
-    world::BlockData,
+    util::{BlockPosition, ChunkPosition, Identifier},
+    world::{BlockData, Structure, World},
 };
+use array_init::array_init;
+use noise::{Fbm, NoiseFn, OpenSimplex};
+use rand::{rngs::StdRng, Rng, SeedableRng};
+use splines::{Key, Spline};
+use std::sync::Arc;
 
 pub trait WorldGenerator {
-    fn generate(&self, position: ChunkPosition) -> [[[BlockData; 16]; 16]; 16];
+    fn generate(&self, position: ChunkPosition, world: &Arc<World>) -> [[[BlockData; 16]; 16]; 16];
 }
 pub struct FlatWorldGenerator {
     pub height: i32,
     pub simple_id: u32,
 }
 impl WorldGenerator for FlatWorldGenerator {
-    fn generate(&self, position: ChunkPosition) -> [[[BlockData; 16]; 16]; 16] {
+    fn generate(&self, position: ChunkPosition, world: &Arc<World>) -> [[[BlockData; 16]; 16]; 16] {
         array_init(|_| {
             array_init(|i| {
                 array_init(|_| {
@@ -32,6 +33,7 @@ impl WorldGenerator for FlatWorldGenerator {
 }
 
 pub struct BasicWorldGenerator {
+    seed: u64,
     land_noise: NoiseWithSize,
     land_height_spline: Spline<f64, f64>,
     land_small_terrain_spline: Spline<f64, f64>,
@@ -47,6 +49,7 @@ pub struct BasicWorldGenerator {
 impl BasicWorldGenerator {
     pub fn new(seed: u64, biomes: Vec<Biome>) -> Self {
         Self {
+            seed,
             land_noise: NoiseWithSize::new((seed * 4561561) as u32, 5000.),
             land_height_spline: Spline::from_vec(vec![
                 Key::new(-1., -100., splines::Interpolation::Linear),
@@ -125,7 +128,7 @@ impl BasicWorldGenerator {
     }
 }
 impl WorldGenerator for BasicWorldGenerator {
-    fn generate(&self, position: ChunkPosition) -> [[[BlockData; 16]; 16]; 16] {
+    fn generate(&self, position: ChunkPosition, world: &Arc<World>) -> [[[BlockData; 16]; 16]; 16] {
         let column_data: [[(i32, &Biome); 16]; 16] = array_init(|x| {
             array_init(|z| {
                 let total_x = (x as i32) + (position.x * 16);
@@ -136,11 +139,30 @@ impl WorldGenerator for BasicWorldGenerator {
                 )
             })
         });
+        let mut structure_rng = rand::rngs::StdRng::seed_from_u64(
+            41516516 * self.seed
+                + (position.x * 41156) as u64
+                + (position.y * 261265) as u64
+                + (position.z * 156415) as u64,
+        );
         array_init(|x| {
             array_init(|i| {
                 array_init(|z| {
                     let y = i as i32 + position.y * 16;
                     let (height, biome) = column_data[x][z];
+                    for (chance, structure) in biome.get_structures() {
+                        if height / 16 == position.y && structure_rng.gen_bool(*chance as f64) {
+                            world.place_structure(
+                                BlockPosition {
+                                    x: (x as i32) + (position.x * 16),
+                                    y: height + 1,
+                                    z: (z as i32) + (position.z * 16),
+                                },
+                                structure,
+                                false,
+                            );
+                        }
+                    }
                     if y > height {
                         if y > 0 {
                             BlockData::Simple(0)
@@ -154,6 +176,7 @@ impl WorldGenerator for BasicWorldGenerator {
                     } else {
                         biome.bottom_block.to_block_data()
                     }
+
                     /*BlockData::Simple(if y <= heights[x][z] {
                         1
                     } else if y <= 0 {
@@ -197,6 +220,7 @@ pub struct Biome {
     height_spline: Spline<f64, f64>,
     temperature_noise_spline: Spline<f64, f64>,
     moisture_noise_spline: Spline<f64, f64>,
+    structures: Vec<(f32, Arc<Structure>)>,
 }
 impl Biome {
     pub fn new(
@@ -209,6 +233,7 @@ impl Biome {
         height_spline: Spline<f64, f64>,
         temperature_noise_spline: Spline<f64, f64>,
         moisture_noise_spline: Spline<f64, f64>,
+        structures: Vec<(f32, Arc<Structure>)>,
     ) -> Self {
         Biome {
             top_block: block_registry
@@ -231,7 +256,11 @@ impl Biome {
             height_spline,
             temperature_noise_spline,
             moisture_noise_spline,
+            structures,
         }
+    }
+    pub fn get_structures(&self) -> &Vec<(f32, Arc<Structure>)> {
+        &self.structures
     }
     pub fn get_fitness(&self, land: f64, height: f64, temperature: f64, moisture: f64) -> f64 {
         let fitness = self.land_noise_spline.clamped_sample(land).unwrap_or(1.)

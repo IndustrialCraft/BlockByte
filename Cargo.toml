@@ -24,5 +24,7 @@ fxhash = "0.2.1"
 sha256 = "1.1.4"
 crossbeam-channel = "0.5.8"
 twox-hash = "1.6.3"
+pathdiff = "0.2.1"
+rand = "0.8.5"
 [profile.release]
 debug = true

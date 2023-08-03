@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fs,
     hash::BuildHasherDefault,
     path::{Path, PathBuf},
     rc,
@@ -21,6 +22,7 @@ use crate::{
         ClientItemRenderData, EntityRegistry, Item, ItemRegistry,
     },
     util::Identifier,
+    world::Structure,
 };
 
 struct Mod {
@@ -197,6 +199,7 @@ impl ModManager {
         loading_engine
             .register_type_with_name::<BiomeBuilder>("BiomeBuilder")
             .register_fn("create_biome", BiomeBuilder::new)
+            .register_fn("add_structure", BiomeBuilder::add_structure)
             .register_fn("spline_add_height", BiomeBuilder::spline_add_height)
             .register_fn("spline_add_land", BiomeBuilder::spline_add_land)
             .register_fn(
@@ -284,6 +287,38 @@ impl ModManager {
             errors,
         )
     }
+    pub fn load_structures(
+        &self,
+        block_registry: &BlockRegistry,
+    ) -> HashMap<Identifier, Arc<Structure>> {
+        let mut structures = HashMap::new();
+        for loaded_mod in &self.mods {
+            let mut path = loaded_mod.1.path.clone();
+            path.push("structures");
+            for structure_path in WalkDir::new(&path)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|entry| entry.metadata().unwrap().is_file())
+            {
+                let path_diff = pathdiff::diff_paths(structure_path.path(), &path).unwrap();
+                let id = path_diff
+                    .as_os_str()
+                    .to_str()
+                    .unwrap()
+                    .split_once(".")
+                    .unwrap()
+                    .0;
+                let id = Identifier::new(loaded_mod.1.namespace.clone(), id);
+                let json = json::parse(fs::read_to_string(structure_path.path()).unwrap().as_str())
+                    .unwrap();
+                structures.insert(
+                    id.clone(),
+                    Arc::new(Structure::from_json(id, json, block_registry)),
+                );
+            }
+        }
+        structures
+    }
     /*pub fn call_event<T>(&self, event: &str, param: T) {
         //todo
         for loaded_mod in &self.mods {
@@ -302,6 +337,7 @@ pub struct BiomeBuilder {
     pub spline_land: Vec<splines::Key<f64, f64>>,
     pub spline_temperature: Vec<splines::Key<f64, f64>>,
     pub spline_moisture: Vec<splines::Key<f64, f64>>,
+    pub structures: Vec<(f32, Identifier)>,
 }
 impl BiomeBuilder {
     pub fn new(id: &str, top: &str, middle: &str, bottom: &str, water: &str) -> Arc<Mutex<Self>> {
@@ -315,7 +351,15 @@ impl BiomeBuilder {
             spline_land: Vec::new(),
             spline_temperature: Vec::new(),
             spline_moisture: Vec::new(),
+            structures: Vec::new(),
         }))
+    }
+    pub fn add_structure(this: &mut Arc<Mutex<Self>>, chance: f64, id: &str) -> Arc<Mutex<Self>> {
+        this.lock()
+            .unwrap()
+            .structures
+            .push((chance as f32, Identifier::parse(id).unwrap()));
+        this.clone()
     }
     pub fn spline_add_height(
         this: &mut Arc<Mutex<Self>>,

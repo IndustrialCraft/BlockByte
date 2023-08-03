@@ -1,4 +1,5 @@
 use std::{
+    collections::{HashMap, HashSet},
     hash::Hash,
     ops::{Deref, DerefMut},
     sync::{
@@ -13,15 +14,16 @@ use array_init::array_init;
 use atomic_counter::{AtomicCounter, RelaxedCounter};
 use endio::LEWrite;
 use fxhash::{FxHashMap, FxHashSet};
-use json::{array, object};
+use json::{array, object, JsonValue};
 use libflate::zlib::Encoder;
+use rand::Rng;
 use rhai::{Engine, AST};
 use uuid::Uuid;
 
 use crate::{
     inventory::{Inventory, InventoryViewer, ItemStack},
     net::{NetworkMessageS2C, PlayerConnection},
-    registry::{EntityData, InteractionResult},
+    registry::{BlockRegistry, BlockStateRef, EntityData, InteractionResult},
     util::{BlockPosition, ChunkLocation, ChunkPosition, Identifier, Location, Position},
     worldgen::{BasicWorldGenerator, FlatWorldGenerator, WorldGenerator},
     Server,
@@ -33,6 +35,8 @@ pub struct World {
     chunks: Mutex<FxHashMap<ChunkPosition, Arc<Chunk>>>,
     unload_timer: RelaxedCounter,
     world_generator: Box<dyn WorldGenerator + Send + Sync>,
+    unloaded_structure_placements:
+        Mutex<HashMap<ChunkPosition, Vec<(BlockPosition, Arc<Structure>)>>>,
 }
 impl World {
     const UNLOAD_TIME: usize = 1000;
@@ -46,7 +50,40 @@ impl World {
             server,
             unload_timer: RelaxedCounter::new(0),
             world_generator,
+            unloaded_structure_placements: Mutex::new(HashMap::new()),
         })
+    }
+    pub fn place_structure(
+        &self,
+        position: BlockPosition,
+        structure: &Arc<Structure>,
+        load_chunks: bool,
+    ) {
+        let chunks = structure.get_chunks(position);
+        for chunk_position in chunks {
+            let chunk = if load_chunks {
+                Some(self.load_chunk(chunk_position))
+            } else {
+                self.get_chunk(chunk_position)
+            };
+            match chunk {
+                Some(chunk) => {
+                    chunk.place_structure(position, structure.clone());
+                }
+                None => {
+                    let mut unloaded_structure_placements =
+                        self.unloaded_structure_placements.lock().unwrap();
+
+                    if !unloaded_structure_placements.contains_key(&chunk_position) {
+                        unloaded_structure_placements.insert(chunk_position, Vec::new());
+                    }
+                    let placement_list = unloaded_structure_placements
+                        .get_mut(&chunk_position)
+                        .unwrap();
+                    placement_list.push((position, structure.clone()));
+                }
+            }
+        }
     }
     pub fn set_block(&self, position: BlockPosition, block: BlockData) {
         let chunk_offset = position.chunk_offset();
@@ -78,12 +115,28 @@ impl World {
         }
     }
     pub fn load_chunk(&self, position: ChunkPosition) -> Arc<Chunk> {
-        let mut chunks = self.chunks.lock().unwrap();
-        if let Some(chunk) = chunks.get(&position) {
-            return chunk.clone();
+        {
+            let chunks = self.chunks.lock().unwrap();
+            if let Some(chunk) = chunks.get(&position) {
+                return chunk.clone();
+            }
         }
         let chunk = Chunk::new(position, self.this.upgrade().unwrap());
+        let mut chunks = self.chunks.lock().unwrap();
         chunks.insert(position, chunk.clone());
+        if let Some(placement_list) = {
+            self.unloaded_structure_placements
+                .lock()
+                .unwrap()
+                .remove(&position)
+        } {
+            for (position, structure) in placement_list {
+                chunk.place_structure(position, structure);
+            }
+        }
+        chunk
+            .generating
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         chunk
     }
     pub fn get_chunk(&self, position: ChunkPosition) -> Option<Arc<Chunk>> {
@@ -148,27 +201,42 @@ pub struct Chunk {
     entities: Mutex<Vec<Arc<Entity>>>,
     viewers: Mutex<FxHashSet<ChunkViewer>>,
     unload_timer: RelaxedCounter,
+    generating: AtomicBool,
 }
 impl Chunk {
     const UNLOAD_TIME: usize = 200;
     pub fn new(position: ChunkPosition, world: Arc<World>) -> Arc<Self> {
         let chunk = Arc::new(Chunk {
             position,
-            blocks: Mutex::new(world.world_generator.generate(position)),
+            blocks: Mutex::new(world.world_generator.generate(position, &world)),
             world,
             unload_timer: RelaxedCounter::new(0),
             entities: Mutex::new(Vec::new()),
             viewers: Mutex::new(FxHashSet::default()),
+            generating: AtomicBool::new(true),
         });
         chunk
     }
+    pub fn place_structure(&self, position: BlockPosition, structure: Arc<Structure>) {
+        structure.place(
+            |block_position, block| {
+                if block_position.to_chunk_pos() == self.position {
+                    let offset = block_position.chunk_offset();
+                    self.set_block(offset.0, offset.1, offset.2, block.to_block_data());
+                }
+            },
+            position,
+        );
+    }
     pub fn set_block(&self, offset_x: u8, offset_y: u8, offset_z: u8, block: BlockData) {
-        self.announce_to_viewers(NetworkMessageS2C::SetBlock(
-            self.position.x * 16 + offset_x as i32,
-            self.position.y * 16 + offset_y as i32,
-            self.position.z * 16 + offset_z as i32,
-            block.get_client_id(),
-        ));
+        if !self.generating.load(std::sync::atomic::Ordering::SeqCst) {
+            self.announce_to_viewers(NetworkMessageS2C::SetBlock(
+                self.position.x * 16 + offset_x as i32,
+                self.position.y * 16 + offset_y as i32,
+                self.position.z * 16 + offset_z as i32,
+                block.get_client_id(),
+            ));
+        }
         self.blocks.lock().unwrap()[offset_x as usize][offset_y as usize][offset_z as usize] =
             block;
     }
@@ -696,5 +764,44 @@ impl AnimationController {
                 NetworkMessageS2C::EntityAnimation(entity.client_id, self.animation),
             );
         }
+    }
+}
+
+pub struct Structure {
+    id: Identifier,
+    blocks: HashMap<BlockPosition, BlockStateRef>,
+}
+impl Structure {
+    pub fn from_json(id: Identifier, json: JsonValue, block_registry: &BlockRegistry) -> Self {
+        let mut blocks = HashMap::new();
+        for block in json["blocks"].members() {
+            blocks.insert(
+                BlockPosition {
+                    x: block["x"].as_i32().unwrap(),
+                    y: block["y"].as_i32().unwrap(),
+                    z: block["z"].as_i32().unwrap(),
+                },
+                block_registry
+                    .block_by_identifier(&Identifier::parse(block["id"].as_str().unwrap()).unwrap())
+                    .unwrap()
+                    .get_default_state_ref(),
+            );
+        }
+        Structure { blocks, id }
+    }
+    pub fn place<F>(&self, mut placer: F, position: BlockPosition)
+    where
+        F: FnMut(BlockPosition, BlockStateRef),
+    {
+        for (block_position, block) in &self.blocks {
+            placer.call_mut((block_position.clone() + position, block.clone()));
+        }
+    }
+    pub fn get_chunks(&self, position: BlockPosition) -> HashSet<ChunkPosition> {
+        let mut chunks = HashSet::new();
+        for (block_position, _) in &self.blocks {
+            chunks.insert((block_position.clone() + position).to_chunk_pos());
+        }
+        chunks
     }
 }
