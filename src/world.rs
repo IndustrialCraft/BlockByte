@@ -156,13 +156,15 @@ impl World {
         }
         let non_empty = {
             let mut chunks = self.chunks.lock().unwrap();
-            chunks.drain_filter(|_, chunk| {
-                let should_unload = chunk.should_unload();
-                if should_unload {
-                    chunk.destroy();
-                }
-                should_unload
-            });
+            chunks
+                .extract_if(|_, chunk| {
+                    let should_unload = chunk.should_unload();
+                    if should_unload {
+                        chunk.destroy();
+                    }
+                    should_unload
+                })
+                .count();
             chunks.len() > 0
         };
         if non_empty {
@@ -336,14 +338,18 @@ impl Chunk {
             .unwrap();
 
         let mut removed_entities = Vec::new();
-        self.entities.lock().unwrap().drain_filter(|entity| {
-            let not_same_chunk = entity.get_location().chunk.position != self.position;
-            let removed = entity.is_removed();
-            if removed && !not_same_chunk {
-                removed_entities.push(entity.clone());
-            }
-            removed || not_same_chunk
-        });
+        self.entities
+            .lock()
+            .unwrap()
+            .extract_if(|entity| {
+                let not_same_chunk = entity.get_location().chunk.position != self.position;
+                let removed = entity.is_removed();
+                if removed && !not_same_chunk {
+                    removed_entities.push(entity.clone());
+                }
+                removed || not_same_chunk
+            })
+            .count();
         for entity in removed_entities {
             entity.post_remove();
         }
@@ -365,7 +371,7 @@ impl ChunkViewer {
     }
 }
 impl Hash for ChunkViewer {
-    fn hash<H: ~const std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.player.id.hash(state)
     }
 }
@@ -735,7 +741,7 @@ impl Entity {
     }
 }
 impl Hash for Entity {
-    fn hash<H: ~const std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state)
     }
 }

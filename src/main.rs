@@ -1,10 +1,4 @@
-#![feature(
-    fn_traits,
-    inline_const,
-    hash_drain_filter,
-    drain_filter,
-    const_trait_impl
-)]
+#![feature(fn_traits, inline_const, hash_extract_if, extract_if, const_trait_impl)]
 
 mod inventory;
 mod mods;
@@ -247,7 +241,8 @@ impl Server {
         self.worlds
             .lock()
             .unwrap()
-            .drain_filter(|_, world| world.should_unload());
+            .extract_if(|_, world| world.should_unload())
+            .count();
         while self.thread_pool_tasks_rc.len() > 0 {
             while let Ok(task) = self.thread_pool_tasks_rc.try_recv() {
                 self.thread_pool.lock().unwrap().execute(task);

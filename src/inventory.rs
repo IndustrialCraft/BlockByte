@@ -173,7 +173,7 @@ impl Drop for InventoryViewer {
     }
 }
 impl Hash for InventoryViewer {
-    fn hash<H: ~const std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.entity.upgrade().unwrap().get_id().hash(state)
     }
 }
