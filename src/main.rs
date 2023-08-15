@@ -120,6 +120,7 @@ impl Server {
                                 .unwrap()
                                 .clone()
                         }),
+                        on_right_click: item_data.on_right_click,
                     })
                 })
                 .unwrap();

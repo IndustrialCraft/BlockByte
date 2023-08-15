@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
-    ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU8},
         Arc, Mutex, Weak,
@@ -256,17 +255,14 @@ impl Chunk {
                 for id in blocks {
                     encoder.write_be(id).unwrap();
                 }
-                let data = encoder.finish().into_result().unwrap();
+                let load_message = NetworkMessageS2C::LoadChunk(
+                    position.x,
+                    position.y,
+                    position.z,
+                    encoder.finish().into_result().unwrap(),
+                );
                 for viewer in gen_chunk.viewers.lock().unwrap().iter() {
-                    viewer
-                        .player
-                        .try_send_message(&NetworkMessageS2C::LoadChunk(
-                            position.x,
-                            position.y,
-                            position.z,
-                            data.clone(),
-                        ))
-                        .ok();
+                    viewer.player.try_send_message(&load_message).ok();
                 }
             }))
             .unwrap();
@@ -561,12 +557,16 @@ impl Entity {
         &self.id
     }
     pub fn try_send_message(&self, message: &NetworkMessageS2C) -> Result<(), ()> {
-        if let Some(player) = self.player_data.lock().unwrap().deref_mut() {
+        if let Some(player) = &mut *self.player_data.lock().unwrap() {
             player.connection.send(message);
             Ok(())
         } else {
             Err(())
         }
+    }
+    pub fn send_chat_message(&self, text: String) {
+        self.try_send_message(&NetworkMessageS2C::ChatMessage(text))
+            .ok();
     }
     pub fn create_add_message(&self, position: Position) -> NetworkMessageS2C {
         let animation_controller = self.animation_controller.lock().unwrap();
@@ -618,11 +618,10 @@ impl Entity {
     }
     pub fn get_location(&self) -> ChunkLocation {
         let location = self.location.lock().unwrap();
-        let location: &ChunkLocation = location.deref().into();
         location.clone()
     }
     pub fn tick(&self, engine: &Engine) {
-        if let Some(teleport_location) = self.teleport.lock().unwrap().deref() {
+        if let Some(teleport_location) = &*self.teleport.lock().unwrap() {
             let old_location = { self.location.lock().unwrap().clone() };
             let new_location: ChunkLocation = teleport_location.clone();
             {
@@ -691,15 +690,16 @@ impl Entity {
         {
             *self.teleport.lock().unwrap() = None;
         }
-        if let Some(ticker) = self.entity_type.ticker.lock().unwrap().deref() {
-            ticker.call::<()>(engine, &AST::empty(), ()).unwrap();
+        if let Some(ticker) = &*self.entity_type.ticker.lock().unwrap() {
+            ticker
+                .call::<()>(engine, &AST::empty(), (self.this.upgrade().unwrap(),))
+                .unwrap();
         }
         if self.is_player() {
             let messages = self
                 .player_data
                 .lock()
                 .unwrap()
-                .deref_mut()
                 .as_mut()
                 .unwrap()
                 .connection
@@ -750,7 +750,25 @@ impl Entity {
                                             self.this.upgrade().unwrap(),
                                             BlockPosition { x, y, z },
                                             face,
+                                            engine,
                                         );
+                                }
+                            })
+                            .unwrap();
+                    }
+                    crate::net::NetworkMessageC2S::RightClick(shifting) => {
+                        let hand_slot = self.player_data.lock().unwrap().as_ref().unwrap().slot;
+                        let mut right_click_result = InteractionResult::Ignored;
+                        self.inventory
+                            .lock()
+                            .unwrap()
+                            .modify_item(hand_slot, |stack| {
+                                if let Some(stack) = stack {
+                                    right_click_result = stack.item_type.clone().on_right_click(
+                                        stack,
+                                        self.this.upgrade().unwrap(),
+                                        engine,
+                                    );
                                 }
                             })
                             .unwrap();

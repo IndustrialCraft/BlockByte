@@ -22,7 +22,7 @@ use crate::{
         ClientItemRenderData, EntityRegistry, Item, ItemRegistry,
     },
     util::Identifier,
-    world::Structure,
+    world::{Entity, Structure},
 };
 
 struct Mod {
@@ -182,6 +182,7 @@ impl ModManager {
             .register_fn("client_model_texture", ItemBuilder::client_model_texture)
             .register_fn("client_model_block", ItemBuilder::client_model_block)
             .register_fn("place", ItemBuilder::place)
+            .register_fn("on_right_click", ItemBuilder::on_right_click)
             .register_fn("register", move |this: &mut Arc<Mutex<ItemBuilder>>| {
                 registered_items.lock().unwrap().push(this.clone())
             });
@@ -318,6 +319,12 @@ impl ModManager {
             }
         }
         structures
+    }
+    pub fn runtime_engine_load(engine: &mut Engine) {
+        //engine.register_type_with_name::<Arc<Entity>>("Entity");
+        engine.register_fn("send_message", |entity: Arc<Entity>, text: &str| {
+            entity.send_chat_message(text.to_string());
+        });
     }
     /*pub fn call_event<T>(&self, event: &str, param: T) {
         //todo
@@ -499,6 +506,7 @@ pub struct ItemBuilder {
     pub id: Identifier,
     pub client: ClientItemRenderData,
     pub place: Option<Identifier>,
+    pub on_right_click: Option<FnPtr>,
 }
 impl ItemBuilder {
     pub fn new(id: &str) -> Arc<Mutex<Self>> {
@@ -509,6 +517,7 @@ impl ItemBuilder {
             },
             place: None,
             id: Identifier::parse(id).unwrap(),
+            on_right_click: None,
         }))
     }
     pub fn client_name(this: &mut Arc<Mutex<Self>>, name: &str) -> Arc<Mutex<Self>> {
@@ -526,6 +535,10 @@ impl ItemBuilder {
     }
     pub fn place(this: &mut Arc<Mutex<Self>>, place: &str) -> Arc<Mutex<Self>> {
         this.lock().unwrap().place = Some(Identifier::parse(place).unwrap());
+        this.clone()
+    }
+    pub fn on_right_click(this: &mut Arc<Mutex<Self>>, callback: FnPtr) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().on_right_click = Some(callback);
         this.clone()
     }
 }

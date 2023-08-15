@@ -8,6 +8,7 @@ use std::{
 };
 
 use json::{array, object, JsonValue};
+use rhai::{Engine, FnPtr, AST};
 use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
 
@@ -174,6 +175,7 @@ pub struct Item {
     pub client_data: ClientItemRenderData,
     pub id: u32,
     pub place_block: Option<Arc<Block>>,
+    pub on_right_click: Option<FnPtr>,
 }
 impl Item {
     pub fn on_right_click_block(
@@ -182,6 +184,7 @@ impl Item {
         player: Arc<Entity>,
         block_position: BlockPosition,
         block_face: Face,
+        engine: &Engine,
     ) -> InteractionResult {
         if let Some(place) = &self.place_block {
             let block_position = block_position.offset_by_face(block_face);
@@ -207,6 +210,23 @@ impl Item {
                 block_position.z,
                 1,
             ));
+            return InteractionResult::Consumed;
+        }
+        if let Some(right_click) = &self.on_right_click {
+            right_click.call::<()>(engine, &AST::empty(), (player,));
+            return InteractionResult::Consumed;
+        }
+        InteractionResult::Ignored
+    }
+    pub fn on_right_click(
+        &self,
+        item: &mut ItemStack,
+        player: Arc<Entity>,
+        engine: &Engine,
+    ) -> InteractionResult {
+        if let Some(right_click) = &self.on_right_click {
+            right_click.call::<()>(engine, &AST::empty(), (player,));
+            return InteractionResult::Consumed;
         }
         InteractionResult::Ignored
     }

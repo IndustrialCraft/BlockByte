@@ -3,6 +3,8 @@ use std::sync::{atomic::AtomicI32, Arc};
 use crossbeam_channel::*;
 use rhai::Engine;
 
+use crate::mods::ModManager;
+
 pub struct ThreadPool {
     transmitter: Sender<Box<dyn FnOnce(&Engine) + Send>>,
     queued: Arc<AtomicI32>,
@@ -36,11 +38,12 @@ struct Worker {
 impl Worker {
     pub fn spawn(receiver: Receiver<Box<dyn FnOnce(&Engine) + Send>>, queued: Arc<AtomicI32>) {
         std::thread::spawn(move || {
-            let worker = Worker {
+            let mut worker = Worker {
                 receiver,
                 queued,
                 engine: Engine::new(),
             };
+            ModManager::runtime_engine_load(&mut worker.engine);
             while let Ok(job) = worker.receiver.recv() {
                 job.call_once((&worker.engine,));
                 worker
