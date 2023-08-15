@@ -573,9 +573,9 @@ impl Entity {
         NetworkMessageS2C::AddEntity(
             self.entity_type.id,
             self.client_id,
-            position.x,
-            position.y,
-            position.z,
+            position.x as f32,
+            position.y as f32,
+            position.z as f32,
             *self.rotation.lock().unwrap(),
             animation_controller.animation,
             animation_controller.animation_start_time,
@@ -586,7 +586,9 @@ impl Entity {
         let position = location.position.clone();
         self.move_to(location, rotation);
         self.try_send_message(&NetworkMessageS2C::TeleportPlayer(
-            position.x, position.y, position.z,
+            position.x as f32,
+            position.y as f32,
+            position.z as f32,
         ))
         .ok();
     }
@@ -681,9 +683,9 @@ impl Entity {
                 .chunk
                 .announce_to_viewers(NetworkMessageS2C::MoveEntity(
                     self.client_id,
-                    new_location.position.x,
-                    new_location.position.y,
-                    new_location.position.z,
+                    new_location.position.x as f32,
+                    new_location.position.y as f32,
+                    new_location.position.z as f32,
                     *self.rotation.lock().unwrap(),
                 ));
         }
@@ -716,7 +718,11 @@ impl Entity {
                     ) => {
                         self.move_to(
                             &Location {
-                                position: Position { x, y, z },
+                                position: Position {
+                                    x: x as f64,
+                                    y: y as f64,
+                                    z: z as f64,
+                                },
                                 world: { self.location.lock().unwrap().chunk.world.clone() },
                             },
                             Some(rotation),

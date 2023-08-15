@@ -213,7 +213,9 @@ impl Item {
             return InteractionResult::Consumed;
         }
         if let Some(right_click) = &self.on_right_click {
-            right_click.call::<()>(engine, &AST::empty(), (player,));
+            right_click
+                .call::<()>(engine, &AST::empty(), (player,))
+                .unwrap();
             return InteractionResult::Consumed;
         }
         InteractionResult::Ignored
@@ -225,7 +227,9 @@ impl Item {
         engine: &Engine,
     ) -> InteractionResult {
         if let Some(right_click) = &self.on_right_click {
-            right_click.call::<()>(engine, &AST::empty(), (player,));
+            right_click
+                .call::<()>(engine, &AST::empty(), (player,))
+                .unwrap();
             return InteractionResult::Consumed;
         }
         InteractionResult::Ignored

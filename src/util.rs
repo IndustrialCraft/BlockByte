@@ -49,9 +49,9 @@ impl Face {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Position {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
 }
 impl Position {
     pub fn add_other(&self, other: Self) -> Self {
@@ -61,12 +61,41 @@ impl Position {
             z: self.z + other.z,
         }
     }
-    pub fn add(&self, x: f32, y: f32, z: f32) -> Self {
+    pub fn add(&self, x: f64, y: f64, z: f64) -> Self {
         Self {
             x: self.x + x,
             y: self.y + y,
             z: self.z + z,
         }
+    }
+    pub fn multiply(&self, scalar: f64) -> Self {
+        Position {
+            x: self.x * scalar,
+            y: self.y * scalar,
+            z: self.z * scalar,
+        }
+    }
+    pub fn distance(&self, other: &Position) -> f64 {
+        ((self.x - other.x).powi(2) + (self.y - other.y).powi(2) + (self.z - other.z).powi(2))
+            .sqrt()
+    }
+    pub fn get_x(&mut self) -> f64 {
+        self.x
+    }
+    pub fn set_x(&mut self, value: f64) {
+        self.x = value;
+    }
+    pub fn get_y(&mut self) -> f64 {
+        self.y
+    }
+    pub fn set_y(&mut self, value: f64) {
+        self.y = value;
+    }
+    pub fn get_z(&mut self) -> f64 {
+        self.z
+    }
+    pub fn set_z(&mut self, value: f64) {
+        self.z = value;
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -133,9 +162,9 @@ impl BlockPosition {
     #[inline(always)]
     pub fn to_position(&self) -> Position {
         Position {
-            x: self.x as f32,
-            y: self.y as f32,
-            z: self.z as f32,
+            x: self.x as f64,
+            y: self.y as f64,
+            z: self.z as f64,
         }
     }
 }

@@ -21,7 +21,7 @@ use crate::{
         ClientBlockRenderData, ClientBlockRenderDataType, ClientEntityData, ClientItemModel,
         ClientItemRenderData, EntityRegistry, Item, ItemRegistry,
     },
-    util::Identifier,
+    util::{ChunkLocation, Identifier, Location, Position},
     world::{Entity, Structure},
 };
 
@@ -321,10 +321,37 @@ impl ModManager {
         structures
     }
     pub fn runtime_engine_load(engine: &mut Engine) {
+        engine.register_type_with_name::<Position>("Position");
+
         //engine.register_type_with_name::<Arc<Entity>>("Entity");
         engine.register_fn("send_message", |entity: Arc<Entity>, text: &str| {
             entity.send_chat_message(text.to_string());
         });
+        engine.register_fn("get_position", |entity: Arc<Entity>| {
+            entity.get_location().position
+        });
+        engine.register_fn(
+            "teleport_position",
+            |entity: &mut Arc<Entity>, position: Position| {
+                let position = position.clone();
+                let chunk = entity.get_location().chunk.clone();
+                let location = Location {
+                    position,
+                    world: chunk.world.clone(),
+                };
+                entity.teleport(&location, None);
+            },
+        );
+
+        engine.register_fn("Position", |x: f64, y: f64, z: f64| Position { x, y, z });
+        engine.register_fn("+", |first: Position, second: Position| {
+            first.add_other(second)
+        });
+        engine.register_fn("*", |first: Position, scalar: f64| first.multiply(scalar));
+        engine.register_fn("distance", Position::distance);
+        engine.register_get_set("x", Position::get_x, Position::set_x);
+        engine.register_get_set("y", Position::get_y, Position::set_y);
+        engine.register_get_set("z", Position::get_z, Position::set_z);
     }
     /*pub fn call_event<T>(&self, event: &str, param: T) {
         //todo
