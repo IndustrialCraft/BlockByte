@@ -273,13 +273,14 @@ impl Chunk {
         );
     }
     pub fn set_block(&self, offset_x: u8, offset_y: u8, offset_z: u8, block: BlockData) {
-        self.announce_to_viewers(NetworkMessageS2C::SetBlock(
-            self.position.x * 16 + offset_x as i32,
-            self.position.y * 16 + offset_y as i32,
-            self.position.z * 16 + offset_z as i32,
-            block.get_client_id(),
-        ));
-
+        if !self.generating.load(std::sync::atomic::Ordering::SeqCst) {
+            self.announce_to_viewers(NetworkMessageS2C::SetBlock(
+                self.position.x * 16 + offset_x as i32,
+                self.position.y * 16 + offset_y as i32,
+                self.position.z * 16 + offset_z as i32,
+                block.get_client_id(),
+            ));
+        }
         self.blocks.lock().unwrap()[offset_x as usize][offset_y as usize][offset_z as usize] =
             block;
     }
