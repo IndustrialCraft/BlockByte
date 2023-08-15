@@ -124,19 +124,6 @@ impl World {
         let chunk = Chunk::new(position, self.this.upgrade().unwrap());
         let mut chunks = self.chunks.lock().unwrap();
         chunks.insert(position, chunk.clone());
-        if let Some(placement_list) = {
-            self.unloaded_structure_placements
-                .lock()
-                .unwrap()
-                .remove(&position)
-        } {
-            for (position, structure) in placement_list {
-                chunk.place_structure(position, structure);
-            }
-        }
-        chunk
-            .generating
-            .store(false, std::sync::atomic::Ordering::SeqCst);
         chunk
     }
     pub fn get_chunk(&self, position: ChunkPosition) -> Option<Arc<Chunk>> {
@@ -210,13 +197,68 @@ impl Chunk {
     pub fn new(position: ChunkPosition, world: Arc<World>) -> Arc<Self> {
         let chunk = Arc::new(Chunk {
             position,
-            blocks: Mutex::new(world.world_generator.generate(position, &world)),
-            world,
+            blocks: Mutex::new(array_init(|_| {
+                array_init(|_| array_init(|_| BlockData::Simple(0)))
+            })),
+            world: world.clone(),
             unload_timer: RelaxedCounter::new(0),
             entities: Mutex::new(Vec::new()),
             viewers: Mutex::new(FxHashSet::default()),
             generating: AtomicBool::new(true),
         });
+        let gen_chunk = chunk.clone();
+        world
+            .server
+            .thread_pool_tasks
+            .send(Box::new(move |_| {
+                *gen_chunk.blocks.lock().unwrap() = gen_chunk
+                    .world
+                    .world_generator
+                    .generate(position, &gen_chunk.world);
+                if let Some(placement_list) = {
+                    gen_chunk
+                        .world
+                        .unloaded_structure_placements
+                        .lock()
+                        .unwrap()
+                        .remove(&position)
+                } {
+                    for (position, structure) in placement_list {
+                        gen_chunk.place_structure(position, structure);
+                    }
+                }
+                gen_chunk
+                    .generating
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                let mut blocks: Vec<u32> = Vec::with_capacity(16 * 16 * 16);
+                {
+                    let real_blocks = gen_chunk.blocks.lock().unwrap();
+                    for x in 0..16 {
+                        for y in 0..16 {
+                            for z in 0..16 {
+                                blocks.push(real_blocks[x][y][z].get_client_id());
+                            }
+                        }
+                    }
+                }
+                let mut encoder = Encoder::new(Vec::new()).unwrap();
+                for id in blocks {
+                    encoder.write_be(id).unwrap();
+                }
+                let data = encoder.finish().into_result().unwrap();
+                for viewer in gen_chunk.viewers.lock().unwrap().iter() {
+                    viewer
+                        .player
+                        .try_send_message(&NetworkMessageS2C::LoadChunk(
+                            position.x,
+                            position.y,
+                            position.z,
+                            data.clone(),
+                        ))
+                        .ok();
+                }
+            }))
+            .unwrap();
         chunk
     }
     pub fn place_structure(&self, position: BlockPosition, structure: Arc<Structure>) {
@@ -231,14 +273,13 @@ impl Chunk {
         );
     }
     pub fn set_block(&self, offset_x: u8, offset_y: u8, offset_z: u8, block: BlockData) {
-        if !self.generating.load(std::sync::atomic::Ordering::SeqCst) {
-            self.announce_to_viewers(NetworkMessageS2C::SetBlock(
-                self.position.x * 16 + offset_x as i32,
-                self.position.y * 16 + offset_y as i32,
-                self.position.z * 16 + offset_z as i32,
-                block.get_client_id(),
-            ));
-        }
+        self.announce_to_viewers(NetworkMessageS2C::SetBlock(
+            self.position.x * 16 + offset_x as i32,
+            self.position.y * 16 + offset_y as i32,
+            self.position.z * 16 + offset_z as i32,
+            block.get_client_id(),
+        ));
+
         self.blocks.lock().unwrap()[offset_x as usize][offset_y as usize][offset_z as usize] =
             block;
     }
@@ -249,38 +290,39 @@ impl Chunk {
         self.entities.lock().unwrap().push(entity);
     }
     fn add_viewer(&self, viewer: Arc<Entity>) {
-        let mut blocks: Vec<u32> = Vec::with_capacity(16 * 16 * 16);
-        {
-            let real_blocks = self.blocks.lock().unwrap();
-            for x in 0..16 {
-                for y in 0..16 {
-                    for z in 0..16 {
-                        blocks.push(real_blocks[x][y][z].get_client_id());
+        if !self.generating.load(std::sync::atomic::Ordering::SeqCst) {
+            let mut blocks: Vec<u32> = Vec::with_capacity(16 * 16 * 16);
+            {
+                let real_blocks = self.blocks.lock().unwrap();
+                for x in 0..16 {
+                    for y in 0..16 {
+                        for z in 0..16 {
+                            blocks.push(real_blocks[x][y][z].get_client_id());
+                        }
                     }
                 }
             }
+            let thread_viewer = viewer.clone();
+            let position = self.position.clone();
+            self.world
+                .server
+                .thread_pool_tasks
+                .send(Box::new(move |_| {
+                    let mut encoder = Encoder::new(Vec::new()).unwrap();
+                    for id in blocks {
+                        encoder.write_be(id).unwrap();
+                    }
+                    thread_viewer
+                        .try_send_message(&NetworkMessageS2C::LoadChunk(
+                            position.x,
+                            position.y,
+                            position.z,
+                            encoder.finish().into_result().unwrap(),
+                        ))
+                        .ok();
+                }))
+                .unwrap();
         }
-        let thread_viewer = viewer.clone();
-        let position = self.position.clone();
-        self.world
-            .server
-            .thread_pool_tasks
-            .send(Box::new(move |_| {
-                let mut encoder = Encoder::new(Vec::new()).unwrap();
-                for id in blocks {
-                    encoder.write_be(id).unwrap();
-                }
-                thread_viewer
-                    .try_send_message(&NetworkMessageS2C::LoadChunk(
-                        position.x,
-                        position.y,
-                        position.z,
-                        encoder.finish().into_result().unwrap(),
-                    ))
-                    .ok();
-            }))
-            .unwrap();
-
         for entity in self.entities.lock().unwrap().iter() {
             if Arc::ptr_eq(entity, &viewer) {
                 continue;
@@ -327,16 +369,17 @@ impl Chunk {
         if self.viewers.lock().unwrap().len() > 0 {
             self.unload_timer.reset();
         }
-        self.world
-            .server
-            .thread_pool_tasks
-            .send(Box::new(move |engine| {
-                for entity in entities {
-                    entity.tick(engine);
-                }
-            }))
-            .unwrap();
-
+        if self.needs_ticking() {
+            self.world
+                .server
+                .thread_pool_tasks
+                .send(Box::new(move |engine| {
+                    for entity in entities {
+                        entity.tick(engine);
+                    }
+                }))
+                .unwrap();
+        }
         let mut removed_entities = Vec::new();
         self.entities
             .lock()
@@ -353,6 +396,9 @@ impl Chunk {
         for entity in removed_entities {
             entity.post_remove();
         }
+    }
+    pub fn needs_ticking(&self) -> bool {
+        self.entities.lock().unwrap().len() > 0
     }
     pub fn should_unload(&self) -> bool {
         self.unload_timer.get() >= Chunk::UNLOAD_TIME

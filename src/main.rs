@@ -137,7 +137,6 @@ impl Server {
                 .unwrap();
         }
         let client_content = {
-            //todo HIGH PRIORITY: make consistent between runs so hash is always same(it is different because hashmap's hasher is randomly seeded)
             let client_content = registry::ClientContent::generate_zip(
                 &block_registry.borrow(),
                 &item_registry.borrow(),
