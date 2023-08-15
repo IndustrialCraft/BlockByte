@@ -3,7 +3,7 @@ use std::{
     hash::Hash,
     ops::{Deref, DerefMut},
     sync::{
-        atomic::{AtomicBool, AtomicU32},
+        atomic::{AtomicBool, AtomicU32, AtomicU8},
         Arc, Mutex, Weak,
     },
     thread,
@@ -66,11 +66,19 @@ impl World {
             } else {
                 self.get_chunk(chunk_position)
             };
-            match chunk {
-                Some(chunk) => {
-                    chunk.place_structure(position, structure.clone());
-                }
-                None => {
+            let loaded = chunk
+                .as_ref()
+                .map(|chunk| {
+                    chunk
+                        .loading_stage
+                        .load(std::sync::atomic::Ordering::SeqCst)
+                        > 0
+                })
+                .unwrap_or(false);
+            {
+                if loaded {
+                    chunk.unwrap().place_structure(position, structure.clone());
+                } else {
                     let mut unloaded_structure_placements =
                         self.unloaded_structure_placements.lock().unwrap();
 
@@ -121,8 +129,8 @@ impl World {
                 return chunk.clone();
             }
         }
-        let chunk = Chunk::new(position, self.this.upgrade().unwrap());
         let mut chunks = self.chunks.lock().unwrap();
+        let chunk = Chunk::new(position, self.this.upgrade().unwrap());
         chunks.insert(position, chunk.clone());
         chunk
     }
@@ -190,7 +198,7 @@ pub struct Chunk {
     entities: Mutex<Vec<Arc<Entity>>>,
     viewers: Mutex<FxHashSet<ChunkViewer>>,
     unload_timer: RelaxedCounter,
-    generating: AtomicBool,
+    loading_stage: AtomicU8,
 }
 impl Chunk {
     const UNLOAD_TIME: usize = 200;
@@ -204,7 +212,7 @@ impl Chunk {
             unload_timer: RelaxedCounter::new(0),
             entities: Mutex::new(Vec::new()),
             viewers: Mutex::new(FxHashSet::default()),
-            generating: AtomicBool::new(true),
+            loading_stage: AtomicU8::new(0),
         });
         let gen_chunk = chunk.clone();
         world
@@ -215,6 +223,9 @@ impl Chunk {
                     .world
                     .world_generator
                     .generate(position, &gen_chunk.world);
+                gen_chunk
+                    .loading_stage
+                    .store(1, std::sync::atomic::Ordering::SeqCst);
                 if let Some(placement_list) = {
                     gen_chunk
                         .world
@@ -228,8 +239,8 @@ impl Chunk {
                     }
                 }
                 gen_chunk
-                    .generating
-                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                    .loading_stage
+                    .store(2, std::sync::atomic::Ordering::SeqCst);
                 let mut blocks: Vec<u32> = Vec::with_capacity(16 * 16 * 16);
                 {
                     let real_blocks = gen_chunk.blocks.lock().unwrap();
@@ -273,7 +284,7 @@ impl Chunk {
         );
     }
     pub fn set_block(&self, offset_x: u8, offset_y: u8, offset_z: u8, block: BlockData) {
-        if !self.generating.load(std::sync::atomic::Ordering::SeqCst) {
+        if self.loading_stage.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
             self.announce_to_viewers(NetworkMessageS2C::SetBlock(
                 self.position.x * 16 + offset_x as i32,
                 self.position.y * 16 + offset_y as i32,
@@ -291,7 +302,7 @@ impl Chunk {
         self.entities.lock().unwrap().push(entity);
     }
     fn add_viewer(&self, viewer: Arc<Entity>) {
-        if !self.generating.load(std::sync::atomic::Ordering::SeqCst) {
+        if self.loading_stage.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
             let mut blocks: Vec<u32> = Vec::with_capacity(16 * 16 * 16);
             {
                 let real_blocks = self.blocks.lock().unwrap();
