@@ -184,7 +184,6 @@ impl Item {
         player: Arc<Entity>,
         block_position: BlockPosition,
         block_face: Face,
-        engine: &Engine,
     ) -> InteractionResult {
         if let Some(place) = &self.place_block {
             let block_position = block_position.offset_by_face(block_face);
@@ -213,19 +212,14 @@ impl Item {
             return InteractionResult::Consumed;
         }
         if let Some(right_click) = &self.on_right_click {
-            right_click.call(engine, (player,));
+            right_click.call(&player.server.clone().engine, (player,));
             return InteractionResult::Consumed;
         }
         InteractionResult::Ignored
     }
-    pub fn on_right_click(
-        &self,
-        item: &mut ItemStack,
-        player: Arc<Entity>,
-        engine: &Engine,
-    ) -> InteractionResult {
+    pub fn on_right_click(&self, item: &mut ItemStack, player: Arc<Entity>) -> InteractionResult {
         if let Some(right_click) = &self.on_right_click {
-            right_click.call(engine, (player,));
+            right_click.call(&player.server.clone().engine, (player,));
             return InteractionResult::Consumed;
         }
         InteractionResult::Ignored

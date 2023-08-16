@@ -217,7 +217,7 @@ impl Chunk {
         world
             .server
             .thread_pool_tasks
-            .send(Box::new(move |_| {
+            .send(Box::new(move || {
                 *gen_chunk.blocks.lock().unwrap() = gen_chunk
                     .world
                     .world_generator
@@ -315,7 +315,7 @@ impl Chunk {
             self.world
                 .server
                 .thread_pool_tasks
-                .send(Box::new(move |_| {
+                .send(Box::new(move || {
                     let mut encoder = Encoder::new(Vec::new()).unwrap();
                     for id in blocks {
                         encoder.write_be(id).unwrap();
@@ -381,9 +381,9 @@ impl Chunk {
             self.world
                 .server
                 .thread_pool_tasks
-                .send(Box::new(move |engine| {
+                .send(Box::new(move || {
                     for entity in entities {
-                        entity.tick(engine);
+                        entity.tick();
                     }
                 }))
                 .unwrap();
@@ -480,6 +480,7 @@ pub struct Entity {
     id: Uuid,
     animation_controller: Mutex<AnimationController>,
     inventory: Mutex<Inventory>,
+    pub server: Arc<Server>,
 }
 static ENTITY_CLIENT_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
 impl Entity {
@@ -492,6 +493,7 @@ impl Entity {
         let position = location.position;
         let chunk = location.chunk.clone();
         let entity = Arc::new_cyclic(|weak| Entity {
+            server: location.chunk.world.server.clone(),
             location: Mutex::new(location),
             entity_type,
             removed: AtomicBool::new(false),
@@ -622,7 +624,7 @@ impl Entity {
         let location = self.location.lock().unwrap();
         location.clone()
     }
-    pub fn tick(&self, engine: &Engine) {
+    pub fn tick(&self) {
         if let Some(teleport_location) = &*self.teleport.lock().unwrap() {
             let old_location = { self.location.lock().unwrap().clone() };
             let new_location: ChunkLocation = teleport_location.clone();
@@ -693,7 +695,7 @@ impl Entity {
             *self.teleport.lock().unwrap() = None;
         }
         if let Some(ticker) = &*self.entity_type.ticker.lock().unwrap() {
-            ticker.call(engine, (self.this.upgrade().unwrap(),));
+            ticker.call(&self.server.engine, (self.this.upgrade().unwrap(),));
         }
         if self.is_player() {
             let messages = self
@@ -754,7 +756,6 @@ impl Entity {
                                             self.this.upgrade().unwrap(),
                                             BlockPosition { x, y, z },
                                             face,
-                                            engine,
                                         );
                                 }
                             })
@@ -768,11 +769,10 @@ impl Entity {
                             .unwrap()
                             .modify_item(hand_slot, |stack| {
                                 if let Some(stack) = stack {
-                                    right_click_result = stack.item_type.clone().on_right_click(
-                                        stack,
-                                        self.this.upgrade().unwrap(),
-                                        engine,
-                                    );
+                                    right_click_result = stack
+                                        .item_type
+                                        .clone()
+                                        .on_right_click(stack, self.this.upgrade().unwrap());
                                 }
                             })
                             .unwrap();
