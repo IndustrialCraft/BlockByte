@@ -12,7 +12,7 @@ use std::{
 
 use array_init::array_init;
 use atomic_counter::{AtomicCounter, RelaxedCounter};
-use endio::LEWrite;
+use endio::{BERead, LEWrite};
 use fxhash::{FxHashMap, FxHashSet};
 use json::{array, object, JsonValue};
 use libflate::zlib::Encoder;
@@ -229,10 +229,37 @@ impl Chunk {
         });
         let gen_chunk = chunk.clone();
         world.server.thread_pool.execute(Box::new(move || {
-            *gen_chunk.blocks.lock().unwrap() = gen_chunk
-                .world
-                .world_generator
-                .generate(position, &gen_chunk.world);
+            {
+                let save_path = gen_chunk.get_chunk_path();
+                if save_path.exists() {
+                    let data = std::fs::read(save_path).unwrap();
+                    let mut data = data.as_slice();
+                    let block_map_len: u32 = data.read_be().unwrap();
+                    let mut blocks = Vec::with_capacity(block_map_len as usize);
+                    for _ in 0..block_map_len {
+                        blocks
+                            .push(Identifier::parse(net::read_string(&mut data).as_str()).unwrap());
+                    }
+                    let block_registry = &gen_chunk.world.server.block_registry;
+                    *gen_chunk.blocks.lock().unwrap() = array_init(|_| {
+                        array_init(|_| {
+                            array_init(|_| {
+                                let block_id: u32 = data.read_be().unwrap();
+                                let block = block_registry
+                                    .block_by_identifier(blocks.get(block_id as usize).unwrap())
+                                    .unwrap();
+                                BlockData::Simple(block.default_state)
+                            })
+                        })
+                    });
+                } else {
+                    *gen_chunk.blocks.lock().unwrap() = gen_chunk
+                        .world
+                        .world_generator
+                        .generate(position, &gen_chunk.world);
+                }
+            }
+
             gen_chunk
                 .loading_stage
                 .store(1, std::sync::atomic::Ordering::SeqCst);
@@ -441,22 +468,26 @@ impl Chunk {
                         }
                     }
                 }
+                data.write_be(block_map.len() as u32).unwrap();
+                let mut block_map: Vec<_> = block_map.iter().collect();
+                block_map.sort_by(|first, second| first.1.cmp(second.1));
                 for block_map_entry in block_map {
                     net::write_string(&mut data, &block_map_entry.0.to_string());
                 }
                 data.append(&mut block_data);
-                {
-                    let mut path = chunk.world.get_world_path();
-                    path.push(format!(
-                        "chunk{},{},{}.bws",
-                        chunk.position.x, chunk.position.y, chunk.position.z
-                    ));
-                    std::fs::write(path, data).unwrap();
-                }
+                std::fs::write(chunk.get_chunk_path(), data).unwrap();
             }
         }));
         self.entities.lock().unwrap().clear();
         self.viewers.lock().unwrap().clear();
+    }
+    pub fn get_chunk_path(&self) -> PathBuf {
+        let mut path = self.world.get_world_path();
+        path.push(format!(
+            "chunk{},{},{}.bws",
+            self.position.x, self.position.y, self.position.z
+        ));
+        path
     }
 }
 struct ChunkViewer {
