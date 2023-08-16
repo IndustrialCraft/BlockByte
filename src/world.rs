@@ -400,6 +400,23 @@ impl Chunk {
     pub fn tick(&self) {
         self.unload_timer.inc();
 
+        let mut removed_entities = Vec::new();
+        self.entities
+            .lock()
+            .unwrap()
+            .extract_if(|entity| {
+                let not_same_chunk = entity.get_location().chunk.position != self.position;
+                let removed = entity.is_removed();
+                if removed && !not_same_chunk {
+                    removed_entities.push(entity.clone());
+                }
+                removed || not_same_chunk
+            })
+            .count();
+        for entity in removed_entities {
+            entity.post_remove();
+        }
+
         let entities: Vec<_> = self
             .entities
             .lock()
@@ -416,22 +433,6 @@ impl Chunk {
                     entity.tick();
                 }
             }));
-        }
-        let mut removed_entities = Vec::new();
-        self.entities
-            .lock()
-            .unwrap()
-            .extract_if(|entity| {
-                let not_same_chunk = entity.get_location().chunk.position != self.position;
-                let removed = entity.is_removed();
-                if removed && !not_same_chunk {
-                    removed_entities.push(entity.clone());
-                }
-                removed || not_same_chunk
-            })
-            .count();
-        for entity in removed_entities {
-            entity.post_remove();
         }
     }
     pub fn needs_ticking(&self) -> bool {
