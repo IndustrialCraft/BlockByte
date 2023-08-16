@@ -14,7 +14,7 @@ use std::{
     collections::HashMap,
     hash::Hash,
     net::TcpListener,
-    path::Path,
+    path::{Path, PathBuf},
     process,
     sync::{atomic::AtomicBool, Arc, Mutex, Weak},
     thread::{self, spawn},
@@ -47,7 +47,12 @@ fn main() {
         .unwrap();
     }
     {
-        let server = Server::new(4321, "test server".to_string());
+        let server = Server::new(4321, "test server".to_string(), {
+            let mut save = std::env::current_dir().unwrap();
+            save.push("save");
+            std::fs::create_dir_all(&save).unwrap();
+            save
+        });
         let start_time = Instant::now();
         let mut tick_count: u32 = 0;
         println!("server started");
@@ -58,7 +63,17 @@ fn main() {
             }
             tick_count += 1;
         }
+        println!("saving");
         server.destroy();
+        while server.thread_pool_tasks_rc.len() > 0 {
+            while let Ok(task) = server.thread_pool_tasks_rc.try_recv() {
+                server.thread_pool.lock().unwrap().execute(task);
+            }
+            while !server.thread_pool.lock().unwrap().all_tasks_finished() {
+                std::hint::spin_loop();
+            }
+        }
+        println!("server stopped");
     }
 }
 
@@ -79,10 +94,11 @@ pub struct Server {
     structures: HashMap<Identifier, Arc<Structure>>,
     events: HashMap<Identifier, Vec<ScriptCallback>>,
     engine: Engine,
+    save_directory: PathBuf,
 }
 
 impl Server {
-    fn new(port: u16, motd: String) -> Arc<Server> {
+    fn new(port: u16, motd: String, save_directory: PathBuf) -> Arc<Server> {
         let loaded_mods = ModManager::load_mods(Path::new("mods"));
         for error in &loaded_mods.7 {
             println!("script error from mod {}: {}", error.0, error.1.to_string());
@@ -97,8 +113,11 @@ impl Server {
         for block_data in loaded_mods.1 {
             block_registry
                 .borrow_mut()
-                .register(block_data.id, |id| {
-                    let block = Arc::new(Block { default_state: id });
+                .register(block_data.id.clone(), |id| {
+                    let block = Arc::new(Block {
+                        id: block_data.id,
+                        default_state: id,
+                    });
                     let state = vec![BlockState {
                         state_id: id,
                         client_data: block_data.client,
@@ -198,6 +217,7 @@ impl Server {
                 ModManager::runtime_engine_load(&mut engine, this.clone());
                 engine
             },
+            save_directory,
         })
     }
     pub fn call_event(&self, engine: &Engine, event: Identifier, args: impl FuncArgs + Clone) {
@@ -218,6 +238,7 @@ impl Server {
                 1,
                 self.world_generator_template.0.clone(),
             )),
+            identifier.clone(),
         );
         worlds.insert(identifier, world.clone());
         world

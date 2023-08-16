@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU8},
         Arc, Mutex, Weak,
@@ -21,9 +22,9 @@ use uuid::Uuid;
 
 use crate::{
     inventory::{Inventory, InventoryViewer, ItemStack},
-    net::{NetworkMessageS2C, PlayerConnection},
+    net::{self, NetworkMessageS2C, PlayerConnection},
     registry::{BlockRegistry, BlockStateRef, EntityData, InteractionResult},
-    util::{BlockPosition, ChunkLocation, ChunkPosition, Identifier, Location, Position},
+    util::{self, BlockPosition, ChunkLocation, ChunkPosition, Identifier, Location, Position},
     worldgen::{BasicWorldGenerator, FlatWorldGenerator, WorldGenerator},
     Server,
 };
@@ -36,21 +37,32 @@ pub struct World {
     world_generator: Box<dyn WorldGenerator + Send + Sync>,
     unloaded_structure_placements:
         Mutex<HashMap<ChunkPosition, Vec<(BlockPosition, Arc<Structure>)>>>,
+    id: Identifier,
 }
 impl World {
     const UNLOAD_TIME: usize = 1000;
     pub fn new(
         server: Arc<Server>,
         world_generator: Box<dyn WorldGenerator + Send + Sync>,
+        id: Identifier,
     ) -> Arc<Self> {
-        Arc::new_cyclic(|this| World {
+        let world = Arc::new_cyclic(|this| World {
             this: this.clone(),
             chunks: Mutex::new(FxHashMap::default()),
             server,
             unload_timer: RelaxedCounter::new(0),
             world_generator,
             unloaded_structure_placements: Mutex::new(HashMap::new()),
-        })
+            id,
+        });
+        std::fs::create_dir_all(world.get_world_path()).unwrap();
+        world
+    }
+    pub fn get_world_path(&self) -> PathBuf {
+        let mut path = self.server.save_directory.clone();
+        path.push("worlds");
+        path.push(self.id.to_string());
+        path
     }
     pub fn place_structure(
         &self,
@@ -198,11 +210,12 @@ pub struct Chunk {
     viewers: Mutex<FxHashSet<ChunkViewer>>,
     unload_timer: RelaxedCounter,
     loading_stage: AtomicU8,
+    this: Weak<Chunk>,
 }
 impl Chunk {
     const UNLOAD_TIME: usize = 200;
     pub fn new(position: ChunkPosition, world: Arc<World>) -> Arc<Self> {
-        let chunk = Arc::new(Chunk {
+        let chunk = Arc::new_cyclic(|this| Chunk {
             position,
             blocks: Mutex::new(array_init(|_| {
                 array_init(|_| array_init(|_| BlockData::Simple(0)))
@@ -212,6 +225,7 @@ impl Chunk {
             entities: Mutex::new(Vec::new()),
             viewers: Mutex::new(FxHashSet::default()),
             loading_stage: AtomicU8::new(0),
+            this: this.clone(),
         });
         let gen_chunk = chunk.clone();
         world
@@ -412,6 +426,51 @@ impl Chunk {
         self.unload_timer.get() >= Chunk::UNLOAD_TIME
     }
     pub fn destroy(&self) {
+        let chunk = self.this.upgrade().unwrap();
+        self.world
+            .server
+            .thread_pool_tasks
+            .send(Box::new(move || {
+                {
+                    let mut data = Vec::new();
+                    let mut block_data = Vec::new();
+                    let mut block_map = HashMap::new();
+                    let blocks = chunk.blocks.lock().unwrap();
+                    let block_registry = &chunk.world.server.block_registry;
+                    for x in 0..16 {
+                        for y in 0..16 {
+                            for z in 0..16 {
+                                let block = &blocks[x][y][z];
+                                match block {
+                                    BlockData::Simple(id) => {
+                                        let block = block_registry
+                                            .state_by_ref(&BlockStateRef::from_state_id(*id));
+                                        let block_id = &block.parent.id; //todo: save state
+                                        let block_map_len = block_map.len();
+                                        let numeric_id =
+                                            *block_map.entry(block_id).or_insert(block_map_len);
+                                        block_data.write_be(numeric_id as u32).unwrap();
+                                    }
+                                    BlockData::Data => unimplemented!(),
+                                }
+                            }
+                        }
+                    }
+                    for block_map_entry in block_map {
+                        net::write_string(&mut data, &block_map_entry.0.to_string());
+                    }
+                    data.append(&mut block_data);
+                    {
+                        let mut path = chunk.world.get_world_path();
+                        path.push(format!(
+                            "chunk{},{},{}.bws",
+                            chunk.position.x, chunk.position.y, chunk.position.z
+                        ));
+                        std::fs::write(path, data).unwrap();
+                    }
+                }
+            }))
+            .unwrap();
         self.entities.lock().unwrap().clear();
         self.viewers.lock().unwrap().clear();
     }

@@ -33,7 +33,10 @@ impl BlockRegistry {
         };
         block_registry
             .register(Identifier::new("bb", "air"), |id| {
-                let block = Arc::new(Block { default_state: id });
+                let block = Arc::new(Block {
+                    id: Identifier::new("bb", "air"),
+                    default_state: id,
+                });
                 let state = vec![BlockState {
                     state_id: id,
                     client_data: ClientBlockRenderData {
@@ -74,6 +77,7 @@ impl BlockRegistry {
 }
 
 pub struct Block {
+    pub id: Identifier,
     pub default_state: u32,
 }
 impl Block {
@@ -88,6 +92,9 @@ pub struct BlockStateRef {
     state_id: u32,
 }
 impl BlockStateRef {
+    pub fn from_state_id(state_id: u32) -> Self {
+        Self { state_id }
+    }
     pub fn to_block_data(&self) -> BlockData {
         BlockData::Simple(self.state_id)
     }

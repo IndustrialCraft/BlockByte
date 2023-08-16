@@ -178,7 +178,7 @@ pub enum MovementType {
     Fly = 1,
     NoClip = 2,
 }
-fn write_string(data: &mut Vec<u8>, value: &String) {
+pub fn write_string(data: &mut Vec<u8>, value: &String) {
     data.write_be(value.len() as u16).unwrap();
     for ch in value.as_bytes() {
         data.write_be(*ch).unwrap();
