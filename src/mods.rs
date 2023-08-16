@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
     rc,
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
 };
 
 use anyhow::{bail, Context, Result};
@@ -23,6 +23,7 @@ use crate::{
     },
     util::{ChunkLocation, Identifier, Location, Position},
     world::{Entity, Structure},
+    Server,
 };
 
 struct Mod {
@@ -320,8 +321,10 @@ impl ModManager {
         }
         structures
     }
-    pub fn runtime_engine_load(engine: &mut Engine) {
+    pub fn runtime_engine_load(engine: &mut Engine, server: Weak<Server>) {
         engine.register_type_with_name::<Position>("Position");
+
+        engine.register_fn("Server", move || server.upgrade().unwrap());
 
         //engine.register_type_with_name::<Arc<Entity>>("Entity");
         engine.register_fn("send_message", |entity: Arc<Entity>, text: &str| {
