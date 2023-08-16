@@ -1,4 +1,5 @@
 use std::{
+    cell::OnceCell,
     collections::HashMap,
     fs,
     hash::BuildHasherDefault,
@@ -10,7 +11,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 
-use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, Func, ImmutableString, AST};
+use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, Func, FuncArgs, ImmutableString, AST};
 use splines::{Interpolate, Interpolation, Spline};
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
@@ -108,6 +109,7 @@ impl ModManager {
         Vec<EntityBuilder>,
         ClientContentData,
         Vec<BiomeBuilder>,
+        HashMap<Identifier, Vec<ScriptCallback>>,
         Vec<(String, Box<EvalAltResult>)>,
     ) {
         let mut errors = Vec::new();
@@ -132,11 +134,20 @@ impl ModManager {
         let items = Arc::new(Mutex::new(Vec::new()));
         let entities = Arc::new(Mutex::new(Vec::new()));
         let biomes = Arc::new(Mutex::new(Vec::new()));
+        let events = Arc::new(Mutex::new(HashMap::new()));
         let registered_blocks = blocks.clone();
         let registered_items = items.clone();
         let registered_items_from_blocks = items.clone();
         let registered_entities = entities.clone();
         let registered_biomes = biomes.clone();
+        let registered_events = events.clone();
+        loading_engine.register_fn("register_event", move |event: &str, callback: FnPtr| {
+            let mut registerd_events = registered_events.lock().unwrap();
+            registerd_events
+                .entry(Identifier::parse(event).unwrap())
+                .or_insert(Vec::new())
+                .push(ScriptCallback::new(callback));
+        });
         loading_engine
             .register_type_with_name::<BlockBuilder>("BlockBuilder")
             .register_fn("create_block", BlockBuilder::new)
@@ -277,6 +288,7 @@ impl ModManager {
             .iter()
             .map(|biome| biome.lock().unwrap().clone())
             .collect();
+        let events = (*events.lock().unwrap()).clone();
         //println!("{blocks:#?}\n{items:#?}\n{entities:#?}");
         let content = content.lock().unwrap().clone();
         (
@@ -286,6 +298,7 @@ impl ModManager {
             entities,
             content,
             biomes,
+            events,
             errors,
         )
     }
@@ -667,4 +680,19 @@ enum ContentType {
     Image,
     Sound,
     Model,
+}
+#[derive(Clone)]
+pub struct ScriptCallback {
+    function: FnPtr,
+}
+impl ScriptCallback {
+    const AST: OnceCell<AST> = OnceCell::new();
+    pub fn new(function: FnPtr) -> Self {
+        Self { function }
+    }
+    pub fn call(&self, engine: &Engine, args: impl FuncArgs) {
+        self.function
+            .call::<()>(engine, Self::AST.get_or_init(|| AST::empty()), args)
+            .unwrap();
+    }
 }

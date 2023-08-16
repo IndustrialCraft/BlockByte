@@ -24,10 +24,10 @@ use std::{
 use crossbeam_channel::{Receiver, Sender};
 use fxhash::FxHashMap;
 use json::object;
-use mods::ModManager;
+use mods::{ModManager, ScriptCallback};
 use net::PlayerConnection;
 use registry::{Block, BlockRegistry, BlockState, EntityData, EntityRegistry, Item, ItemRegistry};
-use rhai::Engine;
+use rhai::{Engine, FuncArgs};
 use splines::Spline;
 use threadpool::ThreadPool;
 use util::{Identifier, Location, Position};
@@ -77,15 +77,17 @@ pub struct Server {
     thread_pool_tasks_rc: Receiver<Box<dyn FnOnce(&Engine) + Send>>,
     world_generator_template: (Vec<Biome>,),
     structures: HashMap<Identifier, Arc<Structure>>,
+    events: HashMap<Identifier, Vec<ScriptCallback>>,
+    engine: Engine,
 }
 
 impl Server {
     fn new(port: u16, motd: String) -> Arc<Server> {
         let loaded_mods = ModManager::load_mods(Path::new("mods"));
-        for error in &loaded_mods.6 {
+        for error in &loaded_mods.7 {
             println!("script error from mod {}: {}", error.0, error.1.to_string());
         }
-        if loaded_mods.6.len() > 0 {
+        if loaded_mods.7.len() > 0 {
             println!("server stopped because of mod errors");
             process::exit(0);
         }
@@ -159,7 +161,7 @@ impl Server {
             mods: Mutex::new(loaded_mods.0),
             motd,
             client_content,
-            thread_pool: Mutex::new(ThreadPool::new(4, this)),
+            thread_pool: Mutex::new(ThreadPool::new(4, this.clone())),
             thread_pool_tasks,
             thread_pool_tasks_rc,
             world_generator_template: (loaded_mods
@@ -186,7 +188,20 @@ impl Server {
                 .collect(),),
             block_registry,
             structures,
+            events: loaded_mods.6,
+            engine: {
+                let mut engine = Engine::new();
+                ModManager::runtime_engine_load(&mut engine, this.clone());
+                engine
+            },
         })
+    }
+    pub fn call_event(&self, engine: &Engine, event: Identifier, args: impl FuncArgs + Clone) {
+        if let Some(event_list) = self.events.get(&event) {
+            for event in event_list {
+                event.call(engine, args.clone());
+            }
+        }
     }
     pub fn get_or_create_world(&self, identifier: Identifier) -> Arc<World> {
         let mut worlds = self.worlds.lock().unwrap();
@@ -219,13 +234,18 @@ impl Server {
     }
     pub fn tick(&self) {
         while let Ok(connection) = self.new_players.lock().unwrap().try_recv() {
-            Entity::new(
+            let player = Entity::new(
                 &self.get_spawn_location(),
                 self.entity_registry
                     .entity_by_identifier(&Identifier::new("test", "player"))
                     .unwrap()
                     .clone(),
                 Some(connection),
+            );
+            self.call_event(
+                &self.engine,
+                Identifier::new("bb", "player_join"),
+                (player,),
             );
         }
         let worlds: Vec<Arc<World>> = self
