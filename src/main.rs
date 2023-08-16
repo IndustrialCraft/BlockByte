@@ -122,7 +122,9 @@ impl Server {
                                 .unwrap()
                                 .clone()
                         }),
-                        on_right_click: item_data.on_right_click,
+                        on_right_click: item_data
+                            .on_right_click
+                            .map(|right_click| ScriptCallback::new(right_click)),
                     })
                 })
                 .unwrap();
@@ -134,7 +136,9 @@ impl Server {
                     Arc::new(EntityData {
                         id,
                         client_data: entity_data.client,
-                        ticker: Mutex::new(entity_data.ticker),
+                        ticker: Mutex::new(
+                            entity_data.ticker.map(|ticker| ScriptCallback::new(ticker)),
+                        ),
                     })
                 })
                 .unwrap();

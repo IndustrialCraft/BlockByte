@@ -693,9 +693,7 @@ impl Entity {
             *self.teleport.lock().unwrap() = None;
         }
         if let Some(ticker) = &*self.entity_type.ticker.lock().unwrap() {
-            ticker
-                .call::<()>(engine, &AST::empty(), (self.this.upgrade().unwrap(),))
-                .unwrap();
+            ticker.call(engine, (self.this.upgrade().unwrap(),));
         }
         if self.is_player() {
             let messages = self

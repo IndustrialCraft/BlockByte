@@ -14,7 +14,7 @@ use zip::{write::FileOptions, DateTime, ZipWriter};
 
 use crate::{
     inventory::ItemStack,
-    mods::ClientContentData,
+    mods::{ClientContentData, ScriptCallback},
     util::{BlockPosition, Face, Identifier},
     world::{BlockData, Entity},
 };
@@ -175,7 +175,7 @@ pub struct Item {
     pub client_data: ClientItemRenderData,
     pub id: u32,
     pub place_block: Option<Arc<Block>>,
-    pub on_right_click: Option<FnPtr>,
+    pub on_right_click: Option<ScriptCallback>,
 }
 impl Item {
     pub fn on_right_click_block(
@@ -213,9 +213,7 @@ impl Item {
             return InteractionResult::Consumed;
         }
         if let Some(right_click) = &self.on_right_click {
-            right_click
-                .call::<()>(engine, &AST::empty(), (player,))
-                .unwrap();
+            right_click.call(engine, (player,));
             return InteractionResult::Consumed;
         }
         InteractionResult::Ignored
@@ -227,9 +225,7 @@ impl Item {
         engine: &Engine,
     ) -> InteractionResult {
         if let Some(right_click) = &self.on_right_click {
-            right_click
-                .call::<()>(engine, &AST::empty(), (player,))
-                .unwrap();
+            right_click.call(engine, (player,));
             return InteractionResult::Consumed;
         }
         InteractionResult::Ignored
@@ -279,7 +275,7 @@ impl EntityRegistry {
 pub struct EntityData {
     pub id: u32,
     pub client_data: ClientEntityData,
-    pub ticker: Mutex<Option<rhai::FnPtr>>,
+    pub ticker: Mutex<Option<ScriptCallback>>,
 }
 #[derive(Clone)]
 pub struct ClientEntityData {
