@@ -58,16 +58,17 @@ fn main() {
         println!("server started");
         while running.load(std::sync::atomic::Ordering::Relaxed) {
             server.tick();
-            while tick_count as u128 * 50 > Instant::now().duration_since(start_time).as_millis() {
-                thread::sleep(Duration::from_millis(1));
+            let sleep_time = (tick_count as i64 * 50)
+                - Instant::now().duration_since(start_time).as_millis() as i64;
+            if sleep_time > 0 {
+                thread::sleep(Duration::from_millis(sleep_time as u64));
             }
+            server.wait_for_tasks();
             tick_count += 1;
         }
         println!("saving");
         server.destroy();
-        while !server.thread_pool.all_tasks_finished() {
-            std::hint::spin_loop();
-        }
+        server.wait_for_tasks();
         println!("server stopped");
     }
 }
@@ -278,8 +279,10 @@ impl Server {
             .unwrap()
             .extract_if(|_, world| world.should_unload())
             .count();
+    }
+    pub fn wait_for_tasks(&self) {
         while !self.thread_pool.all_tasks_finished() {
-            std::hint::spin_loop();
+            thread::yield_now();
         }
     }
     pub fn destroy(&self) {
