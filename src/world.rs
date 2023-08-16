@@ -699,7 +699,14 @@ impl Entity {
         location.clone()
     }
     pub fn tick(&self) {
-        if let Some(teleport_location) = &*self.teleport.lock().unwrap() {
+        let teleport_location = {
+            self.teleport
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|loc| loc.clone())
+        };
+        if let Some(teleport_location) = teleport_location {
             let old_location = { self.location.lock().unwrap().clone() };
             let new_location: ChunkLocation = teleport_location.clone();
             {
@@ -790,6 +797,7 @@ impl Entity {
                         rotation,
                         moved,
                     ) => {
+                        let world = { self.location.lock().unwrap().chunk.world.clone() };
                         self.move_to(
                             &Location {
                                 position: Position {
@@ -797,7 +805,7 @@ impl Entity {
                                     y: y as f64,
                                     z: z as f64,
                                 },
-                                world: { self.location.lock().unwrap().chunk.world.clone() },
+                                world,
                             },
                             Some(rotation),
                         );
