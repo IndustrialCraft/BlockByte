@@ -65,13 +65,8 @@ fn main() {
         }
         println!("saving");
         server.destroy();
-        while server.thread_pool_tasks_rc.len() > 0 {
-            while let Ok(task) = server.thread_pool_tasks_rc.try_recv() {
-                server.thread_pool.lock().unwrap().execute(task);
-            }
-            while !server.thread_pool.lock().unwrap().all_tasks_finished() {
-                std::hint::spin_loop();
-            }
+        while !server.thread_pool.all_tasks_finished() {
+            std::hint::spin_loop();
         }
         println!("server stopped");
     }
@@ -87,9 +82,7 @@ pub struct Server {
     mods: Mutex<ModManager>,
     motd: String,
     client_content: (Vec<u8>, String),
-    thread_pool: Mutex<ThreadPool>,
-    pub thread_pool_tasks: Sender<Box<dyn FnOnce() + Send>>,
-    thread_pool_tasks_rc: Receiver<Box<dyn FnOnce() + Send>>,
+    pub thread_pool: ThreadPool,
     world_generator_template: (Vec<Biome>,),
     structures: HashMap<Identifier, Arc<Structure>>,
     events: HashMap<Identifier, Vec<ScriptCallback>>,
@@ -173,7 +166,6 @@ impl Server {
             (client_content, hash)
         };
         let structures = loaded_mods.0.load_structures(&block_registry.borrow());
-        let (thread_pool_tasks, thread_pool_tasks_rc) = crossbeam_channel::unbounded();
         let block_registry = block_registry.into_inner();
         Arc::new_cyclic(|this| Server {
             this: this.clone(),
@@ -184,9 +176,7 @@ impl Server {
             mods: Mutex::new(loaded_mods.0),
             motd,
             client_content,
-            thread_pool: Mutex::new(ThreadPool::new(4, this.clone())),
-            thread_pool_tasks,
-            thread_pool_tasks_rc,
+            thread_pool: ThreadPool::new(4),
             world_generator_template: (loaded_mods
                 .5
                 .iter()
@@ -288,13 +278,8 @@ impl Server {
             .unwrap()
             .extract_if(|_, world| world.should_unload())
             .count();
-        while self.thread_pool_tasks_rc.len() > 0 {
-            while let Ok(task) = self.thread_pool_tasks_rc.try_recv() {
-                self.thread_pool.lock().unwrap().execute(task);
-            }
-            while !self.thread_pool.lock().unwrap().all_tasks_finished() {
-                std::hint::spin_loop();
-            }
+        while !self.thread_pool.all_tasks_finished() {
+            std::hint::spin_loop();
         }
     }
     pub fn destroy(&self) {

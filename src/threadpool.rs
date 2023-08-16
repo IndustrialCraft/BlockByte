@@ -9,7 +9,7 @@ pub struct ThreadPool {
     queued: Arc<AtomicI32>,
 }
 impl ThreadPool {
-    pub fn new(workers: u32, server: Weak<Server>) -> Self {
+    pub fn new(workers: u32) -> Self {
         let (transmitter, receiver) = crossbeam_channel::unbounded();
         let queued = Arc::new(AtomicI32::new(0));
         for _ in 0..workers {

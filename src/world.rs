@@ -228,58 +228,54 @@ impl Chunk {
             this: this.clone(),
         });
         let gen_chunk = chunk.clone();
-        world
-            .server
-            .thread_pool_tasks
-            .send(Box::new(move || {
-                *gen_chunk.blocks.lock().unwrap() = gen_chunk
+        world.server.thread_pool.execute(Box::new(move || {
+            *gen_chunk.blocks.lock().unwrap() = gen_chunk
+                .world
+                .world_generator
+                .generate(position, &gen_chunk.world);
+            gen_chunk
+                .loading_stage
+                .store(1, std::sync::atomic::Ordering::SeqCst);
+            if let Some(placement_list) = {
+                gen_chunk
                     .world
-                    .world_generator
-                    .generate(position, &gen_chunk.world);
-                gen_chunk
-                    .loading_stage
-                    .store(1, std::sync::atomic::Ordering::SeqCst);
-                if let Some(placement_list) = {
-                    gen_chunk
-                        .world
-                        .unloaded_structure_placements
-                        .lock()
-                        .unwrap()
-                        .remove(&position)
-                } {
-                    for (position, structure) in placement_list {
-                        gen_chunk.place_structure(position, structure);
-                    }
+                    .unloaded_structure_placements
+                    .lock()
+                    .unwrap()
+                    .remove(&position)
+            } {
+                for (position, structure) in placement_list {
+                    gen_chunk.place_structure(position, structure);
                 }
-                gen_chunk
-                    .loading_stage
-                    .store(2, std::sync::atomic::Ordering::SeqCst);
-                let mut blocks: Vec<u32> = Vec::with_capacity(16 * 16 * 16);
-                {
-                    let real_blocks = gen_chunk.blocks.lock().unwrap();
-                    for x in 0..16 {
-                        for y in 0..16 {
-                            for z in 0..16 {
-                                blocks.push(real_blocks[x][y][z].get_client_id());
-                            }
+            }
+            gen_chunk
+                .loading_stage
+                .store(2, std::sync::atomic::Ordering::SeqCst);
+            let mut blocks: Vec<u32> = Vec::with_capacity(16 * 16 * 16);
+            {
+                let real_blocks = gen_chunk.blocks.lock().unwrap();
+                for x in 0..16 {
+                    for y in 0..16 {
+                        for z in 0..16 {
+                            blocks.push(real_blocks[x][y][z].get_client_id());
                         }
                     }
                 }
-                let mut encoder = Encoder::new(Vec::new()).unwrap();
-                for id in blocks {
-                    encoder.write_be(id).unwrap();
-                }
-                let load_message = NetworkMessageS2C::LoadChunk(
-                    position.x,
-                    position.y,
-                    position.z,
-                    encoder.finish().into_result().unwrap(),
-                );
-                for viewer in gen_chunk.viewers.lock().unwrap().iter() {
-                    viewer.player.try_send_message(&load_message).ok();
-                }
-            }))
-            .unwrap();
+            }
+            let mut encoder = Encoder::new(Vec::new()).unwrap();
+            for id in blocks {
+                encoder.write_be(id).unwrap();
+            }
+            let load_message = NetworkMessageS2C::LoadChunk(
+                position.x,
+                position.y,
+                position.z,
+                encoder.finish().into_result().unwrap(),
+            );
+            for viewer in gen_chunk.viewers.lock().unwrap().iter() {
+                viewer.player.try_send_message(&load_message).ok();
+            }
+        }));
         chunk
     }
     pub fn place_structure(&self, position: BlockPosition, structure: Arc<Structure>) {
@@ -326,24 +322,20 @@ impl Chunk {
             }
             let thread_viewer = viewer.clone();
             let position = self.position.clone();
-            self.world
-                .server
-                .thread_pool_tasks
-                .send(Box::new(move || {
-                    let mut encoder = Encoder::new(Vec::new()).unwrap();
-                    for id in blocks {
-                        encoder.write_be(id).unwrap();
-                    }
-                    thread_viewer
-                        .try_send_message(&NetworkMessageS2C::LoadChunk(
-                            position.x,
-                            position.y,
-                            position.z,
-                            encoder.finish().into_result().unwrap(),
-                        ))
-                        .ok();
-                }))
-                .unwrap();
+            self.world.server.thread_pool.execute(Box::new(move || {
+                let mut encoder = Encoder::new(Vec::new()).unwrap();
+                for id in blocks {
+                    encoder.write_be(id).unwrap();
+                }
+                thread_viewer
+                    .try_send_message(&NetworkMessageS2C::LoadChunk(
+                        position.x,
+                        position.y,
+                        position.z,
+                        encoder.finish().into_result().unwrap(),
+                    ))
+                    .ok();
+            }));
         }
         for entity in self.entities.lock().unwrap().iter() {
             if Arc::ptr_eq(entity, &viewer) {
@@ -392,15 +384,11 @@ impl Chunk {
             self.unload_timer.reset();
         }
         if self.needs_ticking() {
-            self.world
-                .server
-                .thread_pool_tasks
-                .send(Box::new(move || {
-                    for entity in entities {
-                        entity.tick();
-                    }
-                }))
-                .unwrap();
+            self.world.server.thread_pool.execute(Box::new(move || {
+                for entity in entities {
+                    entity.tick();
+                }
+            }));
         }
         let mut removed_entities = Vec::new();
         self.entities
@@ -427,50 +415,46 @@ impl Chunk {
     }
     pub fn destroy(&self) {
         let chunk = self.this.upgrade().unwrap();
-        self.world
-            .server
-            .thread_pool_tasks
-            .send(Box::new(move || {
-                {
-                    let mut data = Vec::new();
-                    let mut block_data = Vec::new();
-                    let mut block_map = HashMap::new();
-                    let blocks = chunk.blocks.lock().unwrap();
-                    let block_registry = &chunk.world.server.block_registry;
-                    for x in 0..16 {
-                        for y in 0..16 {
-                            for z in 0..16 {
-                                let block = &blocks[x][y][z];
-                                match block {
-                                    BlockData::Simple(id) => {
-                                        let block = block_registry
-                                            .state_by_ref(&BlockStateRef::from_state_id(*id));
-                                        let block_id = &block.parent.id; //todo: save state
-                                        let block_map_len = block_map.len();
-                                        let numeric_id =
-                                            *block_map.entry(block_id).or_insert(block_map_len);
-                                        block_data.write_be(numeric_id as u32).unwrap();
-                                    }
-                                    BlockData::Data => unimplemented!(),
+        self.world.server.thread_pool.execute(Box::new(move || {
+            {
+                let mut data = Vec::new();
+                let mut block_data = Vec::new();
+                let mut block_map = HashMap::new();
+                let blocks = chunk.blocks.lock().unwrap();
+                let block_registry = &chunk.world.server.block_registry;
+                for x in 0..16 {
+                    for y in 0..16 {
+                        for z in 0..16 {
+                            let block = &blocks[x][y][z];
+                            match block {
+                                BlockData::Simple(id) => {
+                                    let block = block_registry
+                                        .state_by_ref(&BlockStateRef::from_state_id(*id));
+                                    let block_id = &block.parent.id; //todo: save state
+                                    let block_map_len = block_map.len();
+                                    let numeric_id =
+                                        *block_map.entry(block_id).or_insert(block_map_len);
+                                    block_data.write_be(numeric_id as u32).unwrap();
                                 }
+                                BlockData::Data => unimplemented!(),
                             }
                         }
                     }
-                    for block_map_entry in block_map {
-                        net::write_string(&mut data, &block_map_entry.0.to_string());
-                    }
-                    data.append(&mut block_data);
-                    {
-                        let mut path = chunk.world.get_world_path();
-                        path.push(format!(
-                            "chunk{},{},{}.bws",
-                            chunk.position.x, chunk.position.y, chunk.position.z
-                        ));
-                        std::fs::write(path, data).unwrap();
-                    }
                 }
-            }))
-            .unwrap();
+                for block_map_entry in block_map {
+                    net::write_string(&mut data, &block_map_entry.0.to_string());
+                }
+                data.append(&mut block_data);
+                {
+                    let mut path = chunk.world.get_world_path();
+                    path.push(format!(
+                        "chunk{},{},{}.bws",
+                        chunk.position.x, chunk.position.y, chunk.position.z
+                    ));
+                    std::fs::write(path, data).unwrap();
+                }
+            }
+        }));
         self.entities.lock().unwrap().clear();
         self.viewers.lock().unwrap().clear();
     }
