@@ -244,7 +244,7 @@ impl Chunk {
                     *gen_chunk.blocks.lock().unwrap() = array_init(|_| {
                         array_init(|_| {
                             array_init(|_| {
-                                let block_id: u32 = data.read_be().unwrap();
+                                let block_id: u16 = data.read_be().unwrap();
                                 let block = block_registry
                                     .block_by_identifier(blocks.get(block_id as usize).unwrap())
                                     .unwrap();
@@ -462,7 +462,7 @@ impl Chunk {
                                     let block_map_len = block_map.len();
                                     let numeric_id =
                                         *block_map.entry(block_id).or_insert(block_map_len);
-                                    block_data.write_be(numeric_id as u32).unwrap();
+                                    block_data.write_be(numeric_id as u16).unwrap();
                                 }
                                 BlockData::Data => unimplemented!(),
                             }
