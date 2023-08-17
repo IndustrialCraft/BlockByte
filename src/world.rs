@@ -278,29 +278,36 @@ impl Chunk {
             gen_chunk
                 .loading_stage
                 .store(2, std::sync::atomic::Ordering::SeqCst);
-            let mut blocks: Vec<u32> = Vec::with_capacity(16 * 16 * 16);
-            {
+            let (mut block_data, block_palette) = {
+                let mut block_palette = HashMap::new();
+                let mut block_data = Vec::with_capacity(16 * 16 * 16 * 2);
                 let real_blocks = gen_chunk.blocks.lock().unwrap();
                 for x in 0..16 {
                     for y in 0..16 {
                         for z in 0..16 {
-                            blocks.push(real_blocks[x][y][z].get_client_id());
+                            let client_id = real_blocks[x][y][z].get_client_id();
+                            let block_palette_len = block_palette.len();
+                            let id =
+                                *block_palette.entry(client_id).or_insert(block_palette_len) as u16;
+                            block_data.write_be(id).unwrap();
                         }
                     }
                 }
+                (block_data, block_palette)
+            };
+            let mut data: Vec<u8> =
+                Vec::with_capacity((16 * 16 * 16 * 2) + (4 * block_palette.len()) + 4);
+            data.write_be(block_palette.len() as u32).unwrap();
+            let mut block_palette: Vec<_> = block_palette.iter().collect();
+            block_palette.sort_by(|first, second| first.1.cmp(second.1));
+            for entry in block_palette {
+                data.write_be(*entry.0).unwrap();
             }
-            let mut encoder = Encoder::new(Vec::new()).unwrap();
-            for id in blocks {
-                encoder.write_be(id).unwrap();
-            }
-            let load_message = NetworkMessageS2C::LoadChunk(
-                position.x,
-                position.y,
-                position.z,
-                encoder.finish().into_result().unwrap(),
-            );
+            data.append(&mut block_data);
+            let load_message =
+                NetworkMessageS2C::LoadChunk(position.x, position.y, position.z, data);
             for viewer in gen_chunk.viewers.lock().unwrap().iter() {
-                viewer.player.try_send_message(&load_message).ok();
+                viewer.player.try_send_message(&load_message).unwrap();
             }
         }));
         chunk
@@ -336,33 +343,66 @@ impl Chunk {
     }
     fn add_viewer(&self, viewer: Arc<Entity>) {
         if self.loading_stage.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
-            let mut blocks: Vec<u32> = Vec::with_capacity(16 * 16 * 16);
-            {
+            /*let mut blocks: Vec<u32> = Vec::with_capacity(16 * 16 * 16);
+                {
+                    let real_blocks = self.blocks.lock().unwrap();
+                    for x in 0..16 {
+                        for y in 0..16 {
+                            for z in 0..16 {
+                                blocks.push(real_blocks[x][y][z].get_client_id());
+                            }
+                        }
+                    }
+                }
+                let thread_viewer = viewer.clone();
+                let position = self.position.clone();
+                self.world.server.thread_pool.execute(Box::new(move || {
+                    let mut encoder = Encoder::new(Vec::new()).unwrap();
+                    for id in blocks {
+                        encoder.write_be(id).unwrap();
+                    }
+                    thread_viewer
+                        .try_send_message(&NetworkMessageS2C::LoadChunk(
+                            position.x,
+                            position.y,
+                            position.z,
+                            encoder.finish().into_result().unwrap(),
+                        ))
+                        .ok();
+                }));
+            */
+            let position = self.position.clone();
+            let (mut block_data, block_palette) = {
+                let mut block_palette = HashMap::new();
+                let mut block_data = Vec::with_capacity(16 * 16 * 16 * 2);
                 let real_blocks = self.blocks.lock().unwrap();
                 for x in 0..16 {
                     for y in 0..16 {
                         for z in 0..16 {
-                            blocks.push(real_blocks[x][y][z].get_client_id());
+                            let client_id = real_blocks[x][y][z].get_client_id();
+                            let block_palette_len = block_palette.len();
+                            let id =
+                                *block_palette.entry(client_id).or_insert(block_palette_len) as u16;
+                            block_data.write_be(id).unwrap();
                         }
                     }
                 }
+                (block_data, block_palette)
+            };
+            let mut data: Vec<u8> =
+                Vec::with_capacity((16 * 16 * 16 * 2) + (4 * block_palette.len()) + 4);
+            data.write_be(block_palette.len() as u32).unwrap();
+            let mut block_palette: Vec<_> = block_palette.iter().collect();
+            block_palette.sort_by(|first, second| first.1.cmp(second.1));
+            for entry in &block_palette {
+                data.write_be(*entry.0).unwrap();
             }
-            let thread_viewer = viewer.clone();
-            let position = self.position.clone();
-            self.world.server.thread_pool.execute(Box::new(move || {
-                let mut encoder = Encoder::new(Vec::new()).unwrap();
-                for id in blocks {
-                    encoder.write_be(id).unwrap();
-                }
-                thread_viewer
-                    .try_send_message(&NetworkMessageS2C::LoadChunk(
-                        position.x,
-                        position.y,
-                        position.z,
-                        encoder.finish().into_result().unwrap(),
-                    ))
-                    .ok();
-            }));
+            if block_palette.len() > 1 {
+                data.append(&mut block_data);
+            }
+            let load_message =
+                NetworkMessageS2C::LoadChunk(position.x, position.y, position.z, data);
+            viewer.try_send_message(&load_message).unwrap();
         }
         for entity in self.entities.lock().unwrap().iter() {
             if Arc::ptr_eq(entity, &viewer) {
@@ -472,10 +512,12 @@ impl Chunk {
                 data.write_be(block_map.len() as u32).unwrap();
                 let mut block_map: Vec<_> = block_map.iter().collect();
                 block_map.sort_by(|first, second| first.1.cmp(second.1));
-                for block_map_entry in block_map {
+                for block_map_entry in &block_map {
                     net::write_string(&mut data, &block_map_entry.0.to_string());
                 }
-                data.append(&mut block_data);
+                if block_map.len() > 1 {
+                    data.append(&mut block_data);
+                }
                 std::fs::write(chunk.get_chunk_path(), data).unwrap();
             }
         }));

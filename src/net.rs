@@ -1,5 +1,6 @@
 use std::fmt::Binary;
 use std::net::TcpStream;
+use std::sync::mpsc::{self, Receiver, Sender};
 
 use endio::LERead;
 use endio::LEWrite;
@@ -329,10 +330,11 @@ impl PlayerConnection {
             .write_message(tungstenite::Message::Binary(data.clone()));
     }
     pub fn send(&mut self, message: &NetworkMessageS2C) {
-        if let Err(_) = self
+        if let Err(error) = self
             .socket
             .write_message(tungstenite::Message::Binary(message.to_data()))
         {
+            println!("connection error: {}", error);
             self.closed = true;
         }
     }
