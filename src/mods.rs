@@ -1,3 +1,4 @@
+use rhai::plugin::*;
 use std::{
     cell::OnceCell,
     collections::HashMap,
@@ -11,12 +12,15 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 
-use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, Func, FuncArgs, ImmutableString, AST};
+use rhai::{
+    exported_module, Dynamic, Engine, EvalAltResult, FnPtr, Func, FuncArgs, ImmutableString, AST,
+};
 use splines::{Interpolate, Interpolation, Spline};
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
 use crate::{
+    net::MovementType,
     registry::{
         Block, BlockRegistry, BlockState, ClientBlockCubeRenderData, ClientBlockDynamicData,
         ClientBlockRenderData, ClientBlockRenderDataType, ClientEntityData, ClientItemModel,
@@ -346,6 +350,9 @@ impl ModManager {
         engine.register_fn("get_position", |entity: Arc<Entity>| {
             entity.get_location().position
         });
+        engine.register_fn("abilities", |entity: Arc<Entity>| PlayerAbilitiesWrapper {
+            entity,
+        });
         engine.register_fn(
             "teleport_position",
             |entity: &mut Arc<Entity>, position: Position| {
@@ -368,6 +375,16 @@ impl ModManager {
         engine.register_get_set("x", Position::get_x, Position::set_x);
         engine.register_get_set("y", Position::get_y, Position::set_y);
         engine.register_get_set("z", Position::get_z, Position::set_z);
+
+        engine
+            .register_type_with_name::<PlayerAbilitiesWrapper>("PlayerAbilities")
+            .register_fn("speed", PlayerAbilitiesWrapper::set_speed)
+            .register_fn("movement_type", PlayerAbilitiesWrapper::set_movement_type)
+            .register_fn(
+                "keep_item_on_place",
+                PlayerAbilitiesWrapper::set_keep_item_on_place,
+            )
+            .register_static_module("MovementType", exported_module!(MovementTypeModule).into());
     }
     /*pub fn call_event<T>(&self, event: &str, param: T) {
         //todo
@@ -695,4 +712,33 @@ impl ScriptCallback {
             .call::<()>(engine, Self::AST.get_or_init(|| AST::empty()), args)
             .unwrap();
     }
+}
+#[derive(Clone)]
+pub struct PlayerAbilitiesWrapper {
+    pub entity: Arc<Entity>,
+}
+impl PlayerAbilitiesWrapper {
+    pub fn set_speed(&mut self, speed: f64) {
+        if let Some(player_data) = &mut *self.entity.player_data.lock().unwrap() {
+            player_data.set_speed(speed as f32);
+        }
+    }
+    pub fn set_movement_type(&mut self, move_type: MovementType) {
+        if let Some(player_data) = &mut *self.entity.player_data.lock().unwrap() {
+            player_data.set_move_type(move_type);
+        }
+    }
+    pub fn set_keep_item_on_place(&mut self, keep_items_on_place: bool) {
+        if let Some(player_data) = &mut *self.entity.player_data.lock().unwrap() {
+            player_data.keep_item_on_place = keep_items_on_place;
+        }
+    }
+}
+#[export_module]
+mod MovementTypeModule {
+    use crate::net::MovementType;
+
+    pub const Normal: MovementType = MovementType::Normal;
+    pub const Fly: MovementType = MovementType::Fly;
+    pub const NoClip: MovementType = MovementType::NoClip;
 }

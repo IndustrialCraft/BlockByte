@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 use crate::{
     inventory::{Inventory, InventoryViewer, ItemStack},
-    net::{self, NetworkMessageS2C, PlayerConnection},
+    net::{self, MovementType, NetworkMessageS2C, PlayerConnection},
     registry::{BlockRegistry, BlockStateRef, EntityData, InteractionResult},
     util::{self, BlockPosition, ChunkLocation, ChunkPosition, Identifier, Location, Position},
     worldgen::{BasicWorldGenerator, FlatWorldGenerator, WorldGenerator},
@@ -515,6 +515,9 @@ pub struct PlayerData {
     player: Weak<Entity>,
     connection: PlayerConnection,
     slot: u32,
+    speed: f32,
+    move_type: MovementType,
+    pub keep_item_on_place: bool,
 }
 impl PlayerData {
     pub fn new(player: Weak<Entity>, connection: PlayerConnection) -> Self {
@@ -522,7 +525,24 @@ impl PlayerData {
             player,
             connection,
             slot: u32::MAX,
+            speed: 1.,
+            move_type: MovementType::Normal,
+            keep_item_on_place: false,
         }
+    }
+    fn send_abilities(&mut self) {
+        self.connection.send(&NetworkMessageS2C::PlayerAbilities(
+            self.speed,
+            self.move_type,
+        ));
+    }
+    pub fn set_speed(&mut self, speed: f32) {
+        self.speed = speed;
+        self.send_abilities();
+    }
+    pub fn set_move_type(&mut self, move_type: MovementType) {
+        self.move_type = move_type;
+        self.send_abilities();
     }
     pub fn set_hand_slot(&mut self, slot: u32) {
         let player = self.player.upgrade().unwrap();
@@ -549,7 +569,7 @@ pub struct Entity {
     rotation: Mutex<f32>,
     teleport: Mutex<Option<ChunkLocation>>,
     entity_type: Arc<EntityData>,
-    player_data: Mutex<Option<PlayerData>>,
+    pub player_data: Mutex<Option<PlayerData>>,
     removed: AtomicBool,
     client_id: u32,
     id: Uuid,

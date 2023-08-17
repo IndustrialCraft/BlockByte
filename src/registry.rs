@@ -197,7 +197,16 @@ impl Item {
             let world = player.get_location().chunk.world.clone();
             world.replace_block(block_position, |block| match block {
                 BlockData::Simple(0) => {
-                    item.add_count(-1);
+                    if !player
+                        .player_data
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .keep_item_on_place
+                    {
+                        item.add_count(-1);
+                    }
                     Some(BlockData::Simple(place.default_state))
                 }
                 _ => None,
