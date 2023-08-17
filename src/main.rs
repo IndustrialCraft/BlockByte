@@ -56,12 +56,18 @@ fn main() {
         let start_time = Instant::now();
         let mut tick_count: u32 = 0;
         println!("server started");
+        let mut highest_sleep_time = 0;
         while running.load(std::sync::atomic::Ordering::Relaxed) {
             server.tick();
             let sleep_time = (tick_count as i64 * 50)
                 - Instant::now().duration_since(start_time).as_millis() as i64;
             if sleep_time > 0 {
                 thread::sleep(Duration::from_millis(sleep_time as u64));
+            } else if sleep_time < 0 {
+                if (-sleep_time) > highest_sleep_time {
+                    println!("server is running {}ms behind", -sleep_time);
+                }
+                highest_sleep_time = -sleep_time;
             }
             server.wait_for_tasks();
             tick_count += 1;
@@ -177,7 +183,7 @@ impl Server {
             mods: Mutex::new(loaded_mods.0),
             motd,
             client_content,
-            thread_pool: ThreadPool::new(4),
+            thread_pool: ThreadPool::new(8),
             world_generator_template: (loaded_mods
                 .5
                 .iter()

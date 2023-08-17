@@ -232,7 +232,7 @@ impl Chunk {
             {
                 let save_path = gen_chunk.get_chunk_path();
                 if save_path.exists() {
-                    let data = std::fs::read(save_path).unwrap();
+                    let data = std::fs::read(save_path).unwrap(); //todo: if save data is corrupted, regenerate chunk
                     let mut data = data.as_slice();
                     let block_map_len: u32 = data.read_be().unwrap();
                     let mut blocks = Vec::with_capacity(block_map_len as usize);
@@ -679,7 +679,7 @@ impl Entity {
     }
     pub fn get_chunks_to_load_at(position: &Position) -> FxHashSet<ChunkPosition> {
         let chunk_pos = position.to_chunk_pos();
-        let vertical_view_distance = 15;
+        let vertical_view_distance = 16;
         let horizontal_view_distance = 8;
         let mut positions = FxHashSet::default();
         for x in (-vertical_view_distance)..=vertical_view_distance {
