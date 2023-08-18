@@ -183,7 +183,7 @@ impl Server {
             mods: Mutex::new(loaded_mods.0),
             motd,
             client_content,
-            thread_pool: ThreadPool::new(8),
+            thread_pool: ThreadPool::new(4),
             world_generator_template: (loaded_mods
                 .5
                 .iter()

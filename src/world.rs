@@ -18,7 +18,7 @@ use json::{array, object, JsonValue};
 use uuid::Uuid;
 
 use crate::{
-    inventory::{Inventory, InventoryViewer, ItemStack},
+    inventory::{Inventory, InventoryWrapper, ItemStack},
     net::{self, MovementType, NetworkMessageS2C, PlayerConnection},
     registry::{BlockRegistry, BlockStateRef, EntityData, InteractionResult},
     util::{BlockPosition, ChunkLocation, ChunkPosition, Identifier, Location, Position},
@@ -532,11 +532,12 @@ impl Eq for ChunkViewer {}
 
 pub struct PlayerData {
     player: Weak<Entity>,
-    connection: PlayerConnection,
+    pub connection: PlayerConnection,
     slot: u32,
     speed: f32,
     move_type: MovementType,
     pub creative: bool,
+    hand_item: Option<ItemStack>,
 }
 impl PlayerData {
     pub fn new(player: Weak<Entity>, connection: PlayerConnection) -> Self {
@@ -547,7 +548,15 @@ impl PlayerData {
             speed: 1.,
             move_type: MovementType::Normal,
             creative: false,
+            hand_item: None,
         }
+    }
+    pub fn set_inventory_hand(&mut self, item: Option<ItemStack>) {
+        self.hand_item = item;
+        Inventory::set_cursor(self);
+    }
+    pub fn get_inventory_hand(&self) -> &Option<ItemStack> {
+        &self.hand_item
     }
     fn send_abilities(&mut self) {
         self.connection.send(&NetworkMessageS2C::PlayerAbilities(
@@ -571,13 +580,12 @@ impl PlayerData {
         } else {
             slot % inventory.get_size()
         };
-        let inventory_viewer = inventory.get_viewer(&player).unwrap();
         self.connection.send(&NetworkMessageS2C::GuiData(
-                object! {id: inventory_viewer.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 1, 1, 1]},
+                object! {id: inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 1, 1, 1]},
             ));
         self.slot = slot;
         self.connection.send(&NetworkMessageS2C::GuiData(
-                object! {id: inventory_viewer.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 0, 0, 1]},
+                object! {id: inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 0, 0, 1]},
             ));
     }
 }
@@ -593,8 +601,9 @@ pub struct Entity {
     client_id: u32,
     id: Uuid,
     animation_controller: Mutex<AnimationController>,
-    inventory: Mutex<Inventory>,
+    pub inventory: Mutex<Inventory>,
     pub server: Arc<Server>,
+    open_inventory: Mutex<Option<InventoryWrapper>>,
 }
 static ENTITY_CLIENT_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
 impl Entity {
@@ -620,7 +629,14 @@ impl Entity {
             ),
             rotation: Mutex::new(0.),
             animation_controller: Mutex::new(AnimationController::new(weak.clone(), 1)),
-            inventory: Mutex::new(Inventory::new(9)),
+            inventory: Mutex::new(Inventory::new(9, || {
+                let mut slots = Vec::with_capacity(9);
+                for i in 0..9 {
+                    slots.push(((i as f32 * 0.13) - (4.5 * 0.13), -0.5));
+                }
+                slots
+            })),
+            open_inventory: Mutex::new(None),
         });
         {
             let item_registry = &chunk.world.server.item_registry;
@@ -641,16 +657,11 @@ impl Entity {
             .inventory
             .lock()
             .unwrap()
-            .add_viewer(InventoryViewer::new(Arc::downgrade(&entity), {
-                let mut slots = Vec::with_capacity(9);
-                for i in 0..9 {
-                    slots.push(((i as f32 * 0.13) - (4.5 * 0.13), -0.5));
-                }
-                slots
-            })); //todo: only add if is player
+            .add_viewer(entity.this.upgrade().unwrap()); //todo: only add if is player
 
         if let Some(player_data) = entity.player_data.lock().unwrap().as_mut() {
             player_data.set_hand_slot(0);
+            Inventory::set_cursor(player_data);
         }
         chunk.add_entity(entity.clone());
         let add_message = entity.create_add_message(position);
@@ -668,6 +679,32 @@ impl Entity {
             crate::net::MovementType::NoClip,
         ));*/
         entity
+    }
+    pub fn set_open_inventory(&self, new_inventory: Option<InventoryWrapper>) {
+        let mut current_inventory = self.open_inventory.lock().unwrap();
+        if let Some(current_inventory) = &*current_inventory {
+            current_inventory
+                .get_inventory()
+                .unwrap()
+                .remove_viewer(self.this.upgrade().unwrap());
+        }
+        if let Some(new_inventory) = &new_inventory {
+            new_inventory
+                .get_inventory()
+                .unwrap()
+                .add_viewer(self.this.upgrade().unwrap());
+        } else {
+            let mut player_data = self.player_data.lock().unwrap();
+            let player_data = player_data.as_mut().unwrap();
+            //todo: drop hand item
+            player_data.set_inventory_hand(None);
+            Inventory::set_cursor(player_data);
+        }
+        self.try_send_message(&NetworkMessageS2C::GuiData(
+            object! {"type":"setCursorLock",lock:new_inventory.is_none()},
+        ))
+        .unwrap();
+        *current_inventory = new_inventory;
     }
     pub fn get_id(&self) -> &Uuid {
         &self.id
@@ -829,6 +866,64 @@ impl Entity {
                 .receive_messages();
             for message in messages {
                 match message {
+                    net::NetworkMessageC2S::Keyboard(key, release, repeat) => {
+                        if key == 9 {
+                            self.set_open_inventory(Some(InventoryWrapper::Own(Arc::new(
+                                Mutex::new(Inventory::new(9, || {
+                                    let mut slots = Vec::with_capacity(9);
+                                    for i in 0..9 {
+                                        slots.push(((i as f32 * 0.13) - (4.5 * 0.13), 0.));
+                                    }
+                                    slots
+                                })),
+                            ))));
+                        }
+                    }
+                    net::NetworkMessageC2S::GuiClose => {
+                        self.set_open_inventory(None);
+                    }
+                    net::NetworkMessageC2S::GuiClick(element, button, shifting) => {
+                        {
+                            let mut player_inventory = self.inventory.lock().unwrap();
+                            let slot = player_inventory.resolve_slot(element.as_str());
+                            if let Some(slot) = slot {
+                                player_inventory.on_click_slot(self, slot, button, shifting);
+                                continue;
+                            }
+                        }
+                        {
+                            if let Some(open_inventory) = &mut *self.open_inventory.lock().unwrap()
+                            {
+                                let mut open_inventory = open_inventory.get_inventory().unwrap();
+                                let slot = open_inventory.resolve_slot(element.as_str());
+                                if let Some(slot) = slot {
+                                    open_inventory.on_click_slot(self, slot, button, shifting);
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    net::NetworkMessageC2S::GuiScroll(element, x, y, shifting) => {
+                        {
+                            let mut player_inventory = self.inventory.lock().unwrap();
+                            let slot = player_inventory.resolve_slot(element.as_str());
+                            if let Some(slot) = slot {
+                                player_inventory.on_scroll_slot(self, slot, x, y, shifting);
+                                continue;
+                            }
+                        }
+                        {
+                            if let Some(open_inventory) = &mut *self.open_inventory.lock().unwrap()
+                            {
+                                let mut open_inventory = open_inventory.get_inventory().unwrap();
+                                let slot = open_inventory.resolve_slot(element.as_str());
+                                if let Some(slot) = slot {
+                                    open_inventory.on_scroll_slot(self, slot, x, y, shifting);
+                                    continue;
+                                }
+                            }
+                        }
+                    }
                     crate::net::NetworkMessageC2S::PlayerPosition(
                         x,
                         y,

@@ -1,13 +1,19 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     hash::Hash,
-    sync::{Arc, Weak},
+    sync::{Arc, Mutex, MutexGuard, Weak},
 };
 
+use fxhash::{FxHashMap, FxHashSet};
 use json::{object, JsonValue};
+use tungstenite::handshake::client;
 use uuid::Uuid;
 
-use crate::{registry::Item, world::Entity};
+use crate::{
+    net::MouseButton,
+    registry::Item,
+    world::{Entity, PlayerData},
+};
 
 #[derive(Clone)]
 pub struct ItemStack {
@@ -39,13 +45,20 @@ impl ItemStack {
 }
 pub struct Inventory {
     items: Box<[Option<ItemStack>]>,
-    viewers: HashMap<Uuid, InventoryViewer>,
+    viewers: FxHashMap<Uuid, Weak<Entity>>,
+    client_id: String,
+    slots: Vec<(f32, f32)>,
 }
 impl Inventory {
-    pub fn new(size: u32) -> Self {
+    pub fn new<F>(size: u32, ui_creator: F) -> Self
+    where
+        F: FnOnce() -> Vec<(f32, f32)>,
+    {
         Inventory {
             items: vec![None; size as usize].into_boxed_slice(),
-            viewers: HashMap::new(),
+            viewers: FxHashMap::default(),
+            client_id: Uuid::new_v4().to_string(),
+            slots: ui_creator.call_once(()),
         }
     }
     pub fn get_size(&self) -> u32 {
@@ -91,42 +104,19 @@ impl Inventory {
     }
     fn sync_slot(&mut self, index: u32) {
         for viewer in self.viewers.values() {
-            viewer.on_slot_update(index, &self.items[index as usize]);
+            viewer.upgrade().unwrap()
+            .try_send_message(&crate::net::NetworkMessageS2C::GuiData(
+                object! {id:self.get_slot_id(index),type:"editElement",data_type:"item", item: Self::item_to_json(&self.items[index as usize])},
+            ))
+            .unwrap();
         }
     }
-    pub fn add_viewer(&mut self, viewer: InventoryViewer) {
-        let entity = viewer.entity.upgrade().unwrap();
-        let id = entity.get_id();
+    pub fn add_viewer(&mut self, viewer: Arc<Entity>) {
+        let id = viewer.get_id();
         if self.viewers.contains_key(id) {
             return;
         }
-        viewer.on_open(&self.items);
-        self.viewers.insert(id.clone(), viewer);
-    }
-    pub fn remove_viewer(&mut self, viewer: Arc<Entity>) {
-        if let Some(viewer) = self.viewers.remove(viewer.get_id()) {
-            viewer.on_close();
-        }
-    }
-    pub fn get_viewer(&self, viewer: &Arc<Entity>) -> Option<&InventoryViewer> {
-        self.viewers.get(viewer.get_id())
-    }
-}
-pub struct InventoryViewer {
-    entity: Weak<Entity>,
-    client_id: String,
-    slots: Vec<(f32, f32)>,
-}
-impl InventoryViewer {
-    pub fn new(entity: Weak<Entity>, slots: Vec<(f32, f32)>) -> Self {
-        InventoryViewer {
-            entity,
-            client_id: Uuid::new_v4().to_string(),
-            slots,
-        }
-    }
-    pub fn on_open(&self, items: &Box<[Option<ItemStack>]>) {
-        for item in items.iter().enumerate() {
+        for item in self.items.iter().enumerate() {
             let slot = self.slots.get(item.0).unwrap();
             let json = object! {
                 id: self.get_slot_id(item.0 as u32),
@@ -136,28 +126,22 @@ impl InventoryViewer {
                 y: slot.1,
                 item: Self::item_to_json(item.1)
             };
-            self.entity
-                .upgrade()
-                .unwrap()
+            viewer
                 .try_send_message(&crate::net::NetworkMessageS2C::GuiData(json))
                 .unwrap();
         }
+        self.viewers.insert(id.clone(), Arc::downgrade(&viewer));
     }
-    pub fn on_close(&self) {
-        if let Some(entity) = self.entity.upgrade() {
-            entity
-                .try_send_message(&crate::net::NetworkMessageS2C::GuiData(
-                    object! {type:"removeContainer","container":self.client_id.clone()},
-                ))
-                .unwrap();
+    pub fn remove_viewer(&mut self, viewer: Arc<Entity>) {
+        if let Some(viewer) = self.viewers.remove(viewer.get_id()) {
+            if let Some(entity) = viewer.upgrade() {
+                entity
+                    .try_send_message(&crate::net::NetworkMessageS2C::GuiData(
+                        object! {type:"removeContainer","container":self.client_id.clone()},
+                    ))
+                    .unwrap();
+            }
         }
-    }
-    pub fn on_slot_update(&self, slot: u32, item: &Option<ItemStack>) {
-        self.entity.upgrade().unwrap()
-            .try_send_message(&crate::net::NetworkMessageS2C::GuiData(
-                object! {id:self.get_slot_id(slot),type:"editElement",data_type:"item", item: Self::item_to_json(item)},
-            ))
-            .unwrap();
     }
     pub fn get_slot_id(&self, slot: u32) -> String {
         self.client_id.clone() + slot.to_string().as_str()
@@ -166,20 +150,50 @@ impl InventoryViewer {
         item.as_ref()
             .map(|item| object! {item:item.item_type.id, count:item.item_count})
     }
+    pub fn set_cursor(player: &mut PlayerData) {
+        let item = player.get_inventory_hand();
+        if item.is_some() {
+            player.connection.send(&&crate::net::NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"slot",background:false,item: Self::item_to_json(item)}));
+        } else {
+            player.connection.send(&&crate::net::NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"image",texture:"cursor",w:0.05,h:0.05}));
+        }
+    }
+    pub fn resolve_slot(&self, id: &str) -> Option<u32> {
+        if id.starts_with(&self.client_id) {
+            Some(id.to_string().replace(&self.client_id, "").parse().unwrap())
+        } else {
+            None
+        }
+    }
+    pub fn on_click_slot(&mut self, player: &Entity, id: u32, button: MouseButton, shifting: bool) {
+        let result = {
+            let mut player_data = player.player_data.lock().unwrap();
+            let player_data = player_data.as_mut().unwrap();
+            if button == MouseButton::LEFT {
+                let hand = player_data.get_inventory_hand().clone();
+                player_data.set_inventory_hand(self.get_item(id).unwrap().clone());
+                Some(hand)
+            } else {
+                None
+            }
+        };
+        if let Some(result) = result {
+            self.set_item(id, result).unwrap();
+        }
+    }
+    pub fn on_scroll_slot(&mut self, player: &Entity, id: u32, x: i32, y: i32, shifting: bool) {}
 }
-impl Drop for InventoryViewer {
-    fn drop(&mut self) {
-        self.on_close()
+
+#[derive(Clone)]
+pub enum InventoryWrapper {
+    Entity(Arc<Entity>),
+    Own(Arc<Mutex<Inventory>>),
+}
+impl InventoryWrapper {
+    pub fn get_inventory(&self) -> Option<MutexGuard<Inventory>> {
+        match self {
+            Self::Entity(entity) => Some(entity.inventory.lock().unwrap()),
+            Self::Own(inventory) => Some(inventory.lock().unwrap()),
+        }
     }
 }
-impl Hash for InventoryViewer {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.entity.upgrade().unwrap().get_id().hash(state)
-    }
-}
-impl PartialEq for InventoryViewer {
-    fn eq(&self, other: &Self) -> bool {
-        self.entity.upgrade().unwrap().get_id() == other.entity.upgrade().unwrap().get_id()
-    }
-}
-impl Eq for InventoryViewer {}

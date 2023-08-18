@@ -1,4 +1,3 @@
-
 use std::net::TcpStream;
 
 use endio::LERead;
@@ -278,7 +277,7 @@ impl NetworkMessageC2S {
     }
 }
 #[repr(u8)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MouseButton {
     LEFT = 0,
     RIGHT = 1,
