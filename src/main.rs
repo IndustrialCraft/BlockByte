@@ -21,7 +21,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use crossbeam_channel::{Receiver};
+use crossbeam_channel::Receiver;
 use fxhash::FxHashMap;
 use json::object;
 use mods::{ModManager, ScriptCallback};
@@ -259,7 +259,7 @@ impl Server {
             let player = Entity::new(
                 &self.get_spawn_location(),
                 self.entity_registry
-                    .entity_by_identifier(&Identifier::new("test", "player"))
+                    .entity_by_identifier(&Identifier::new("bb", "player"))
                     .unwrap()
                     .clone(),
                 Some(connection),
