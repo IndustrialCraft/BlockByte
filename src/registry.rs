@@ -201,7 +201,7 @@ impl Item {
                         .unwrap()
                         .as_ref()
                         .unwrap()
-                        .keep_item_on_place
+                        .creative
                     {
                         item.add_count(-1);
                     }

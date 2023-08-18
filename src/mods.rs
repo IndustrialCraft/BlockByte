@@ -10,19 +10,16 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 
-use rhai::{
-    exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, AST,
-};
-use splines::{Interpolation};
+use rhai::{exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, AST};
+use splines::Interpolation;
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
 use crate::{
     net::MovementType,
     registry::{
-        BlockRegistry, ClientBlockCubeRenderData, ClientBlockDynamicData,
-        ClientBlockRenderData, ClientBlockRenderDataType, ClientEntityData, ClientItemModel,
-        ClientItemRenderData,
+        BlockRegistry, ClientBlockCubeRenderData, ClientBlockDynamicData, ClientBlockRenderData,
+        ClientBlockRenderDataType, ClientEntityData, ClientItemModel, ClientItemRenderData,
     },
     util::{Identifier, Location, Position},
     world::{Entity, Structure},
@@ -378,10 +375,7 @@ impl ModManager {
             .register_type_with_name::<PlayerAbilitiesWrapper>("PlayerAbilities")
             .register_fn("speed", PlayerAbilitiesWrapper::set_speed)
             .register_fn("movement_type", PlayerAbilitiesWrapper::set_movement_type)
-            .register_fn(
-                "keep_item_on_place",
-                PlayerAbilitiesWrapper::set_keep_item_on_place,
-            )
+            .register_fn("creative", PlayerAbilitiesWrapper::set_creative)
             .register_static_module("MovementType", exported_module!(MovementTypeModule).into());
     }
     /*pub fn call_event<T>(&self, event: &str, param: T) {
@@ -726,9 +720,9 @@ impl PlayerAbilitiesWrapper {
             player_data.set_move_type(move_type);
         }
     }
-    pub fn set_keep_item_on_place(&mut self, keep_items_on_place: bool) {
+    pub fn set_creative(&mut self, creative: bool) {
         if let Some(player_data) = &mut *self.entity.player_data.lock().unwrap() {
-            player_data.keep_item_on_place = keep_items_on_place;
+            player_data.creative = creative;
         }
     }
 }

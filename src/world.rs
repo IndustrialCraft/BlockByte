@@ -15,7 +15,6 @@ use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{array, object, JsonValue};
 
-
 use uuid::Uuid;
 
 use crate::{
@@ -23,7 +22,7 @@ use crate::{
     net::{self, MovementType, NetworkMessageS2C, PlayerConnection},
     registry::{BlockRegistry, BlockStateRef, EntityData, InteractionResult},
     util::{BlockPosition, ChunkLocation, ChunkPosition, Identifier, Location, Position},
-    worldgen::{WorldGenerator},
+    worldgen::WorldGenerator,
     Server,
 };
 
@@ -446,7 +445,7 @@ impl Chunk {
         self.world.server.thread_pool.execute(Box::new(move || {
             {
                 let mut data = Vec::new();
-                let mut block_data = Vec::new();
+                let mut block_data = Vec::with_capacity(16 * 16 * 16 * 2);
                 let mut block_map = FxHashMap::default();
                 let blocks = chunk.blocks.lock().unwrap();
                 let block_registry = &chunk.world.server.block_registry;
@@ -517,7 +516,7 @@ pub struct PlayerData {
     slot: u32,
     speed: f32,
     move_type: MovementType,
-    pub keep_item_on_place: bool,
+    pub creative: bool,
 }
 impl PlayerData {
     pub fn new(player: Weak<Entity>, connection: PlayerConnection) -> Self {
@@ -527,7 +526,7 @@ impl PlayerData {
             slot: u32::MAX,
             speed: 1.,
             move_type: MovementType::Normal,
-            keep_item_on_place: false,
+            creative: false,
         }
     }
     fn send_abilities(&mut self) {

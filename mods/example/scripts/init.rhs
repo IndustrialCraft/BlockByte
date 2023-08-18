@@ -10,3 +10,5 @@ register_image("example:stone", "images/example:stone.png");
 register_image("example:water", "images/example:water.png");
 register_image("example:log_side", "images/example:log_side.png");
 register_image("example:log_base", "images/example:log_base.png");
+
+register_event("bb:player_join", |player|{player.abilities().creative(true);player.abilities().movement_type(MovementType::NoClip);player.abilities().speed(3.);});
