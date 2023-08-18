@@ -5,7 +5,7 @@ use crate::{
 };
 use array_init::array_init;
 use noise::{Fbm, NoiseFn, OpenSimplex};
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng};
 use splines::{Key, Spline};
 use std::sync::Arc;
 

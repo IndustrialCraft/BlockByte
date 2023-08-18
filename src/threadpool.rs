@@ -1,8 +1,8 @@
-use std::sync::{atomic::AtomicI32, Arc, Weak};
+use std::sync::{atomic::AtomicI32, Arc};
 
 use crossbeam_channel::*;
 
-use crate::Server;
+
 
 pub struct ThreadPool {
     transmitter: Sender<Box<dyn FnOnce() + Send>>,
@@ -36,7 +36,7 @@ struct Worker {
 impl Worker {
     pub fn spawn(receiver: Receiver<Box<dyn FnOnce() + Send>>, queued: Arc<AtomicI32>) {
         std::thread::spawn(move || {
-            let mut worker = Worker { receiver, queued };
+            let worker = Worker { receiver, queued };
             while let Ok(job) = worker.receiver.recv() {
                 job.call_once(());
                 worker

@@ -1,14 +1,12 @@
 use std::{
     collections::{hash_map::Keys, HashMap},
-    fs::File,
     hash::BuildHasherDefault,
     io::Write,
-    path::Path,
     sync::{Arc, Mutex},
 };
 
 use json::{array, object, JsonValue};
-use rhai::{Engine, FnPtr, AST};
+
 use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
 

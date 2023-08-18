@@ -5,28 +5,26 @@ use std::{
     fs,
     hash::BuildHasherDefault,
     path::{Path, PathBuf},
-    rc,
-    str::FromStr,
     sync::{Arc, Mutex, Weak},
 };
 
 use anyhow::{bail, Context, Result};
 
 use rhai::{
-    exported_module, Dynamic, Engine, EvalAltResult, FnPtr, Func, FuncArgs, ImmutableString, AST,
+    exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, AST,
 };
-use splines::{Interpolate, Interpolation, Spline};
+use splines::{Interpolation};
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
 use crate::{
     net::MovementType,
     registry::{
-        Block, BlockRegistry, BlockState, ClientBlockCubeRenderData, ClientBlockDynamicData,
+        BlockRegistry, ClientBlockCubeRenderData, ClientBlockDynamicData,
         ClientBlockRenderData, ClientBlockRenderDataType, ClientEntityData, ClientItemModel,
-        ClientItemRenderData, EntityRegistry, Item, ItemRegistry,
+        ClientItemRenderData,
     },
-    util::{ChunkLocation, Identifier, Location, Position},
+    util::{Identifier, Location, Position},
     world::{Entity, Structure},
     Server,
 };

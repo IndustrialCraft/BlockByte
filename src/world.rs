@@ -6,8 +6,6 @@ use std::{
         atomic::{AtomicBool, AtomicU32, AtomicU8},
         Arc, Mutex, Weak,
     },
-    thread,
-    time::Instant,
 };
 
 use array_init::array_init;
@@ -16,16 +14,16 @@ use endio::{BERead, LEWrite};
 use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{array, object, JsonValue};
-use rand::Rng;
-use rhai::{Engine, AST};
+
+
 use uuid::Uuid;
 
 use crate::{
     inventory::{Inventory, InventoryViewer, ItemStack},
     net::{self, MovementType, NetworkMessageS2C, PlayerConnection},
     registry::{BlockRegistry, BlockStateRef, EntityData, InteractionResult},
-    util::{self, BlockPosition, ChunkLocation, ChunkPosition, Identifier, Location, Position},
-    worldgen::{BasicWorldGenerator, FlatWorldGenerator, WorldGenerator},
+    util::{BlockPosition, ChunkLocation, ChunkPosition, Identifier, Location, Position},
+    worldgen::{WorldGenerator},
     Server,
 };
 

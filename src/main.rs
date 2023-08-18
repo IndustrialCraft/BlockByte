@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 #![feature(fn_traits, inline_const, hash_extract_if, extract_if, const_trait_impl)]
 
 mod inventory;
@@ -12,7 +13,6 @@ mod worldgen;
 use std::{
     cell::RefCell,
     collections::HashMap,
-    hash::Hash,
     net::TcpListener,
     path::{Path, PathBuf},
     process,
@@ -21,7 +21,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver};
 use fxhash::FxHashMap;
 use json::object;
 use mods::{ModManager, ScriptCallback};

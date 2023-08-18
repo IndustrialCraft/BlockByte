@@ -1,4 +1,4 @@
-use std::fmt::Binary;
+
 use std::net::TcpStream;
 
 use endio::LERead;
