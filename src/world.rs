@@ -13,9 +13,9 @@ use std::{
 use array_init::array_init;
 use atomic_counter::{AtomicCounter, RelaxedCounter};
 use endio::{BERead, LEWrite};
+use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{array, object, JsonValue};
-use libflate::zlib::Encoder;
 use rand::Rng;
 use rhai::{Engine, AST};
 use uuid::Uuid;
@@ -208,12 +208,12 @@ pub struct Chunk {
     blocks: Mutex<[[[BlockData; 16]; 16]; 16]>,
     entities: Mutex<Vec<Arc<Entity>>>,
     viewers: Mutex<FxHashSet<ChunkViewer>>,
-    unload_timer: RelaxedCounter,
+    unload_timer: AtomicU8,
     loading_stage: AtomicU8,
     this: Weak<Chunk>,
 }
 impl Chunk {
-    const UNLOAD_TIME: usize = 200;
+    const UNLOAD_TIME: u8 = 200;
     pub fn new(position: ChunkPosition, world: Arc<World>) -> Arc<Self> {
         let chunk = Arc::new_cyclic(|this| Chunk {
             position,
@@ -221,7 +221,7 @@ impl Chunk {
                 array_init(|_| array_init(|_| BlockData::Simple(0)))
             })),
             world: world.clone(),
-            unload_timer: RelaxedCounter::new(0),
+            unload_timer: AtomicU8::new(0),
             entities: Mutex::new(Vec::new()),
             viewers: Mutex::new(FxHashSet::default()),
             loading_stage: AtomicU8::new(0),
@@ -236,18 +236,22 @@ impl Chunk {
                     let mut data = data.as_slice();
                     let block_map_len: u32 = data.read_be().unwrap();
                     let mut blocks = Vec::with_capacity(block_map_len as usize);
-                    for _ in 0..block_map_len {
-                        blocks
-                            .push(Identifier::parse(net::read_string(&mut data).as_str()).unwrap());
-                    }
                     let block_registry = &gen_chunk.world.server.block_registry;
+                    for _ in 0..block_map_len {
+                        blocks.push(
+                            block_registry
+                                .block_by_identifier(
+                                    &Identifier::parse(net::read_string(&mut data).as_str())
+                                        .unwrap(),
+                                )
+                                .unwrap(),
+                        );
+                    }
                     *gen_chunk.blocks.lock().unwrap() = array_init(|_| {
                         array_init(|_| {
                             array_init(|_| {
                                 let block_id: u16 = data.read_be().unwrap();
-                                let block = block_registry
-                                    .block_by_identifier(blocks.get(block_id as usize).unwrap())
-                                    .unwrap();
+                                let block = blocks.get(block_id as usize).unwrap();
                                 BlockData::Simple(block.default_state)
                             })
                         })
@@ -278,26 +282,25 @@ impl Chunk {
             gen_chunk
                 .loading_stage
                 .store(2, std::sync::atomic::Ordering::SeqCst);
-            let mut blocks: Vec<u32> = Vec::with_capacity(16 * 16 * 16);
+            let mut data = Vec::with_capacity(16 * 16 * 16 * 4);
             {
                 let real_blocks = gen_chunk.blocks.lock().unwrap();
                 for x in 0..16 {
                     for y in 0..16 {
                         for z in 0..16 {
-                            blocks.push(real_blocks[x][y][z].get_client_id());
+                            data.write_be(real_blocks[x][y][z].get_client_id()).unwrap();
                         }
                     }
                 }
             }
-            let mut encoder = Encoder::new(Vec::new()).unwrap();
-            for id in blocks {
-                encoder.write_be(id).unwrap();
-            }
+            //let mut encoder = Encoder::new().unwrap();
+            let mut encoder = flate2::write::GzEncoder::new(Vec::new(), Compression::default());
+            std::io::copy(&mut data.as_slice(), &mut encoder).unwrap();
             let load_message = NetworkMessageS2C::LoadChunk(
                 position.x,
                 position.y,
                 position.z,
-                encoder.finish().into_result().unwrap(),
+                encoder.finish().unwrap(),
             );
             for viewer in gen_chunk.viewers.lock().unwrap().iter() {
                 viewer.player.try_send_message(&load_message).ok();
@@ -336,13 +339,13 @@ impl Chunk {
     }
     fn add_viewer(&self, viewer: Arc<Entity>) {
         if self.loading_stage.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
-            let mut blocks: Vec<u32> = Vec::with_capacity(16 * 16 * 16);
+            let mut data = Vec::with_capacity(16 * 16 * 16 * 4);
             {
                 let real_blocks = self.blocks.lock().unwrap();
                 for x in 0..16 {
                     for y in 0..16 {
                         for z in 0..16 {
-                            blocks.push(real_blocks[x][y][z].get_client_id());
+                            data.write_be(real_blocks[x][y][z].get_client_id()).unwrap();
                         }
                     }
                 }
@@ -350,18 +353,15 @@ impl Chunk {
             let thread_viewer = viewer.clone();
             let position = self.position.clone();
             self.world.server.thread_pool.execute(Box::new(move || {
-                let mut encoder = Encoder::new(Vec::new()).unwrap();
-                for id in blocks {
-                    encoder.write_be(id).unwrap();
-                }
-                thread_viewer
-                    .try_send_message(&NetworkMessageS2C::LoadChunk(
-                        position.x,
-                        position.y,
-                        position.z,
-                        encoder.finish().into_result().unwrap(),
-                    ))
-                    .ok();
+                let mut encoder = flate2::write::GzEncoder::new(Vec::new(), Compression::default());
+                std::io::copy(&mut data.as_slice(), &mut encoder).unwrap();
+                let load_message = NetworkMessageS2C::LoadChunk(
+                    position.x,
+                    position.y,
+                    position.z,
+                    encoder.finish().unwrap(),
+                );
+                thread_viewer.try_send_message(&load_message).ok();
             }));
         }
         for entity in self.entities.lock().unwrap().iter() {
@@ -398,7 +398,8 @@ impl Chunk {
         }
     }
     pub fn tick(&self) {
-        self.unload_timer.inc();
+        self.unload_timer
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let mut removed_entities = Vec::new();
         self.entities
@@ -425,7 +426,8 @@ impl Chunk {
             .map(|e| e.clone())
             .collect();
         if self.viewers.lock().unwrap().len() > 0 {
-            self.unload_timer.reset();
+            self.unload_timer
+                .store(0, std::sync::atomic::Ordering::Relaxed);
         }
         if self.needs_ticking() {
             self.world.server.thread_pool.execute(Box::new(move || {
@@ -439,7 +441,7 @@ impl Chunk {
         self.entities.lock().unwrap().len() > 0
     }
     pub fn should_unload(&self) -> bool {
-        self.unload_timer.get() >= Chunk::UNLOAD_TIME
+        self.unload_timer.load(std::sync::atomic::Ordering::Relaxed) >= Chunk::UNLOAD_TIME
     }
     pub fn destroy(&self) {
         let chunk = self.this.upgrade().unwrap();
@@ -447,7 +449,7 @@ impl Chunk {
             {
                 let mut data = Vec::new();
                 let mut block_data = Vec::new();
-                let mut block_map = HashMap::new();
+                let mut block_map = FxHashMap::default();
                 let blocks = chunk.blocks.lock().unwrap();
                 let block_registry = &chunk.world.server.block_registry;
                 for x in 0..16 {

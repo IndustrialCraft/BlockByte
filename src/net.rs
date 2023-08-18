@@ -306,6 +306,7 @@ impl PlayerConnection {
                 match NetworkMessageC2S::from_data(message.as_slice()) {
                     Some(NetworkMessageC2S::ConnectionMode(mode)) => {
                         socket.get_ref().set_nonblocking(true).map_err(|_| ())?;
+                        socket.get_ref().set_nodelay(true).map_err(|_| ())?;
                         Ok((
                             PlayerConnection {
                                 socket,
@@ -329,10 +330,11 @@ impl PlayerConnection {
             .write_message(tungstenite::Message::Binary(data.clone()));
     }
     pub fn send(&mut self, message: &NetworkMessageS2C) {
-        if let Err(_) = self
+        if let Err(error) = self
             .socket
             .write_message(tungstenite::Message::Binary(message.to_data()))
         {
+            //panic!("socket error: {}", error);
             self.closed = true;
         }
     }

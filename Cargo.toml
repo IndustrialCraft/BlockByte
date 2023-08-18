@@ -13,7 +13,6 @@ array-init = "2.1.0"
 atomic-counter = "1.0.1"
 ctrlc = "3.4.0"
 uuid = {version="1.3.3",features=["v4"]}
-libflate = "1.3.0"
 rhai = {version = "1.15.1",features=["sync"]}
 anyhow = "1.0.71"
 walkdir = "2.3.3"
@@ -26,5 +25,6 @@ crossbeam-channel = "0.5.8"
 twox-hash = "1.6.3"
 pathdiff = "0.2.1"
 rand = "0.8.5"
+flate2 = { version = "1.0.17"}
 [profile.release]
 debug = true

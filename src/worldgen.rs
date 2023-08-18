@@ -106,8 +106,8 @@ impl BasicWorldGenerator {
                 .get_splined(x, z, &self.land_mountain_spline)
                 * self.mountain_noise.get_splined(x, z, &self.mountain_spline))) as i32
     }
-    pub fn get_biome_at(&self, x: i32, z: i32) -> &Biome {
-        let height = self.get_terrain_height_at(x, z) as f64;
+    pub fn get_biome_at(&self, x: i32, z: i32, height: i32) -> &Biome {
+        let height = height as f64;
         let x = x as f64;
         let z = z as f64;
         let land = self.land_noise.get(x, z);
@@ -133,9 +133,10 @@ impl WorldGenerator for BasicWorldGenerator {
             array_init(|z| {
                 let total_x = (x as i32) + (position.x * 16);
                 let total_z = (z as i32) + (position.z * 16);
+                let terrain_height = self.get_terrain_height_at(total_x, total_z);
                 (
-                    self.get_terrain_height_at(total_x, total_z),
-                    self.get_biome_at(total_x, total_z),
+                    terrain_height,
+                    self.get_biome_at(total_x, total_z, terrain_height),
                 )
             })
         });
