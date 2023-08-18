@@ -403,10 +403,30 @@ impl Chunk {
             .lock()
             .unwrap()
             .extract_if(|entity| {
-                let not_same_chunk = entity.get_location().chunk.position != self.position;
+                let new_location = entity.get_location();
+                let not_same_chunk = new_location.chunk.position != self.position;
+                if not_same_chunk {
+                    for viewer in self
+                        .viewers
+                        .lock()
+                        .unwrap()
+                        .difference(&new_location.chunk.viewers.lock().unwrap())
+                    {
+                        viewer
+                            .player
+                            .try_send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id))
+                            .unwrap();
+                    }
+                }
                 let removed = entity.is_removed();
                 if removed && !not_same_chunk {
                     removed_entities.push(entity.clone());
+                    for viewer in self.viewers.lock().unwrap().iter() {
+                        viewer
+                            .player
+                            .try_send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id))
+                            .unwrap();
+                    }
                 }
                 removed || not_same_chunk
             })
