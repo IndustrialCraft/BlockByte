@@ -729,10 +729,14 @@ impl PlayerAbilitiesWrapper {
     }
 }
 #[export_module]
+#[allow(non_snake_case)]
 mod MovementTypeModule {
     use crate::net::MovementType;
 
+    #[allow(non_upper_case_globals)]
     pub const Normal: MovementType = MovementType::Normal;
+    #[allow(non_upper_case_globals)]
     pub const Fly: MovementType = MovementType::Fly;
+    #[allow(non_upper_case_globals)]
     pub const NoClip: MovementType = MovementType::NoClip;
 }

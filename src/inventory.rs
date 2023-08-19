@@ -1,12 +1,7 @@
-use std::{
-    collections::{HashMap, HashSet},
-    hash::Hash,
-    sync::{Arc, Mutex, MutexGuard, Weak},
-};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
-use fxhash::{FxHashMap, FxHashSet};
+use fxhash::FxHashMap;
 use json::{object, JsonValue};
-use tungstenite::handshake::client;
 use uuid::Uuid;
 
 use crate::{
@@ -154,9 +149,9 @@ impl Inventory {
         let item = entity_data.get_inventory_hand();
         let player = entity_data.player.upgrade().unwrap();
         if item.is_some() {
-            player.try_send_message(&&crate::net::NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"slot",background:false,item: Self::item_to_json(item)}));
+            player.try_send_message(&&crate::net::NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"slot",background:false,item: Self::item_to_json(item)})).ok();
         } else {
-            player.try_send_message(&&crate::net::NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"image",texture:"cursor",w:0.05,h:0.05}));
+            player.try_send_message(&&crate::net::NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"image",texture:"cursor",w:0.05,h:0.05})).ok();
         }
     }
     pub fn resolve_slot(&self, id: &str) -> Option<u32> {

@@ -365,7 +365,9 @@ impl Chunk {
             if Arc::ptr_eq(entity, &viewer) {
                 continue;
             }
-            viewer.try_send_message(&entity.create_add_message(entity.get_location().position));
+            viewer
+                .try_send_message(&entity.create_add_message(entity.get_location().position))
+                .unwrap();
         }
         self.viewers
             .lock()
@@ -373,16 +375,20 @@ impl Chunk {
             .insert(ChunkViewer::new(viewer));
     }
     fn remove_viewer(&self, viewer: Arc<Entity>) {
-        viewer.try_send_message(&NetworkMessageS2C::UnloadChunk(
-            self.position.x,
-            self.position.y,
-            self.position.z,
-        ));
+        viewer
+            .try_send_message(&NetworkMessageS2C::UnloadChunk(
+                self.position.x,
+                self.position.y,
+                self.position.z,
+            ))
+            .unwrap();
         for entity in self.entities.lock().unwrap().iter() {
             if Arc::ptr_eq(entity, &viewer) {
                 continue;
             }
-            viewer.try_send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id));
+            viewer
+                .try_send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id))
+                .unwrap();
         }
         self.viewers
             .lock()
@@ -391,7 +397,7 @@ impl Chunk {
     }
     pub fn announce_to_viewers(&self, message: NetworkMessageS2C) {
         for viewer in self.viewers.lock().unwrap().iter() {
-            viewer.player.try_send_message(&message);
+            viewer.player.try_send_message(&message).unwrap();
         }
     }
     pub fn tick(&self) {
@@ -563,7 +569,8 @@ impl EntityData {
             .try_send_message(&NetworkMessageS2C::PlayerAbilities(
                 self.speed,
                 self.move_type,
-            ));
+            ))
+            .ok();
     }
     pub fn set_speed(&mut self, speed: f32) {
         self.speed = speed;
@@ -583,11 +590,11 @@ impl EntityData {
         };
         player.try_send_message(&NetworkMessageS2C::GuiData(
                 object! {id: inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 1, 1, 1]},
-            ));
+            )).ok();
         self.slot = slot;
         player.try_send_message(&NetworkMessageS2C::GuiData(
                 object! {id: inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 0, 0, 1]},
-            ));
+            )).ok();
     }
     pub fn get_hand_slot(&self) -> u32 {
         self.slot
@@ -678,7 +685,7 @@ impl Entity {
         chunk.add_entity(entity.clone());
         let add_message = entity.create_add_message(position);
         for viewer in chunk.viewers.lock().unwrap().iter() {
-            viewer.player.try_send_message(&add_message);
+            viewer.player.try_send_message(&add_message).unwrap();
         }
         for chunk_position in Entity::get_chunks_to_load_at(&position) {
             chunk
@@ -810,10 +817,10 @@ impl Entity {
                     let add_message = self.create_add_message(new_location.position);
                     let delete_message = NetworkMessageS2C::DeleteEntity(self.client_id);
                     for viewer in old_viewers.difference(&new_viewers) {
-                        viewer.player.try_send_message(&delete_message);
+                        viewer.player.try_send_message(&delete_message).unwrap();
                     }
                     for viewer in new_viewers.difference(&old_viewers) {
-                        viewer.player.try_send_message(&add_message);
+                        viewer.player.try_send_message(&add_message).unwrap();
                     }
                 }
                 let is_player = self.is_player();

@@ -299,7 +299,7 @@ pub struct PlayerConnection {
 }
 impl PlayerConnection {
     pub fn new(mut socket: WebSocket<TcpStream>) -> Result<(Self, u8), ()> {
-        let mode_message = socket.read_message().map_err(|_| ())?;
+        let mode_message = socket.read().map_err(|_| ())?;
         match mode_message {
             tungstenite::Message::Binary(message) => {
                 match NetworkMessageC2S::from_data(message.as_slice()) {
@@ -322,16 +322,18 @@ impl PlayerConnection {
     }
     pub fn send_json(&mut self, json: JsonValue) {
         self.socket
-            .write_message(tungstenite::Message::Text(json.dump()));
+            .write(tungstenite::Message::Text(json.dump()))
+            .unwrap();
     }
     pub fn send_binary(&mut self, data: &Vec<u8>) {
         self.socket
-            .write_message(tungstenite::Message::Binary(data.clone()));
+            .write(tungstenite::Message::Binary(data.clone()))
+            .unwrap();
     }
     pub fn send(&mut self, message: &NetworkMessageS2C) {
         if let Err(error) = self
             .socket
-            .write_message(tungstenite::Message::Binary(message.to_data()))
+            .write(tungstenite::Message::Binary(message.to_data()))
         {
             //panic!("socket error: {}", error);
             self.closed = true;
@@ -339,7 +341,7 @@ impl PlayerConnection {
     }
     pub fn receive_messages(&mut self) -> Vec<NetworkMessageC2S> {
         let mut messages = Vec::new();
-        while let Ok(message) = self.socket.read_message() {
+        while let Ok(message) = self.socket.read() {
             match message {
                 tungstenite::Message::Binary(message) => {
                     match NetworkMessageC2S::from_data(message.as_slice()) {

@@ -1,4 +1,4 @@
-#![allow(unused_variables)]
+#![allow(unused_variables, dead_code)]
 #![feature(fn_traits, inline_const, hash_extract_if, extract_if, const_trait_impl)]
 
 mod inventory;
