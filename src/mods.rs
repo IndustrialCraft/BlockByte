@@ -711,19 +711,21 @@ pub struct PlayerAbilitiesWrapper {
 }
 impl PlayerAbilitiesWrapper {
     pub fn set_speed(&mut self, speed: f64) {
-        if let Some(player_data) = &mut *self.entity.player_data.lock().unwrap() {
-            player_data.set_speed(speed as f32);
-        }
+        self.entity
+            .entity_data
+            .lock()
+            .unwrap()
+            .set_speed(speed as f32);
     }
     pub fn set_movement_type(&mut self, move_type: MovementType) {
-        if let Some(player_data) = &mut *self.entity.player_data.lock().unwrap() {
-            player_data.set_move_type(move_type);
-        }
+        self.entity
+            .entity_data
+            .lock()
+            .unwrap()
+            .set_move_type(move_type);
     }
     pub fn set_creative(&mut self, creative: bool) {
-        if let Some(player_data) = &mut *self.entity.player_data.lock().unwrap() {
-            player_data.creative = creative;
-        }
+        self.entity.entity_data.lock().unwrap().creative = creative;
     }
 }
 #[export_module]

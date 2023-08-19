@@ -26,7 +26,7 @@ use fxhash::FxHashMap;
 use json::object;
 use mods::{ModManager, ScriptCallback};
 use net::PlayerConnection;
-use registry::{Block, BlockRegistry, BlockState, EntityData, EntityRegistry, Item, ItemRegistry};
+use registry::{Block, BlockRegistry, BlockState, EntityRegistry, EntityType, Item, ItemRegistry};
 use rhai::{Engine, FuncArgs};
 use splines::Spline;
 use threadpool::ThreadPool;
@@ -152,7 +152,7 @@ impl Server {
             entity_registry
                 .borrow_mut()
                 .register(entity_data.id, |id| {
-                    Arc::new(EntityData {
+                    Arc::new(EntityType {
                         id,
                         client_data: entity_data.client,
                         ticker: Mutex::new(

@@ -195,14 +195,7 @@ impl Item {
             let world = player.get_location().chunk.world.clone();
             world.replace_block(block_position, |block| match block {
                 BlockData::Simple(0) => {
-                    if !player
-                        .player_data
-                        .lock()
-                        .unwrap()
-                        .as_ref()
-                        .unwrap()
-                        .creative
-                    {
+                    if !player.entity_data.lock().unwrap().creative {
                         item.add_count(-1);
                     }
                     Some(BlockData::Simple(place.default_state))
@@ -254,7 +247,7 @@ pub enum ClientItemModel {
     Block(Identifier),
 }
 pub struct EntityRegistry {
-    entities: HashMap<Identifier, Arc<EntityData>, BuildHasherDefault<XxHash64>>,
+    entities: HashMap<Identifier, Arc<EntityType>, BuildHasherDefault<XxHash64>>,
     id_generator: u32,
 }
 impl EntityRegistry {
@@ -264,9 +257,9 @@ impl EntityRegistry {
             id_generator: 0,
         }
     }
-    pub fn register<F>(&mut self, id: Identifier, creator: F) -> Result<Arc<EntityData>, ()>
+    pub fn register<F>(&mut self, id: Identifier, creator: F) -> Result<Arc<EntityType>, ()>
     where
-        F: FnOnce(u32) -> Arc<EntityData>,
+        F: FnOnce(u32) -> Arc<EntityType>,
     {
         if self.entities.get(&id).is_some() {
             return Err(());
@@ -276,11 +269,11 @@ impl EntityRegistry {
         self.id_generator += 1;
         Ok(entity)
     }
-    pub fn entity_by_identifier(&self, id: &Identifier) -> Option<&Arc<EntityData>> {
+    pub fn entity_by_identifier(&self, id: &Identifier) -> Option<&Arc<EntityType>> {
         self.entities.get(id)
     }
 }
-pub struct EntityData {
+pub struct EntityType {
     pub id: u32,
     pub client_data: ClientEntityData,
     pub ticker: Mutex<Option<ScriptCallback>>,

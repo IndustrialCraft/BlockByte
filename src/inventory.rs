@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::{
     net::MouseButton,
     registry::Item,
-    world::{Entity, PlayerData},
+    world::{Entity, EntityData},
 };
 
 #[derive(Clone)]
@@ -150,12 +150,13 @@ impl Inventory {
         item.as_ref()
             .map(|item| object! {item:item.item_type.id, count:item.item_count})
     }
-    pub fn set_cursor(player: &mut PlayerData) {
-        let item = player.get_inventory_hand();
+    pub fn set_cursor(entity_data: &mut EntityData) {
+        let item = entity_data.get_inventory_hand();
+        let player = entity_data.player.upgrade().unwrap();
         if item.is_some() {
-            player.connection.send(&&crate::net::NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"slot",background:false,item: Self::item_to_json(item)}));
+            player.try_send_message(&&crate::net::NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"slot",background:false,item: Self::item_to_json(item)}));
         } else {
-            player.connection.send(&&crate::net::NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"image",texture:"cursor",w:0.05,h:0.05}));
+            player.try_send_message(&&crate::net::NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"image",texture:"cursor",w:0.05,h:0.05}));
         }
     }
     pub fn resolve_slot(&self, id: &str) -> Option<u32> {
@@ -167,8 +168,7 @@ impl Inventory {
     }
     pub fn on_click_slot(&mut self, player: &Entity, id: u32, button: MouseButton, shifting: bool) {
         let result = {
-            let mut player_data = player.player_data.lock().unwrap();
-            let player_data = player_data.as_mut().unwrap();
+            let mut player_data = player.entity_data.lock().unwrap();
             if button == MouseButton::LEFT {
                 let hand = player_data.get_inventory_hand().clone();
                 player_data.set_inventory_hand(self.get_item(id).unwrap().clone());

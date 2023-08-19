@@ -20,7 +20,7 @@ use uuid::Uuid;
 use crate::{
     inventory::{Inventory, InventoryWrapper, ItemStack},
     net::{self, MovementType, NetworkMessageS2C, PlayerConnection},
-    registry::{BlockRegistry, BlockStateRef, EntityData, InteractionResult},
+    registry::{BlockRegistry, BlockStateRef, EntityType, InteractionResult},
     util::{BlockPosition, ChunkLocation, ChunkPosition, Identifier, Location, Position},
     worldgen::WorldGenerator,
     Server,
@@ -530,20 +530,18 @@ impl PartialEq for ChunkViewer {
 }
 impl Eq for ChunkViewer {}
 
-pub struct PlayerData {
-    player: Weak<Entity>,
-    pub connection: PlayerConnection,
+pub struct EntityData {
+    pub player: Weak<Entity>,
     slot: u32,
     speed: f32,
     move_type: MovementType,
     pub creative: bool,
     hand_item: Option<ItemStack>,
 }
-impl PlayerData {
-    pub fn new(player: Weak<Entity>, connection: PlayerConnection) -> Self {
-        PlayerData {
+impl EntityData {
+    pub fn new(player: Weak<Entity>) -> Self {
+        EntityData {
             player,
-            connection,
             slot: u32::MAX,
             speed: 1.,
             move_type: MovementType::Normal,
@@ -559,10 +557,13 @@ impl PlayerData {
         &self.hand_item
     }
     fn send_abilities(&mut self) {
-        self.connection.send(&NetworkMessageS2C::PlayerAbilities(
-            self.speed,
-            self.move_type,
-        ));
+        self.player
+            .upgrade()
+            .unwrap()
+            .try_send_message(&NetworkMessageS2C::PlayerAbilities(
+                self.speed,
+                self.move_type,
+            ));
     }
     pub fn set_speed(&mut self, speed: f32) {
         self.speed = speed;
@@ -580,13 +581,16 @@ impl PlayerData {
         } else {
             slot % inventory.get_size()
         };
-        self.connection.send(&NetworkMessageS2C::GuiData(
+        player.try_send_message(&NetworkMessageS2C::GuiData(
                 object! {id: inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 1, 1, 1]},
             ));
         self.slot = slot;
-        self.connection.send(&NetworkMessageS2C::GuiData(
+        player.try_send_message(&NetworkMessageS2C::GuiData(
                 object! {id: inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 0, 0, 1]},
             ));
+    }
+    pub fn get_hand_slot(&self) -> u32 {
+        self.slot
     }
 }
 
@@ -595,8 +599,8 @@ pub struct Entity {
     location: Mutex<ChunkLocation>,
     rotation: Mutex<f32>,
     teleport: Mutex<Option<ChunkLocation>>,
-    entity_type: Arc<EntityData>,
-    pub player_data: Mutex<Option<PlayerData>>,
+    entity_type: Arc<EntityType>,
+    pub entity_data: Mutex<EntityData>,
     removed: AtomicBool,
     client_id: u32,
     id: Uuid,
@@ -604,13 +608,14 @@ pub struct Entity {
     pub inventory: Mutex<Inventory>,
     pub server: Arc<Server>,
     open_inventory: Mutex<Option<InventoryWrapper>>,
+    pub connection: Mutex<Option<PlayerConnection>>,
 }
 static ENTITY_CLIENT_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
 impl Entity {
     pub fn new<T: Into<ChunkLocation>>(
         location: T,
-        entity_type: Arc<EntityData>,
-        player_data: Option<PlayerConnection>,
+        entity_type: Arc<EntityType>,
+        connection: Option<PlayerConnection>,
     ) -> Arc<Entity> {
         let location: ChunkLocation = location.into();
         let position = location.position;
@@ -624,9 +629,7 @@ impl Entity {
             client_id: ENTITY_CLIENT_ID_GENERATOR.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
             id: Uuid::new_v4(),
             teleport: Mutex::new(None),
-            player_data: Mutex::new(
-                player_data.map(|connection| PlayerData::new(weak.clone(), connection)),
-            ),
+            entity_data: Mutex::new(EntityData::new(weak.clone())),
             rotation: Mutex::new(0.),
             animation_controller: Mutex::new(AnimationController::new(weak.clone(), 1)),
             inventory: Mutex::new(Inventory::new(9, || {
@@ -637,6 +640,7 @@ impl Entity {
                 slots
             })),
             open_inventory: Mutex::new(None),
+            connection: Mutex::new(connection),
         });
         entity
             .try_send_message(&NetworkMessageS2C::TeleportPlayer(
@@ -666,9 +670,10 @@ impl Entity {
             .unwrap()
             .add_viewer(entity.this.upgrade().unwrap()); //todo: only add if is player
 
-        if let Some(player_data) = entity.player_data.lock().unwrap().as_mut() {
-            player_data.set_hand_slot(0);
-            Inventory::set_cursor(player_data);
+        {
+            let mut entity_data = entity.entity_data.lock().unwrap();
+            entity_data.set_hand_slot(0);
+            Inventory::set_cursor(&mut *entity_data);
         }
         chunk.add_entity(entity.clone());
         let add_message = entity.create_add_message(position);
@@ -702,11 +707,10 @@ impl Entity {
                 .unwrap()
                 .add_viewer(self.this.upgrade().unwrap());
         } else {
-            let mut player_data = self.player_data.lock().unwrap();
-            let player_data = player_data.as_mut().unwrap();
+            let mut player_data = self.entity_data.lock().unwrap();
             //todo: drop hand item
             player_data.set_inventory_hand(None);
-            Inventory::set_cursor(player_data);
+            Inventory::set_cursor(&mut *player_data);
         }
         self.try_send_message(&NetworkMessageS2C::GuiData(
             object! {"type":"setCursorLock",lock:new_inventory.is_none()},
@@ -718,8 +722,8 @@ impl Entity {
         &self.id
     }
     pub fn try_send_message(&self, message: &NetworkMessageS2C) -> Result<(), ()> {
-        if let Some(player) = &mut *self.player_data.lock().unwrap() {
-            player.connection.send(message);
+        if let Some(connection) = &mut *self.connection.lock().unwrap() {
+            connection.send(message);
             Ok(())
         } else {
             Err(())
@@ -865,12 +869,11 @@ impl Entity {
         }
         if self.is_player() {
             let messages = self
-                .player_data
+                .connection
                 .lock()
                 .unwrap()
                 .as_mut()
                 .unwrap()
-                .connection
                 .receive_messages();
             for message in messages {
                 match message {
@@ -968,7 +971,7 @@ impl Entity {
                         world.set_block(block_position, BlockData::Simple(0));
                     }
                     crate::net::NetworkMessageC2S::RightClickBlock(x, y, z, face, _) => {
-                        let hand_slot = self.player_data.lock().unwrap().as_ref().unwrap().slot;
+                        let hand_slot = self.entity_data.lock().unwrap().get_hand_slot();
                         let mut right_click_result = InteractionResult::Ignored;
                         self.inventory
                             .lock()
@@ -987,7 +990,7 @@ impl Entity {
                             .unwrap();
                     }
                     crate::net::NetworkMessageC2S::RightClick(shifting) => {
-                        let hand_slot = self.player_data.lock().unwrap().as_ref().unwrap().slot;
+                        let hand_slot = self.entity_data.lock().unwrap().get_hand_slot();
                         let mut right_click_result = InteractionResult::Ignored;
                         self.inventory
                             .lock()
@@ -1003,9 +1006,8 @@ impl Entity {
                             .unwrap();
                     }
                     crate::net::NetworkMessageC2S::MouseScroll(scroll_x, scroll_y) => {
-                        let mut player_data = self.player_data.lock().unwrap();
-                        let player_data = player_data.as_mut().unwrap();
-                        let new_slot = player_data.slot as i32 - scroll_y;
+                        let mut player_data = self.entity_data.lock().unwrap();
+                        let new_slot = player_data.get_hand_slot() as i32 - scroll_y;
                         player_data.set_hand_slot(new_slot as u32);
                     }
                     _ => {}
@@ -1020,11 +1022,11 @@ impl Entity {
     pub fn is_removed(&self) -> bool {
         self.removed.load(std::sync::atomic::Ordering::Relaxed)
             | self
-                .player_data
+                .connection
                 .lock()
                 .unwrap()
                 .as_ref()
-                .map(|connection| connection.connection.is_closed())
+                .map(|connection| connection.is_closed())
                 .unwrap_or(false)
     }
     pub fn post_remove(&self) {
@@ -1042,7 +1044,7 @@ impl Entity {
         }
     }
     fn is_player(&self) -> bool {
-        self.player_data.lock().unwrap().is_some()
+        self.connection.lock().unwrap().is_some()
     }
 }
 impl Hash for Entity {
