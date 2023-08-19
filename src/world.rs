@@ -638,6 +638,13 @@ impl Entity {
             })),
             open_inventory: Mutex::new(None),
         });
+        entity
+            .try_send_message(&NetworkMessageS2C::TeleportPlayer(
+                position.x as f32,
+                position.y as f32,
+                position.z as f32,
+            ))
+            .unwrap();
         {
             let item_registry = &chunk.world.server.item_registry;
             let mut inventory = entity.inventory.lock().unwrap();
@@ -674,6 +681,7 @@ impl Entity {
                 .load_chunk(chunk_position)
                 .add_viewer(entity.clone());
         }
+
         /*entity.try_send_message(&NetworkMessageS2C::PlayerAbilities(
             1.,
             crate::net::MovementType::NoClip,

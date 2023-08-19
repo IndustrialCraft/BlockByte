@@ -1,6 +1,7 @@
 create_block("example:stone").client_type_cube("example:stone","example:stone","example:stone","example:stone","example:stone","example:stone").register_item("example:stone_block","Stone Block").register();
 create_block("example:water").client_type_cube("example:water","example:water","example:water","example:water","example:water","example:water").client_transparent(true).client_render_data(1).client_fluid(true).register();
 create_block("example:log").client_type_cube("example:log_side","example:log_side","example:log_side","example:log_side","example:log_base","example:log_base").register_item("example:log_block","Log Block").register();
+create_block("example:test_model").client_type_air().client_dynamic("example:player","example:player").register_item("example:mode_test_block","Model Test Block").register();
 
 create_biome("example:forest", "example:stone","example:stone","example:stone","example:water").register();
 
@@ -11,4 +12,4 @@ register_image("example:water", "images/example:water.png");
 register_image("example:log_side", "images/example:log_side.png");
 register_image("example:log_base", "images/example:log_base.png");
 
-register_event("bb:player_join", |player|{player.abilities().creative(true);player.abilities().movement_type(MovementType::NoClip);player.abilities().speed(3.);});
+register_event("bb:player_join", |player|{player.abilities().creative(true);player.abilities().movement_type(MovementType::NoClip);player.abilities().speed(1.);});
