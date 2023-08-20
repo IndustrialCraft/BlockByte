@@ -35,6 +35,7 @@ pub struct World {
     unloaded_structure_placements:
         Mutex<HashMap<ChunkPosition, Vec<(BlockPosition, Arc<Structure>)>>>,
     id: Identifier,
+    temporary: bool,
 }
 impl World {
     const UNLOAD_TIME: usize = 1000;
@@ -51,6 +52,7 @@ impl World {
             world_generator,
             unloaded_structure_placements: Mutex::new(HashMap::new()),
             id,
+            temporary: true,
         });
         std::fs::create_dir_all(world.get_world_path()).unwrap();
         world
@@ -227,9 +229,8 @@ impl Chunk {
         let gen_chunk = chunk.clone();
         world.server.thread_pool.execute(Box::new(move || {
             {
-                let prevent_saving = true;
                 let save_path = gen_chunk.get_chunk_path();
-                if save_path.exists() && !prevent_saving {
+                if save_path.exists() {
                     let data = std::fs::read(save_path).unwrap(); //todo: if save data is corrupted, regenerate chunk
                     let mut data = data.as_slice();
                     let block_map_len: u32 = data.read_be().unwrap();
@@ -469,42 +470,44 @@ impl Chunk {
     }
     pub fn destroy(&self) {
         let chunk = self.this.upgrade().unwrap();
-        self.world.server.thread_pool.execute(Box::new(move || {
-            {
-                let mut data = Vec::new();
-                let mut block_data = Vec::with_capacity(16 * 16 * 16 * 2);
-                let mut block_map = FxHashMap::default();
-                let blocks = chunk.blocks.lock().unwrap();
-                let block_registry = &chunk.world.server.block_registry;
-                for x in 0..16 {
-                    for y in 0..16 {
-                        for z in 0..16 {
-                            let block = &blocks[x][y][z];
-                            match block {
-                                BlockData::Simple(id) => {
-                                    let block = block_registry
-                                        .state_by_ref(&BlockStateRef::from_state_id(*id));
-                                    let block_id = &block.parent.id; //todo: save state
-                                    let block_map_len = block_map.len();
-                                    let numeric_id =
-                                        *block_map.entry(block_id).or_insert(block_map_len);
-                                    block_data.write_be(numeric_id as u16).unwrap();
+        if !self.world.temporary {
+            self.world.server.thread_pool.execute(Box::new(move || {
+                {
+                    let mut data = Vec::new();
+                    let mut block_data = Vec::with_capacity(16 * 16 * 16 * 2);
+                    let mut block_map = FxHashMap::default();
+                    let blocks = chunk.blocks.lock().unwrap();
+                    let block_registry = &chunk.world.server.block_registry;
+                    for x in 0..16 {
+                        for y in 0..16 {
+                            for z in 0..16 {
+                                let block = &blocks[x][y][z];
+                                match block {
+                                    BlockData::Simple(id) => {
+                                        let block = block_registry
+                                            .state_by_ref(&BlockStateRef::from_state_id(*id));
+                                        let block_id = &block.parent.id; //todo: save state
+                                        let block_map_len = block_map.len();
+                                        let numeric_id =
+                                            *block_map.entry(block_id).or_insert(block_map_len);
+                                        block_data.write_be(numeric_id as u16).unwrap();
+                                    }
+                                    BlockData::Data => unimplemented!(),
                                 }
-                                BlockData::Data => unimplemented!(),
                             }
                         }
                     }
+                    data.write_be(block_map.len() as u32).unwrap();
+                    let mut block_map: Vec<_> = block_map.iter().collect();
+                    block_map.sort_by(|first, second| first.1.cmp(second.1));
+                    for block_map_entry in block_map {
+                        net::write_string(&mut data, &block_map_entry.0.to_string());
+                    }
+                    data.append(&mut block_data);
+                    std::fs::write(chunk.get_chunk_path(), data).unwrap();
                 }
-                data.write_be(block_map.len() as u32).unwrap();
-                let mut block_map: Vec<_> = block_map.iter().collect();
-                block_map.sort_by(|first, second| first.1.cmp(second.1));
-                for block_map_entry in block_map {
-                    net::write_string(&mut data, &block_map_entry.0.to_string());
-                }
-                data.append(&mut block_data);
-                std::fs::write(chunk.get_chunk_path(), data).unwrap();
-            }
-        }));
+            }));
+        }
         self.entities.lock().unwrap().clear();
         self.viewers.lock().unwrap().clear();
     }
