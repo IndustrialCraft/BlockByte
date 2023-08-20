@@ -151,17 +151,19 @@ impl WorldGenerator for BasicWorldGenerator {
                 array_init(|z| {
                     let y = i as i32 + position.y * 16;
                     let (height, biome) = column_data[x][z];
-                    for (chance, structure) in biome.get_structures() {
-                        if height / 16 == position.y && structure_rng.gen_bool(*chance as f64) {
-                            world.place_structure(
-                                BlockPosition {
-                                    x: (x as i32) + (position.x * 16),
-                                    y: height + 1,
-                                    z: (z as i32) + (position.z * 16),
-                                },
-                                structure,
-                                false,
-                            );
+                    if i == 0 {
+                        for (chance, structure) in biome.get_structures() {
+                            if height / 16 == position.y && structure_rng.gen_bool(*chance as f64) {
+                                world.place_structure(
+                                    BlockPosition {
+                                        x: (x as i32) + (position.x * 16),
+                                        y: height + 1,
+                                        z: (z as i32) + (position.z * 16),
+                                    },
+                                    structure,
+                                    false,
+                                );
+                            }
                         }
                     }
                     if y > height {

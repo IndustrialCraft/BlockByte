@@ -227,8 +227,9 @@ impl Chunk {
         let gen_chunk = chunk.clone();
         world.server.thread_pool.execute(Box::new(move || {
             {
+                let prevent_saving = true;
                 let save_path = gen_chunk.get_chunk_path();
-                if save_path.exists() {
+                if save_path.exists() && !prevent_saving {
                     let data = std::fs::read(save_path).unwrap(); //todo: if save data is corrupted, regenerate chunk
                     let mut data = data.as_slice();
                     let block_map_len: u32 = data.read_be().unwrap();
