@@ -1,7 +1,7 @@
 use crate::{
     registry::{BlockRegistry, BlockStateRef},
-    util::{BlockPosition, ChunkPosition, Identifier},
-    world::{BlockData, Structure, World},
+    util::{BlockPosition, Identifier},
+    world::{BlockData, Chunk, Structure},
 };
 use array_init::array_init;
 use noise::{Fbm, NoiseFn, OpenSimplex};
@@ -10,18 +10,18 @@ use splines::{Key, Spline};
 use std::sync::Arc;
 
 pub trait WorldGenerator {
-    fn generate(&self, position: ChunkPosition, world: &Arc<World>) -> [[[BlockData; 16]; 16]; 16];
+    fn generate(&self, chunk: &Arc<Chunk>) -> [[[BlockData; 16]; 16]; 16];
 }
 pub struct FlatWorldGenerator {
     pub height: i32,
     pub simple_id: u32,
 }
 impl WorldGenerator for FlatWorldGenerator {
-    fn generate(&self, position: ChunkPosition, world: &Arc<World>) -> [[[BlockData; 16]; 16]; 16] {
+    fn generate(&self, chunk: &Arc<Chunk>) -> [[[BlockData; 16]; 16]; 16] {
         array_init(|_| {
             array_init(|i| {
                 array_init(|_| {
-                    BlockData::Simple(if i as i32 + position.y * 16 < self.height {
+                    BlockData::Simple(if i as i32 + chunk.position.y * 16 < self.height {
                         self.simple_id
                     } else {
                         0
@@ -128,7 +128,8 @@ impl BasicWorldGenerator {
     }
 }
 impl WorldGenerator for BasicWorldGenerator {
-    fn generate(&self, position: ChunkPosition, world: &Arc<World>) -> [[[BlockData; 16]; 16]; 16] {
+    fn generate(&self, chunk: &Arc<Chunk>) -> [[[BlockData; 16]; 16]; 16] {
+        let position = chunk.position;
         let column_data: [[(i32, &Biome); 16]; 16] = array_init(|x| {
             array_init(|z| {
                 let total_x = (x as i32) + (position.x * 16);
@@ -154,7 +155,7 @@ impl WorldGenerator for BasicWorldGenerator {
                     if i == 0 {
                         for (chance, structure) in biome.get_structures() {
                             if height / 16 == position.y && structure_rng.gen_bool(*chance as f64) {
-                                world.place_structure(
+                                chunk.world.place_structure(
                                     BlockPosition {
                                         x: (x as i32) + (position.x * 16),
                                         y: height + 1,
@@ -166,18 +167,23 @@ impl WorldGenerator for BasicWorldGenerator {
                             }
                         }
                     }
+                    let block_position = BlockPosition {
+                        x: (position.x * 16) + x as i32,
+                        y,
+                        z: (position.z * 16) + z as i32,
+                    };
                     if y > height {
                         if y > 0 {
                             BlockData::Simple(0)
                         } else {
-                            biome.water_block.to_block_data()
+                            biome.water_block.create_block_data(chunk, block_position)
                         }
                     } else if y == height {
-                        biome.top_block.to_block_data()
+                        biome.top_block.create_block_data(chunk, block_position)
                     } else if y >= height - 4 {
-                        biome.middle_block.to_block_data()
+                        biome.middle_block.create_block_data(chunk, block_position)
                     } else {
-                        biome.bottom_block.to_block_data()
+                        biome.bottom_block.create_block_data(chunk, block_position)
                     }
 
                     /*BlockData::Simple(if y <= heights[x][z] {

@@ -273,7 +273,7 @@ pub struct ChunkLocation {
 }
 impl ChunkLocation {
     pub fn new(position: Position, chunk: Arc<Chunk>) -> Result<ChunkLocation, ()> {
-        if position.to_chunk_pos() != chunk.position {
+        if position.to_chunk_pos() == chunk.position {
             Ok(ChunkLocation { position, chunk })
         } else {
             Err(())
@@ -288,6 +288,51 @@ impl PartialEq for ChunkLocation {
 impl From<&Location> for ChunkLocation {
     fn from(value: &Location) -> Self {
         ChunkLocation {
+            position: value.position,
+            chunk: value.world.load_chunk(value.position.to_chunk_pos()),
+        }
+    }
+}
+
+pub struct BlockLocation {
+    pub position: BlockPosition,
+    pub world: Arc<World>,
+}
+impl PartialEq for BlockLocation {
+    fn eq(&self, other: &Self) -> bool {
+        self.position == self.position && Arc::ptr_eq(&self.world, &other.world)
+    }
+}
+impl From<&ChunkBlockLocation> for BlockLocation {
+    fn from(value: &ChunkBlockLocation) -> Self {
+        BlockLocation {
+            position: value.position,
+            world: value.chunk.world.clone(),
+        }
+    }
+}
+#[derive(Clone)]
+pub struct ChunkBlockLocation {
+    pub position: BlockPosition,
+    pub chunk: Arc<Chunk>,
+}
+impl ChunkBlockLocation {
+    pub fn new(position: BlockPosition, chunk: Arc<Chunk>) -> Result<ChunkBlockLocation, ()> {
+        if position.to_chunk_pos() == chunk.position {
+            Ok(ChunkBlockLocation { position, chunk })
+        } else {
+            Err(())
+        }
+    }
+}
+impl PartialEq for ChunkBlockLocation {
+    fn eq(&self, other: &Self) -> bool {
+        self.position == self.position && Arc::ptr_eq(&self.chunk, &other.chunk)
+    }
+}
+impl From<&BlockLocation> for ChunkBlockLocation {
+    fn from(value: &BlockLocation) -> Self {
+        ChunkBlockLocation {
             position: value.position,
             chunk: value.world.load_chunk(value.position.to_chunk_pos()),
         }

@@ -117,6 +117,7 @@ impl Server {
                     let block = Arc::new(Block {
                         id: block_data.id,
                         default_state: id,
+                        data_container: block_data.data_container,
                     });
                     let state = vec![BlockState {
                         state_id: id,

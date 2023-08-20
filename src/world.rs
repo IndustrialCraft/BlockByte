@@ -21,13 +21,16 @@ use crate::{
     inventory::{Inventory, InventoryWrapper, ItemStack},
     net::{self, MovementType, NetworkMessageS2C, PlayerConnection},
     registry::{BlockRegistry, BlockStateRef, EntityType, InteractionResult},
-    util::{BlockPosition, ChunkLocation, ChunkPosition, Identifier, Location, Position},
+    util::{
+        BlockPosition, ChunkBlockLocation, ChunkLocation, ChunkPosition, Identifier, Location,
+        Position,
+    },
     worldgen::WorldGenerator,
     Server,
 };
 
 pub struct World {
-    server: Arc<Server>,
+    pub server: Arc<Server>,
     this: Weak<Self>,
     chunks: Mutex<FxHashMap<ChunkPosition, Arc<Chunk>>>,
     unload_timer: RelaxedCounter,
@@ -52,7 +55,7 @@ impl World {
             world_generator,
             unloaded_structure_placements: Mutex::new(HashMap::new()),
             id,
-            temporary: true,
+            temporary: false,
         });
         std::fs::create_dir_all(world.get_world_path()).unwrap();
         world
@@ -103,7 +106,7 @@ impl World {
             }
         }
     }
-    pub fn set_block(&self, position: BlockPosition, block: BlockData) {
+    pub fn set_block(&self, position: BlockPosition, block: BlockStateRef) {
         let chunk_offset = position.chunk_offset();
         self.load_chunk(position.to_chunk_pos()).set_block(
             chunk_offset.0,
@@ -122,7 +125,7 @@ impl World {
     }
     pub fn replace_block<F>(&self, position: BlockPosition, replacer: F)
     where
-        F: FnOnce(BlockData) -> Option<BlockData>,
+        F: FnOnce(BlockData) -> Option<BlockStateRef>,
     {
         let chunk_offset = position.chunk_offset();
         let chunk = self.load_chunk(position.to_chunk_pos());
@@ -190,13 +193,13 @@ impl World {
 #[derive(Clone)]
 pub enum BlockData {
     Simple(u32),
-    Data,
+    Data(Arc<WorldBlock>),
 }
 impl BlockData {
     pub fn get_client_id(&self) -> u32 {
         match self {
             Self::Simple(id) => *id,
-            Self::Data => todo!(),
+            Self::Data(block) => block.state.get_client_id(),
         }
     }
 }
@@ -227,7 +230,7 @@ impl Chunk {
             this: this.clone(),
         });
         let gen_chunk = chunk.clone();
-        world.server.thread_pool.execute(Box::new(move || {
+        world.clone().server.thread_pool.execute(Box::new(move || {
             {
                 let save_path = gen_chunk.get_chunk_path();
                 if save_path.exists() {
@@ -246,20 +249,26 @@ impl Chunk {
                                 .unwrap(),
                         );
                     }
-                    *gen_chunk.blocks.lock().unwrap() = array_init(|_| {
-                        array_init(|_| {
-                            array_init(|_| {
+                    let chunk = gen_chunk.clone();
+                    *gen_chunk.blocks.lock().unwrap() = array_init(|x| {
+                        array_init(|y| {
+                            array_init(|z| {
                                 let block_id: u16 = data.read_be().unwrap();
                                 let block = blocks.get(block_id as usize).unwrap();
-                                BlockData::Simple(block.default_state)
+                                block.get_default_state_ref().create_block_data(
+                                    &chunk,
+                                    BlockPosition {
+                                        x: (position.x * 16) + x as i32,
+                                        y: (position.y * 16) + y as i32,
+                                        z: (position.z * 16) + z as i32,
+                                    },
+                                )
                             })
                         })
                     });
                 } else {
-                    *gen_chunk.blocks.lock().unwrap() = gen_chunk
-                        .world
-                        .world_generator
-                        .generate(position, &gen_chunk.world);
+                    *gen_chunk.blocks.lock().unwrap() =
+                        gen_chunk.world.world_generator.generate(&gen_chunk);
                 }
             }
 
@@ -312,18 +321,24 @@ impl Chunk {
             |block_position, block| {
                 if block_position.to_chunk_pos() == self.position {
                     let offset = block_position.chunk_offset();
-                    self.set_block(offset.0, offset.1, offset.2, block.to_block_data());
+                    self.set_block(offset.0, offset.1, offset.2, block);
                 }
             },
             position,
         );
     }
-    pub fn set_block(&self, offset_x: u8, offset_y: u8, offset_z: u8, block: BlockData) {
+    pub fn set_block(&self, offset_x: u8, offset_y: u8, offset_z: u8, block: BlockStateRef) {
+        let block_position = BlockPosition {
+            x: self.position.x * 16 + offset_x as i32,
+            y: self.position.y * 16 + offset_y as i32,
+            z: self.position.z * 16 + offset_z as i32,
+        };
+        let block = block.create_block_data(&self.this.upgrade().unwrap(), block_position);
         if self.loading_stage.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
             self.announce_to_viewers(NetworkMessageS2C::SetBlock(
-                self.position.x * 16 + offset_x as i32,
-                self.position.y * 16 + offset_y as i32,
-                self.position.z * 16 + offset_z as i32,
+                block_position.x,
+                block_position.y,
+                block_position.z,
                 block.get_client_id(),
             ));
         }
@@ -482,18 +497,16 @@ impl Chunk {
                         for y in 0..16 {
                             for z in 0..16 {
                                 let block = &blocks[x][y][z];
-                                match block {
-                                    BlockData::Simple(id) => {
-                                        let block = block_registry
-                                            .state_by_ref(&BlockStateRef::from_state_id(*id));
-                                        let block_id = &block.parent.id; //todo: save state
-                                        let block_map_len = block_map.len();
-                                        let numeric_id =
-                                            *block_map.entry(block_id).or_insert(block_map_len);
-                                        block_data.write_be(numeric_id as u16).unwrap();
-                                    }
-                                    BlockData::Data => unimplemented!(),
-                                }
+                                let block_state_ref = match block {
+                                    BlockData::Simple(id) => BlockStateRef::from_state_id(*id),
+                                    BlockData::Data(block) => block.state,
+                                };
+                                let block = block_registry.state_by_ref(&block_state_ref);
+                                let block_id = &block.parent.id; //todo: save state
+                                let block_map_len = block_map.len();
+                                let numeric_id =
+                                    *block_map.entry(block_id).or_insert(block_map_len);
+                                block_data.write_be(numeric_id as u16).unwrap();
                             }
                         }
                     }
@@ -979,9 +992,10 @@ impl Entity {
                     crate::net::NetworkMessageC2S::BreakBlock(x, y, z) => {
                         let block_position = BlockPosition { x, y, z };
                         let world = &self.get_location().chunk.world;
-                        world.set_block(block_position, BlockData::Simple(0));
+                        world.set_block(block_position, BlockStateRef::from_state_id(0));
                     }
                     crate::net::NetworkMessageC2S::RightClickBlock(x, y, z, face, _) => {
+                        let block_position = BlockPosition { x, y, z };
                         let hand_slot = self.entity_data.lock().unwrap().get_hand_slot();
                         let mut right_click_result = InteractionResult::Ignored;
                         self.inventory
@@ -993,12 +1007,19 @@ impl Entity {
                                         stack.item_type.clone().on_right_click_block(
                                             stack,
                                             self.this.upgrade().unwrap(),
-                                            BlockPosition { x, y, z },
+                                            block_position,
                                             face,
                                         );
                                 }
                             })
                             .unwrap();
+                        let block = self.get_location().chunk.world.get_block(block_position);
+                        match block {
+                            BlockData::Simple(_) => {}
+                            BlockData::Data(block) => {
+                                block.on_right_click(self);
+                            }
+                        }
                     }
                     crate::net::NetworkMessageC2S::RightClick(shifting) => {
                         let hand_slot = self.entity_data.lock().unwrap().get_hand_slot();
@@ -1127,5 +1148,34 @@ impl Structure {
             chunks.insert((block_position.clone() + position).to_chunk_pos());
         }
         chunks
+    }
+}
+
+pub struct WorldBlock {
+    this: Weak<WorldBlock>,
+    chunk: Weak<Chunk>,
+    position: BlockPosition,
+    state: BlockStateRef,
+    pub inventory: Mutex<Inventory>,
+}
+impl WorldBlock {
+    pub fn new(location: ChunkBlockLocation, state: BlockStateRef) -> Arc<WorldBlock> {
+        Arc::new_cyclic(|this| WorldBlock {
+            chunk: Arc::downgrade(&location.chunk),
+            position: location.position,
+            state,
+            inventory: Mutex::new(Inventory::new(9, || {
+                let mut slots = Vec::with_capacity(9);
+                for i in 0..9 {
+                    slots.push(((i as f32 * 0.13) - (4.5 * 0.13), 0.));
+                }
+                slots
+            })),
+            this: this.clone(),
+        })
+    }
+    pub fn on_right_click(&self, player: &Entity) {
+        player.set_open_inventory(Some(InventoryWrapper::Block(self.this.upgrade().unwrap())));
+        player.send_chat_message("clicked".to_string());
     }
 }

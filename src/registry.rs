@@ -13,8 +13,8 @@ use zip::{write::FileOptions, DateTime, ZipWriter};
 use crate::{
     inventory::ItemStack,
     mods::{ClientContentData, ScriptCallback},
-    util::{BlockPosition, Face, Identifier},
-    world::{BlockData, Entity},
+    util::{BlockPosition, ChunkBlockLocation, Face, Identifier},
+    world::{BlockData, Chunk, Entity, WorldBlock},
 };
 
 pub struct BlockRegistry {
@@ -34,6 +34,7 @@ impl BlockRegistry {
                 let block = Arc::new(Block {
                     id: Identifier::new("bb", "air"),
                     default_state: id,
+                    data_container: false,
                 });
                 let state = vec![BlockState {
                     state_id: id,
@@ -77,6 +78,7 @@ impl BlockRegistry {
 pub struct Block {
     pub id: Identifier,
     pub default_state: u32,
+    pub data_container: bool,
 }
 impl Block {
     pub fn get_default_state_ref(&self) -> BlockStateRef {
@@ -90,11 +92,19 @@ pub struct BlockStateRef {
     state_id: u32,
 }
 impl BlockStateRef {
+    pub fn create_block_data(&self, chunk: &Arc<Chunk>, position: BlockPosition) -> BlockData {
+        chunk
+            .world
+            .server
+            .block_registry
+            .state_by_ref(self)
+            .to_block_data(ChunkBlockLocation::new(position, chunk.clone()).unwrap())
+    }
     pub fn from_state_id(state_id: u32) -> Self {
         Self { state_id }
     }
-    pub fn to_block_data(&self) -> BlockData {
-        BlockData::Simple(self.state_id)
+    pub fn get_client_id(&self) -> u32 {
+        self.state_id
     }
 }
 pub struct BlockState {
@@ -103,8 +113,12 @@ pub struct BlockState {
     pub parent: Arc<Block>,
 }
 impl BlockState {
-    pub fn to_block_data(&self) -> BlockData {
-        BlockData::Simple(self.state_id)
+    pub fn to_block_data(&self, chunk_block_location: ChunkBlockLocation) -> BlockData {
+        if self.parent.data_container {
+            BlockData::Data(WorldBlock::new(chunk_block_location, self.get_ref()))
+        } else {
+            BlockData::Simple(self.state_id)
+        }
     }
     pub fn get_full_id(&self) -> u32 {
         self.state_id
@@ -198,7 +212,7 @@ impl Item {
                     if !player.entity_data.lock().unwrap().creative {
                         item.add_count(-1);
                     }
-                    Some(BlockData::Simple(place.default_state))
+                    Some(place.get_default_state_ref())
                 }
                 _ => None,
             });

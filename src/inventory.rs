@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::{
     net::MouseButton,
     registry::Item,
-    world::{Entity, EntityData},
+    world::{Entity, EntityData, WorldBlock},
 };
 
 #[derive(Clone)]
@@ -182,12 +182,14 @@ impl Inventory {
 #[derive(Clone)]
 pub enum InventoryWrapper {
     Entity(Arc<Entity>),
+    Block(Arc<WorldBlock>),
     Own(Arc<Mutex<Inventory>>),
 }
 impl InventoryWrapper {
     pub fn get_inventory(&self) -> Option<MutexGuard<Inventory>> {
         match self {
             Self::Entity(entity) => Some(entity.inventory.lock().unwrap()),
+            Self::Block(block) => Some(block.inventory.lock().unwrap()),
             Self::Own(inventory) => Some(inventory.lock().unwrap()),
         }
     }

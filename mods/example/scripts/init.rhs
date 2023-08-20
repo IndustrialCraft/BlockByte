@@ -6,6 +6,7 @@ create_block("example:dirt").client_type_cube("example:dirt","example:dirt","exa
 create_block("example:sand").client_type_cube("example:sand","example:sand","example:sand","example:sand","example:sand","example:sand").register_item("example:sand_block","Sand Block").register();
 create_block("example:leaves").client_type_cube("example:leaves","example:leaves","example:leaves","example:leaves","example:leaves","example:leaves").register_item("example:leaves_block","Leaves Block").register();
 create_block("example:test_model").client_type_air().client_dynamic("example:player","example:player").register_item("example:mode_test_block","Model Test Block").register();
+create_block("example:barell").client_type_cube("example:barell","example:barell","example:barell","example:barell","example:barell","example:barell").register_item("example:barell_block","Barell Block").data_container().register();
 
 create_biome("example:forest", "example:grass","example:dirt","example:stone","example:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.02, "example:tree").register();
 create_biome("example:ocean", "example:sand","example:sand","example:stone","example:water").spline_add_height(-1., 1.).spline_add_height(0., 0.).register();
@@ -21,6 +22,8 @@ register_image("example:grass_side", "images/grass_side.png");
 register_image("example:dirt", "images/dirt.png");
 register_image("example:leaves", "images/leaves.png");
 register_image("example:sand", "images/sand.png");
+register_image("example:barell", "images/barell.png");
+
 
 
 register_event("bb:player_join", |player|{player.abilities().creative(true);player.abilities().movement_type(MovementType::NoClip);player.abilities().speed(1.);});

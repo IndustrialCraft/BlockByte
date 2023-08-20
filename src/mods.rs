@@ -164,7 +164,7 @@ impl ModManager {
             .register_fn(
                 "client_dynamic_add_item",
                 BlockBuilder::client_dynamic_add_item,
-            )
+            ).register_fn("data_container", BlockBuilder::mark_data_container)
             .register_fn("register", move |this: &mut Arc<Mutex<BlockBuilder>>| {
                 registered_blocks.lock().unwrap().push(this.clone())
             })
@@ -467,6 +467,7 @@ impl BiomeBuilder {
 pub struct BlockBuilder {
     pub id: Identifier,
     pub client: ClientBlockRenderData,
+    pub data_container: bool,
 }
 impl BlockBuilder {
     pub fn new(id: &str) -> Arc<Mutex<Self>> {
@@ -480,7 +481,12 @@ impl BlockBuilder {
                 transparent: false,
                 selectable: true,
             },
+            data_container: false,
         }))
+    }
+    pub fn mark_data_container(this: &mut Arc<Mutex<Self>>) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().data_container = true;
+        this.clone()
     }
     pub fn client_type_air(this: &mut Arc<Mutex<Self>>) -> Arc<Mutex<Self>> {
         this.lock().unwrap().client.block_type = ClientBlockRenderDataType::Air;
