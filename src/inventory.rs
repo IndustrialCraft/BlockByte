@@ -28,7 +28,7 @@ impl ItemStack {
             item_count: new_count,
         }
     }
-    pub fn get_type_type(&self) -> &Arc<Item> {
+    pub fn get_type(&self) -> &Arc<Item> {
         &self.item_type
     }
     pub fn set_count(&mut self, count: u32) {
@@ -36,6 +36,9 @@ impl ItemStack {
     }
     pub fn add_count(&mut self, count: i32) {
         self.item_count = (self.item_count as i32 + count).max(0) as u32;
+    }
+    pub fn get_count(&self) -> u32 {
+        self.item_count
     }
 }
 pub struct Inventory {
@@ -162,21 +165,37 @@ impl Inventory {
         }
     }
     pub fn on_click_slot(&mut self, player: &Entity, id: u32, button: MouseButton, shifting: bool) {
-        let result = {
-            let mut player_data = player.entity_data.lock().unwrap();
-            if button == MouseButton::LEFT {
-                let hand = player_data.get_inventory_hand().clone();
-                player_data.set_inventory_hand(self.get_item(id).unwrap().clone());
-                Some(hand)
-            } else {
-                None
-            }
-        };
-        if let Some(result) = result {
-            self.set_item(id, result).unwrap();
+        let mut player_data = player.entity_data.lock().unwrap();
+        if button == MouseButton::LEFT {
+            let hand = player_data.get_inventory_hand().clone();
+            player_data.set_inventory_hand(self.get_item(id).unwrap().clone());
+            self.set_item(id, hand).unwrap();
         }
     }
-    pub fn on_scroll_slot(&mut self, player: &Entity, id: u32, x: i32, y: i32, shifting: bool) {}
+    pub fn on_scroll_slot(&mut self, player: &Entity, id: u32, x: i32, y: i32, shifting: bool) {
+        let mut player_data = player.entity_data.lock().unwrap();
+        player_data.modify_inventory_hand(|first| {
+            self.modify_item(id, |second| {
+                let (first, second) = if y < 0 {
+                    (first, second)
+                } else {
+                    (second, first)
+                };
+
+                if first.is_none() {
+                    return;
+                }
+                let first_type = first.as_ref().unwrap().get_type();
+                if second.is_none() {
+                    *second = Some(ItemStack::new(first_type.clone(), 1));
+                } else if Arc::ptr_eq(first_type, second.as_ref().unwrap().get_type()) {
+                    second.as_mut().unwrap().add_count(1);
+                }
+                first.as_mut().unwrap().add_count(-1);
+            })
+            .unwrap();
+        });
+    }
 }
 
 #[derive(Clone)]

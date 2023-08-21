@@ -572,8 +572,31 @@ impl EntityData {
             hand_item: None,
         }
     }
+    pub fn modify_inventory_hand<F>(&mut self, function: F)
+    where
+        F: FnOnce(&mut Option<ItemStack>),
+    {
+        function.call_once((&mut self.hand_item,));
+        let set_as_empty = match &self.hand_item {
+            Some(item) => item.get_count() == 0,
+            None => true,
+        };
+        if set_as_empty {
+            self.hand_item = None;
+        }
+        Inventory::set_cursor(self);
+    }
     pub fn set_inventory_hand(&mut self, item: Option<ItemStack>) {
-        self.hand_item = item;
+        self.hand_item = match item {
+            Some(item) => {
+                if item.get_count() == 0 {
+                    None
+                } else {
+                    Some(item)
+                }
+            }
+            None => None,
+        };
         Inventory::set_cursor(self);
     }
     pub fn get_inventory_hand(&self) -> &Option<ItemStack> {
