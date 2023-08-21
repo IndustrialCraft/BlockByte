@@ -182,16 +182,19 @@ impl Inventory {
                     (second, first)
                 };
 
-                if first.is_none() {
-                    return;
+                if let Some(first) = first {
+                    match second {
+                        Some(second) => {
+                            if Arc::ptr_eq(first.get_type(), second.get_type()) {
+                                second.add_count(1);
+                            }
+                        }
+                        None => {
+                            *second = Some(ItemStack::new(first.get_type().clone(), 1));
+                        }
+                    }
+                    first.add_count(-1);
                 }
-                let first_type = first.as_ref().unwrap().get_type();
-                if second.is_none() {
-                    *second = Some(ItemStack::new(first_type.clone(), 1));
-                } else if Arc::ptr_eq(first_type, second.as_ref().unwrap().get_type()) {
-                    second.as_mut().unwrap().add_count(1);
-                }
-                first.as_mut().unwrap().add_count(-1);
             })
             .unwrap();
         });
