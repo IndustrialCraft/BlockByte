@@ -16,10 +16,12 @@ use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
 use crate::{
+    inventory::Recipe,
     net::MovementType,
     registry::{
         BlockRegistry, ClientBlockCubeRenderData, ClientBlockDynamicData, ClientBlockRenderData,
         ClientBlockRenderDataType, ClientEntityData, ClientItemModel, ClientItemRenderData,
+        ItemRegistry,
     },
     util::{Identifier, Location, Position},
     world::{Entity, Structure},
@@ -164,7 +166,8 @@ impl ModManager {
             .register_fn(
                 "client_dynamic_add_item",
                 BlockBuilder::client_dynamic_add_item,
-            ).register_fn("data_container", BlockBuilder::mark_data_container)
+            )
+            .register_fn("data_container", BlockBuilder::mark_data_container)
             .register_fn("register", move |this: &mut Arc<Mutex<BlockBuilder>>| {
                 registered_blocks.lock().unwrap().push(this.clone())
             })
@@ -194,6 +197,7 @@ impl ModManager {
             .register_fn("client_model_block", ItemBuilder::client_model_block)
             .register_fn("place", ItemBuilder::place)
             .register_fn("on_right_click", ItemBuilder::on_right_click)
+            .register_fn("stack_size", ItemBuilder::stack_size)
             .register_fn("register", move |this: &mut Arc<Mutex<ItemBuilder>>| {
                 registered_items.lock().unwrap().push(this.clone())
             });
@@ -332,6 +336,32 @@ impl ModManager {
             }
         }
         structures
+    }
+    pub fn load_recipes(&self, item_registry: &ItemRegistry) -> HashMap<Identifier, Arc<Recipe>> {
+        let mut recipes = HashMap::new();
+        for loaded_mod in &self.mods {
+            let mut path = loaded_mod.1.path.clone();
+            path.push("recipes");
+            for recipe_path in WalkDir::new(&path)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|entry| entry.metadata().unwrap().is_file())
+            {
+                let path_diff = pathdiff::diff_paths(recipe_path.path(), &path).unwrap();
+                let id = path_diff
+                    .as_os_str()
+                    .to_str()
+                    .unwrap()
+                    .split_once(".")
+                    .unwrap()
+                    .0;
+                let id = Identifier::new(loaded_mod.1.namespace.clone(), id);
+                let json =
+                    json::parse(fs::read_to_string(recipe_path.path()).unwrap().as_str()).unwrap();
+                recipes.insert(id.clone(), Arc::new(Recipe::from_json(json, item_registry)));
+            }
+        }
+        recipes
     }
     pub fn runtime_engine_load(engine: &mut Engine, server: Weak<Server>) {
         engine.register_type_with_name::<Position>("Position");
@@ -565,6 +595,7 @@ pub struct ItemBuilder {
     pub client: ClientItemRenderData,
     pub place: Option<Identifier>,
     pub on_right_click: Option<FnPtr>,
+    pub stack_size: u32,
 }
 impl ItemBuilder {
     pub fn new(id: &str) -> Arc<Mutex<Self>> {
@@ -576,6 +607,7 @@ impl ItemBuilder {
             place: None,
             id: Identifier::parse(id).unwrap(),
             on_right_click: None,
+            stack_size: 20,
         }))
     }
     pub fn client_name(this: &mut Arc<Mutex<Self>>, name: &str) -> Arc<Mutex<Self>> {
@@ -597,6 +629,10 @@ impl ItemBuilder {
     }
     pub fn on_right_click(this: &mut Arc<Mutex<Self>>, callback: FnPtr) -> Arc<Mutex<Self>> {
         this.lock().unwrap().on_right_click = Some(callback);
+        this.clone()
+    }
+    pub fn stack_size(this: &mut Arc<Mutex<Self>>, stack_size: u32) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().stack_size = stack_size;
         this.clone()
     }
 }

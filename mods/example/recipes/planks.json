@@ -1,0 +1,14 @@
+{
+    "item_inputs": [
+        {
+            "id":"example:log_block",
+            "count":1
+        }
+    ],
+    "item_outputs": [
+        {
+            "id":"example:plank",
+            "count":4
+        }
+    ]
+}

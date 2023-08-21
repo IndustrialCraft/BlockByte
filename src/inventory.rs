@@ -6,7 +6,8 @@ use uuid::Uuid;
 
 use crate::{
     net::MouseButton,
-    registry::Item,
+    registry::{Item, ItemRegistry},
+    util::Identifier,
     world::{Entity, EntityData, WorldBlock},
 };
 
@@ -22,6 +23,16 @@ impl ItemStack {
             item_count,
         }
     }
+    pub fn from_json(json: &JsonValue, item_registry: &ItemRegistry) -> Result<Self, ()> {
+        //todo: error instead of crashing
+        Ok(Self::new(
+            item_registry
+                .item_by_identifier(&Identifier::parse(json["id"].as_str().unwrap()).unwrap())
+                .unwrap()
+                .clone(),
+            json["count"].as_u32().unwrap(),
+        ))
+    }
     pub fn copy(&self, new_count: u32) -> Self {
         ItemStack {
             item_type: self.item_type.clone(),
@@ -35,12 +46,15 @@ impl ItemStack {
         self.item_count = count;
     }
     pub fn add_count(&mut self, count: i32) {
-        self.item_count = (self.item_count as i32 + count).max(0) as u32;
+        self.item_count = (self.item_count as i32 + count)
+            .max(0)
+            .min(self.item_type.stack_size as i32) as u32;
     }
     pub fn get_count(&self) -> u32 {
         self.item_count
     }
 }
+#[derive(Clone)]
 pub struct Inventory {
     items: Box<[Option<ItemStack>]>,
     viewers: FxHashMap<Uuid, Weak<Entity>>,
@@ -185,19 +199,70 @@ impl Inventory {
                 if let Some(first) = first {
                     match second {
                         Some(second) => {
-                            if Arc::ptr_eq(first.get_type(), second.get_type()) {
+                            if Arc::ptr_eq(first.get_type(), second.get_type())
+                                && second.get_count() < second.get_type().stack_size
+                            {
                                 second.add_count(1);
+                                first.add_count(-1);
                             }
                         }
                         None => {
                             *second = Some(ItemStack::new(first.get_type().clone(), 1));
+                            first.add_count(-1);
                         }
                     }
-                    first.add_count(-1);
                 }
             })
             .unwrap();
         });
+    }
+    pub fn add_item(&mut self, item: &ItemStack) -> Option<ItemStack> {
+        //todo: first check slots where items are already
+        let mut rest = item.get_count();
+        for slot in 0..self.items.len() {
+            self.modify_item(slot as u32, |slot_item| {
+                let set_rest = match slot_item {
+                    Some(slot_item) => {
+                        if Arc::ptr_eq(item.get_type(), slot_item.get_type()) {
+                            let transfer =
+                                (slot_item.item_type.stack_size - slot_item.get_count()).min(rest);
+                            slot_item.add_count(transfer as i32);
+                            rest -= transfer;
+                        }
+                        false
+                    }
+                    None => true,
+                };
+                if set_rest {
+                    *slot_item = Some(item.copy(rest));
+                    rest = 0;
+                }
+            })
+            .unwrap();
+            if rest == 0 {
+                return None;
+            }
+        }
+        Some(item.copy(rest))
+    }
+    pub fn remove_item(&mut self, item: &ItemStack) -> Option<ItemStack> {
+        let mut rest = item.get_count();
+        for slot in 0..self.items.len() {
+            self.modify_item(slot as u32, |slot_item| {
+                if let Some(slot_item) = slot_item {
+                    if Arc::ptr_eq(item.get_type(), slot_item.get_type()) {
+                        let transfer = slot_item.get_count().min(rest);
+                        slot_item.add_count(-(transfer as i32));
+                        rest -= transfer;
+                    }
+                }
+            })
+            .unwrap();
+            if rest == 0 {
+                return None;
+            }
+        }
+        Some(item.copy(rest))
     }
 }
 
@@ -213,6 +278,49 @@ impl InventoryWrapper {
             Self::Entity(entity) => Some(entity.inventory.lock().unwrap()),
             Self::Block(block) => Some(block.inventory.lock().unwrap()),
             Self::Own(inventory) => Some(inventory.lock().unwrap()),
+        }
+    }
+}
+pub struct Recipe {
+    input_items: Vec<ItemStack>,
+    output_items: Vec<ItemStack>,
+}
+impl Recipe {
+    pub fn from_json(json: JsonValue, item_registry: &ItemRegistry) -> Self {
+        let mut input_items = Vec::new();
+        let mut output_items = Vec::new();
+        for item_input in json["item_inputs"].members() {
+            input_items.push(ItemStack::from_json(item_input, item_registry).unwrap());
+        }
+        for item_output in json["item_outputs"].members() {
+            output_items.push(ItemStack::from_json(item_output, item_registry).unwrap());
+        }
+        Recipe {
+            input_items,
+            output_items,
+        }
+    }
+    pub fn can_craft(&self, inventory: &Inventory) -> bool {
+        let mut inventory_copy = inventory.clone();
+        for input_item in &self.input_items {
+            if let Some(_) = inventory_copy.remove_item(input_item) {
+                return false;
+            }
+        }
+        true
+    }
+    pub fn consume_inputs(&self, inventory: &mut Inventory) -> Result<(), ()> {
+        if !self.can_craft(inventory) {
+            return Err(());
+        }
+        for item in &self.input_items {
+            inventory.remove_item(item);
+        }
+        Ok(())
+    }
+    pub fn add_outputs(&self, inventory: &mut Inventory) {
+        for item in &self.output_items {
+            inventory.add_item(item);
         }
     }
 }

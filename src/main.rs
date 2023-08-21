@@ -23,6 +23,7 @@ use std::{
 
 use crossbeam_channel::Receiver;
 use fxhash::FxHashMap;
+use inventory::Recipe;
 use json::object;
 use mods::{ModManager, ScriptCallback};
 use net::PlayerConnection;
@@ -92,6 +93,7 @@ pub struct Server {
     pub thread_pool: ThreadPool,
     world_generator_template: (Vec<Biome>,),
     structures: HashMap<Identifier, Arc<Structure>>,
+    recipes: HashMap<Identifier, Arc<Recipe>>,
     events: HashMap<Identifier, Vec<ScriptCallback>>,
     engine: Engine,
     save_directory: PathBuf,
@@ -145,6 +147,7 @@ impl Server {
                         on_right_click: item_data
                             .on_right_click
                             .map(|right_click| ScriptCallback::new(right_click)),
+                        stack_size: item_data.stack_size,
                     })
                 })
                 .unwrap();
@@ -174,6 +177,7 @@ impl Server {
             (client_content, hash)
         };
         let structures = loaded_mods.0.load_structures(&block_registry.borrow());
+        let recipes = loaded_mods.0.load_recipes(&item_registry.borrow());
         let block_registry = block_registry.into_inner();
         Arc::new_cyclic(|this| Server {
             this: this.clone(),
@@ -209,6 +213,7 @@ impl Server {
                 .collect(),),
             block_registry,
             structures,
+            recipes,
             events: loaded_mods.6,
             engine: {
                 let mut engine = Engine::new();

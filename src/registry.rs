@@ -195,6 +195,7 @@ pub struct Item {
     pub id: u32,
     pub place_block: Option<Arc<Block>>,
     pub on_right_click: Option<ScriptCallback>,
+    pub stack_size: u32,
 }
 impl Item {
     pub fn on_right_click_block(

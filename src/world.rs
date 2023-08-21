@@ -924,8 +924,8 @@ impl Entity {
                 .receive_messages();
             for message in messages {
                 match message {
-                    net::NetworkMessageC2S::Keyboard(key, release, repeat) => {
-                        if key == 9 {
+                    net::NetworkMessageC2S::Keyboard(key, release, repeat) => match key {
+                        9 => {
                             self.set_open_inventory(Some(InventoryWrapper::Own(Arc::new(
                                 Mutex::new(Inventory::new(9, || {
                                     let mut slots = Vec::with_capacity(9);
@@ -936,7 +936,19 @@ impl Entity {
                                 })),
                             ))));
                         }
-                    }
+                        103 => {
+                            let mut inventory = self.inventory.lock().unwrap();
+                            let recipe = self
+                                .server
+                                .recipes
+                                .get(&Identifier::new("example", "planks"))
+                                .unwrap();
+                            if let Ok(_) = recipe.consume_inputs(&mut inventory) {
+                                recipe.add_outputs(&mut inventory);
+                            }
+                        }
+                        _ => {}
+                    },
                     net::NetworkMessageC2S::GuiClose => {
                         self.set_open_inventory(None);
                     }
