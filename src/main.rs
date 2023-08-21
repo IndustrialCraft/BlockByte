@@ -13,6 +13,7 @@ mod worldgen;
 use std::{
     cell::RefCell,
     collections::HashMap,
+    fs,
     net::TcpListener,
     path::{Path, PathBuf},
     process,
@@ -48,7 +49,7 @@ fn main() {
         .unwrap();
     }
     {
-        let server = Server::new(4321, "test server".to_string(), {
+        let server = Server::new(4321, {
             let mut save = std::env::current_dir().unwrap();
             save.push("save");
             std::fs::create_dir_all(&save).unwrap();
@@ -88,7 +89,6 @@ pub struct Server {
     worlds: Mutex<FxHashMap<Identifier, Arc<World>>>,
     new_players: Mutex<Receiver<PlayerConnection>>,
     mods: Mutex<ModManager>,
-    motd: String,
     client_content: (Vec<u8>, String),
     pub thread_pool: ThreadPool,
     world_generator_template: (Vec<Biome>,),
@@ -97,10 +97,11 @@ pub struct Server {
     events: HashMap<Identifier, Vec<ScriptCallback>>,
     engine: Engine,
     save_directory: PathBuf,
+    settings: ServerSettings,
 }
 
 impl Server {
-    fn new(port: u16, motd: String, save_directory: PathBuf) -> Arc<Server> {
+    fn new(port: u16, save_directory: PathBuf) -> Arc<Server> {
         let loaded_mods = ModManager::load_mods(Path::new("mods"));
         for error in &loaded_mods.7 {
             println!("script error from mod {}: {}", error.0, error.1.to_string());
@@ -186,7 +187,6 @@ impl Server {
             item_registry: item_registry.into_inner(),
             entity_registry: entity_registry.into_inner(),
             mods: Mutex::new(loaded_mods.0),
-            motd,
             client_content,
             thread_pool: ThreadPool::new(4),
             world_generator_template: (loaded_mods
@@ -219,6 +219,18 @@ impl Server {
                 let mut engine = Engine::new();
                 ModManager::runtime_engine_load(&mut engine, this.clone());
                 engine
+            },
+            settings: {
+                let path = {
+                    let mut path = save_directory.clone();
+                    path.push("settings.txt");
+                    path
+                };
+                if path.exists() {
+                    ServerSettings::load_from_string(fs::read_to_string(path).unwrap())
+                } else {
+                    ServerSettings::new()
+                }
             },
             save_directory,
         })
@@ -301,6 +313,14 @@ impl Server {
         for world in self.worlds.lock().unwrap().drain() {
             world.1.destroy();
         }
+        std::fs::write(
+            {
+                let mut path = self.save_directory.clone();
+                path.push("settings.txt");
+                path
+            },
+            self.settings.save_to_string(),
+        );
     }
     fn create_listener_thread(game_server: Weak<Server>, port: u16) -> Receiver<PlayerConnection> {
         let (tx, rx) = crossbeam_channel::unbounded();
@@ -318,7 +338,7 @@ impl Server {
                                 0 => tx.send(connection.0).unwrap(),
                                 1 => {
                                     let json = object! {
-                                        motd: server.motd.clone(),
+                                        motd: server.settings.get("server.motd", "test server").clone(),
                                         time: SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis().to_string(),
                                         client_content_hash: server.client_content.1.clone()
                                     };
@@ -333,5 +353,61 @@ impl Server {
             }
         });
         rx
+    }
+}
+pub struct ServerSettings {
+    settings: Mutex<HashMap<String, String>>,
+}
+impl ServerSettings {
+    pub fn new() -> Self {
+        Self {
+            settings: Mutex::new(HashMap::new()),
+        }
+    }
+    pub fn load_from_string(input: String) -> Self {
+        let mut settings = HashMap::new();
+        for line in input.lines() {
+            let (key, value) = line.split_once("=").unwrap();
+            settings.insert(key.to_string(), value.to_string());
+        }
+        Self {
+            settings: Mutex::new(settings),
+        }
+    }
+    pub fn get(&self, key: &str, default: &str) -> String {
+        let mut settings = self.settings.lock().unwrap();
+        settings
+            .entry(key.to_string())
+            .or_insert_with(|| default.to_string())
+            .clone()
+    }
+    pub fn get_i64(&self, key: &str, default: i64) -> i64 {
+        let mut settings = self.settings.lock().unwrap();
+        settings
+            .entry(key.to_string())
+            .or_insert_with(|| default.to_string())
+            .parse()
+            .unwrap_or(default)
+    }
+    pub fn get_f64(&self, key: &str, default: f64) -> f64 {
+        let mut settings = self.settings.lock().unwrap();
+        settings
+            .entry(key.to_string())
+            .or_insert_with(|| default.to_string())
+            .parse()
+            .unwrap_or(default)
+    }
+    pub fn save_to_string(&self) -> String {
+        let mut output = String::new();
+        let settings = self.settings.lock().unwrap();
+        let mut settings: Vec<_> = settings.iter().collect();
+        settings.sort_by(|a, b| a.0.cmp(b.0));
+        for (key, value) in settings {
+            output.push_str(key);
+            output.push('=');
+            output.push_str(value);
+            output.push('\n');
+        }
+        output
     }
 }

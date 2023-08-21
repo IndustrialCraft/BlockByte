@@ -727,7 +727,7 @@ impl Entity {
         for viewer in chunk.viewers.lock().unwrap().iter() {
             viewer.player.try_send_message(&add_message).unwrap();
         }
-        for chunk_position in Entity::get_chunks_to_load_at(&position) {
+        for chunk_position in Entity::get_chunks_to_load_at(&chunk.world.server, &position) {
             chunk
                 .world
                 .load_chunk(chunk_position)
@@ -812,10 +812,14 @@ impl Entity {
             *self.rotation.lock().unwrap() = rotation;
         }
     }
-    pub fn get_chunks_to_load_at(position: &Position) -> FxHashSet<ChunkPosition> {
+    pub fn get_chunks_to_load_at(server: &Server, position: &Position) -> FxHashSet<ChunkPosition> {
         let chunk_pos = position.to_chunk_pos();
-        let vertical_view_distance = 16;
-        let horizontal_view_distance = 8;
+        let vertical_view_distance =
+            server.settings.get_i64("server.view_distance.vertical", 16) as i32;
+        let horizontal_view_distance = server
+            .settings
+            .get_i64("server.view_distance.horizontal", 8)
+            as i32;
         let mut positions = FxHashSet::default();
         for x in (-vertical_view_distance)..=vertical_view_distance {
             for y in (-horizontal_view_distance)..=horizontal_view_distance {
@@ -865,8 +869,10 @@ impl Entity {
                 }
                 let is_player = self.is_player();
                 if is_player {
-                    let old_loaded = Entity::get_chunks_to_load_at(&old_location.position);
-                    let new_loaded = Entity::get_chunks_to_load_at(&new_location.position);
+                    let old_loaded =
+                        Entity::get_chunks_to_load_at(&self.server, &old_location.position);
+                    let new_loaded =
+                        Entity::get_chunks_to_load_at(&self.server, &new_location.position);
 
                     if !Arc::ptr_eq(&old_location.chunk.world, &new_location.chunk.world) {
                         for pos in old_loaded {
@@ -1102,7 +1108,7 @@ impl Entity {
                 let location = self.location.lock().unwrap();
                 (location.chunk.world.clone(), location.position)
             };
-            let loading_chunks = Entity::get_chunks_to_load_at(&position.clone());
+            let loading_chunks = Entity::get_chunks_to_load_at(&self.server, &position.clone());
             for chunk_position in loading_chunks {
                 world
                     .load_chunk(chunk_position)
