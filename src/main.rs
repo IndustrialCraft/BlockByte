@@ -1,5 +1,12 @@
 #![allow(unused_variables, dead_code)]
-#![feature(fn_traits, inline_const, hash_extract_if, extract_if, const_trait_impl)]
+#![feature(
+    fn_traits,
+    inline_const,
+    hash_extract_if,
+    extract_if,
+    const_trait_impl,
+    trait_alias
+)]
 
 mod inventory;
 mod mods;

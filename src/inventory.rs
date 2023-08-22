@@ -54,15 +54,24 @@ impl ItemStack {
         self.item_count
     }
 }
+pub trait InventoryClickHandler = Fn(&mut Inventory, &Entity, u32, MouseButton, bool) + Send + Sync;
+pub trait InventoryScrollHandler = Fn(&mut Inventory, &Entity, u32, i32, i32, bool) + Send + Sync;
 #[derive(Clone)]
 pub struct Inventory {
     items: Box<[Option<ItemStack>]>,
     viewers: FxHashMap<Uuid, Weak<Entity>>,
     client_id: String,
     slots: Vec<(f32, f32)>,
+    click_handler: Option<Arc<dyn InventoryClickHandler>>,
+    scroll_handler: Option<Arc<dyn InventoryScrollHandler>>,
 }
 impl Inventory {
-    pub fn new<F>(size: u32, ui_creator: F) -> Self
+    pub fn new<F>(
+        size: u32,
+        ui_creator: F,
+        click_handler: Option<Arc<dyn InventoryClickHandler>>,
+        scroll_handler: Option<Arc<dyn InventoryScrollHandler>>,
+    ) -> Self
     where
         F: FnOnce() -> Vec<(f32, f32)>,
     {
@@ -71,6 +80,8 @@ impl Inventory {
             viewers: FxHashMap::default(),
             client_id: Uuid::new_v4().to_string(),
             slots: ui_creator.call_once(()),
+            click_handler,
+            scroll_handler,
         }
     }
     pub fn get_size(&self) -> u32 {
@@ -179,59 +190,67 @@ impl Inventory {
         }
     }
     pub fn on_click_slot(&mut self, player: &Entity, id: u32, button: MouseButton, shifting: bool) {
-        let mut player_data = player.entity_data.lock().unwrap();
-        if button == MouseButton::LEFT {
-            let mut hand = player_data.get_inventory_hand().clone();
-            let mut slot = self.get_item(id).unwrap().clone();
-            match (hand.as_mut(), slot.as_mut()) {
-                (Some(hand), Some(slot)) => {
-                    if Arc::ptr_eq(hand.get_type(), slot.get_type()) {
-                        if hand.get_count() < hand.item_type.stack_size
-                            && slot.get_count() < slot.item_type.stack_size
-                        {
-                            let transfer = (hand.get_type().stack_size - hand.get_count())
-                                .min(slot.get_count())
-                                as i32;
-                            hand.add_count(transfer);
-                            slot.add_count(-transfer);
+        if let Some(click_handler) = self.click_handler.clone() {
+            click_handler.call((self, player, id, button, shifting));
+        } else {
+            let mut player_data = player.entity_data.lock().unwrap();
+            if button == MouseButton::LEFT {
+                let mut hand = player_data.get_inventory_hand().clone();
+                let mut slot = self.get_item(id).unwrap().clone();
+                match (hand.as_mut(), slot.as_mut()) {
+                    (Some(hand), Some(slot)) => {
+                        if Arc::ptr_eq(hand.get_type(), slot.get_type()) {
+                            if hand.get_count() < hand.item_type.stack_size
+                                && slot.get_count() < slot.item_type.stack_size
+                            {
+                                let transfer = (hand.get_type().stack_size - hand.get_count())
+                                    .min(slot.get_count())
+                                    as i32;
+                                hand.add_count(transfer);
+                                slot.add_count(-transfer);
+                            }
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
+                player_data.set_inventory_hand(slot);
+                self.set_item(id, hand).unwrap();
             }
-            player_data.set_inventory_hand(slot);
-            self.set_item(id, hand).unwrap();
         }
     }
     pub fn on_scroll_slot(&mut self, player: &Entity, id: u32, x: i32, y: i32, shifting: bool) {
-        let mut player_data = player.entity_data.lock().unwrap();
-        player_data.modify_inventory_hand(|first| {
-            self.modify_item(id, |second| {
-                let (first, second) = if y < 0 {
-                    (first, second)
-                } else {
-                    (second, first)
-                };
+        if let Some(scroll_handler) = self.scroll_handler.clone() {
+            scroll_handler.call((self, player, id, x, y, shifting));
+        } else {
+            let mut player_data = player.entity_data.lock().unwrap();
+            player_data.modify_inventory_hand(|first| {
+                self.modify_item(id, |second| {
+                    let (first, second) = if y < 0 {
+                        (first, second)
+                    } else {
+                        (second, first)
+                    };
 
-                if let Some(first) = first {
-                    match second {
-                        Some(second) => {
-                            if Arc::ptr_eq(first.get_type(), second.get_type())
-                                && second.get_count() < second.get_type().stack_size
-                            {
-                                second.add_count(1);
+                    if let Some(first) = first {
+                        match second {
+                            Some(second) => {
+                                if Arc::ptr_eq(first.get_type(), second.get_type())
+                                    && second.get_count() < second.get_type().stack_size
+                                {
+                                    second.add_count(1);
+                                    first.add_count(-1);
+                                }
+                            }
+                            None => {
+                                *second = Some(ItemStack::new(first.get_type().clone(), 1));
                                 first.add_count(-1);
                             }
                         }
-                        None => {
-                            *second = Some(ItemStack::new(first.get_type().clone(), 1));
-                            first.add_count(-1);
-                        }
                     }
-                }
-            })
-            .unwrap();
-        });
+                })
+                .unwrap();
+            });
+        }
     }
     pub fn add_item(&mut self, item: &ItemStack) -> Option<ItemStack> {
         //todo: first check slots where items are already

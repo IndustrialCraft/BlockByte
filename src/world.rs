@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use crate::{
     inventory::{Inventory, InventoryWrapper, ItemStack},
-    net::{self, MovementType, NetworkMessageS2C, PlayerConnection},
+    net::{self, MouseButton, MovementType, NetworkMessageS2C, PlayerConnection},
     registry::{BlockRegistry, BlockStateRef, EntityType, InteractionResult},
     util::{
         BlockPosition, ChunkBlockLocation, ChunkLocation, ChunkPosition, Identifier, Location,
@@ -679,13 +679,18 @@ impl Entity {
             entity_data: Mutex::new(EntityData::new(weak.clone())),
             rotation: Mutex::new(0.),
             animation_controller: Mutex::new(AnimationController::new(weak.clone(), 1)),
-            inventory: Mutex::new(Inventory::new(9, || {
-                let mut slots = Vec::with_capacity(9);
-                for i in 0..9 {
-                    slots.push(((i as f32 * 0.13) - (4.5 * 0.13), -0.5));
-                }
-                slots
-            })),
+            inventory: Mutex::new(Inventory::new(
+                9,
+                || {
+                    let mut slots = Vec::with_capacity(9);
+                    for i in 0..9 {
+                        slots.push(((i as f32 * 0.13) - (4.5 * 0.13), -0.5));
+                    }
+                    slots
+                },
+                None,
+                None,
+            )),
             open_inventory: Mutex::new(None),
             connection: Mutex::new(connection),
         });
@@ -697,21 +702,7 @@ impl Entity {
                 0.,
             ))
             .unwrap();
-        {
-            let item_registry = &chunk.world.server.item_registry;
-            let mut inventory = entity.inventory.lock().unwrap();
-            for (i, id) in item_registry.list().into_iter().enumerate() {
-                inventory
-                    .set_item(
-                        i as u32,
-                        Some(ItemStack::new(
-                            item_registry.item_by_identifier(id).unwrap().clone(),
-                            5,
-                        )),
-                    )
-                    .ok();
-            }
-        }
+
         entity
             .inventory
             .lock()
@@ -937,15 +928,68 @@ impl Entity {
                 match message {
                     net::NetworkMessageC2S::Keyboard(key, release, repeat) => match key {
                         9 => {
-                            self.set_open_inventory(Some(InventoryWrapper::Own(Arc::new(
-                                Mutex::new(Inventory::new(9, || {
-                                    let mut slots = Vec::with_capacity(9);
-                                    for i in 0..9 {
-                                        slots.push(((i as f32 * 0.13) - (4.5 * 0.13), 0.));
-                                    }
-                                    slots
-                                })),
-                            ))));
+                            if self.entity_data.lock().unwrap().creative {
+                                self.set_open_inventory(Some(InventoryWrapper::Own(Arc::new(
+                                    Mutex::new({
+                                        let mut inventory = Inventory::new(
+                                            27,
+                                            || {
+                                                let mut slots = Vec::with_capacity(27);
+                                                for y in 0..3 {
+                                                    for x in 0..9 {
+                                                        slots.push((
+                                                            (x as f32 * 0.13) - (4.5 * 0.13),
+                                                            y as f32 * 0.15,
+                                                        ));
+                                                    }
+                                                }
+                                                slots
+                                            },
+                                            Some(Arc::new(move|inventory: &mut Inventory, entity: &Entity, slot:u32, _:MouseButton, _:bool| {
+                                                let mut entity_data = entity.entity_data.lock().unwrap();
+                                                let hand_empty = entity_data.hand_item.is_none();
+                                                if hand_empty{
+                                                    entity_data.set_inventory_hand(inventory.get_item(slot).unwrap().clone());
+                                                } else {
+                                                    entity_data.set_inventory_hand(None);
+                                                }
+                                            })),
+                                            None,
+                                        );
+                                        let item_registry = &self.server.item_registry;
+                                        for (i, id) in item_registry.list().into_iter().enumerate()
+                                        {
+                                            let item_type = item_registry
+                                                .item_by_identifier(id)
+                                                .unwrap()
+                                                .clone();
+                                            let item_count = item_type.stack_size;
+                                            inventory
+                                                .set_item(
+                                                    i as u32,
+                                                    Some(ItemStack::new(item_type, item_count)),
+                                                )
+                                                .ok();
+                                        }
+                                        inventory
+                                    }),
+                                ))));
+                            } else {
+                                self.set_open_inventory(Some(InventoryWrapper::Own(Arc::new(
+                                    Mutex::new(Inventory::new(
+                                        9,
+                                        || {
+                                            let mut slots = Vec::with_capacity(9);
+                                            for i in 0..9 {
+                                                slots.push(((i as f32 * 0.13) - (4.5 * 0.13), 0.));
+                                            }
+                                            slots
+                                        },
+                                        None,
+                                        None,
+                                    )),
+                                ))));
+                            }
                         }
                         103 => {
                             let mut inventory = self.inventory.lock().unwrap();
@@ -1219,13 +1263,18 @@ impl WorldBlock {
             chunk: Arc::downgrade(&location.chunk),
             position: location.position,
             state,
-            inventory: Mutex::new(Inventory::new(9, || {
-                let mut slots = Vec::with_capacity(9);
-                for i in 0..9 {
-                    slots.push(((i as f32 * 0.13) - (4.5 * 0.13), 0.));
-                }
-                slots
-            })),
+            inventory: Mutex::new(Inventory::new(
+                9,
+                || {
+                    let mut slots = Vec::with_capacity(9);
+                    for i in 0..9 {
+                        slots.push(((i as f32 * 0.13) - (4.5 * 0.13), 0.));
+                    }
+                    slots
+                },
+                None,
+                None,
+            )),
             this: this.clone(),
         })
     }
