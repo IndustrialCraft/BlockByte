@@ -181,8 +181,25 @@ impl Inventory {
     pub fn on_click_slot(&mut self, player: &Entity, id: u32, button: MouseButton, shifting: bool) {
         let mut player_data = player.entity_data.lock().unwrap();
         if button == MouseButton::LEFT {
-            let hand = player_data.get_inventory_hand().clone();
-            player_data.set_inventory_hand(self.get_item(id).unwrap().clone());
+            let mut hand = player_data.get_inventory_hand().clone();
+            let mut slot = self.get_item(id).unwrap().clone();
+            match (hand.as_mut(), slot.as_mut()) {
+                (Some(hand), Some(slot)) => {
+                    if Arc::ptr_eq(hand.get_type(), slot.get_type()) {
+                        if hand.get_count() < hand.item_type.stack_size
+                            && slot.get_count() < slot.item_type.stack_size
+                        {
+                            let transfer = (hand.get_type().stack_size - hand.get_count())
+                                .min(slot.get_count())
+                                as i32;
+                            hand.add_count(transfer);
+                            slot.add_count(-transfer);
+                        }
+                    }
+                }
+                _ => {}
+            }
+            player_data.set_inventory_hand(slot);
             self.set_item(id, hand).unwrap();
         }
     }
