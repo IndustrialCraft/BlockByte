@@ -320,7 +320,8 @@ impl Server {
                 path
             },
             self.settings.save_to_string(),
-        );
+        )
+        .unwrap();
     }
     fn create_listener_thread(game_server: Weak<Server>, port: u16) -> Receiver<PlayerConnection> {
         let (tx, rx) = crossbeam_channel::unbounded();
