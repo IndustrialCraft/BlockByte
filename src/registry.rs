@@ -247,6 +247,7 @@ impl Item {
         InteractionResult::Ignored
     }
 }
+#[derive(PartialEq, Eq)]
 pub enum InteractionResult {
     Consumed,
     Ignored,

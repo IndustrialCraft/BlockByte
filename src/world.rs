@@ -1040,10 +1040,20 @@ impl Entity {
                         let world = &self.get_location().chunk.world;
                         world.set_block(block_position, BlockStateRef::from_state_id(0));
                     }
-                    crate::net::NetworkMessageC2S::RightClickBlock(x, y, z, face, _) => {
+                    crate::net::NetworkMessageC2S::RightClickBlock(x, y, z, face, shifting) => {
                         let block_position = BlockPosition { x, y, z };
                         let hand_slot = self.entity_data.lock().unwrap().get_hand_slot();
+                        let block = self.get_location().chunk.world.get_block(block_position);
                         let mut right_click_result = InteractionResult::Ignored;
+                        if !shifting {
+                            right_click_result = match block {
+                                BlockData::Simple(_) => InteractionResult::Ignored,
+                                BlockData::Data(block) => block.on_right_click(self),
+                            };
+                        }
+                        if right_click_result == InteractionResult::Consumed {
+                            continue;
+                        }
                         self.inventory
                             .lock()
                             .unwrap()
@@ -1059,13 +1069,6 @@ impl Entity {
                                 }
                             })
                             .unwrap();
-                        let block = self.get_location().chunk.world.get_block(block_position);
-                        match block {
-                            BlockData::Simple(_) => {}
-                            BlockData::Data(block) => {
-                                block.on_right_click(self);
-                            }
-                        }
                     }
                     crate::net::NetworkMessageC2S::RightClick(shifting) => {
                         let hand_slot = self.entity_data.lock().unwrap().get_hand_slot();
@@ -1220,8 +1223,9 @@ impl WorldBlock {
             this: this.clone(),
         })
     }
-    pub fn on_right_click(&self, player: &Entity) {
+    pub fn on_right_click(&self, player: &Entity) -> InteractionResult {
         player.set_open_inventory(Some(InventoryWrapper::Block(self.this.upgrade().unwrap())));
         player.send_chat_message("clicked".to_string());
+        InteractionResult::Consumed
     }
 }
