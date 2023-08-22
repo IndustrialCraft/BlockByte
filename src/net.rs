@@ -132,11 +132,12 @@ impl NetworkMessageS2C {
                 data.write_be(*speed).unwrap();
                 data.write_be(*move_type as u8).unwrap();
             }
-            Self::TeleportPlayer(x, y, z) => {
+            Self::TeleportPlayer(x, y, z, rotation) => {
                 data.write_be(18u8).unwrap();
                 data.write_be(*x).unwrap();
                 data.write_be(*y).unwrap();
                 data.write_be(*z).unwrap();
+                data.write_be(*rotation).unwrap();
             }
             Self::BlockAnimation(x, y, z, animation) => {
                 data.write_be(19u8).unwrap();
@@ -168,7 +169,7 @@ pub enum NetworkMessageS2C {
     EntityAnimation(u32, u32) = 15,
     ChatMessage(String) = 16,
     PlayerAbilities(f32, MovementType) = 17,
-    TeleportPlayer(f32, f32, f32) = 18,
+    TeleportPlayer(f32, f32, f32, f32) = 18,
     BlockAnimation(i32, i32, i32, u32) = 19,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]

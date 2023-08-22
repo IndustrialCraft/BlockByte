@@ -9,6 +9,9 @@ create_block("example:test_model").client_type_air().client_dynamic("example:pla
 create_block("example:barell").client_type_cube("example:barell","example:barell","example:barell","example:barell","example:barell","example:barell").register_item("example:barell_block","Barell Block").data_container().register();
 
 create_item("example:plank").client_model_texture("example:plank").client_name("Plank").register();
+create_item("example:wand").on_right_click(|player|{
+    player.teleport_position_rotation(player.get_position(), player.get_rotation() + 90)
+}).register();
 
 create_biome("example:forest", "example:grass","example:dirt","example:stone","example:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.02, "example:tree").register();
 create_biome("example:ocean", "example:sand","example:sand","example:stone","example:water").spline_add_height(-1., 1.).spline_add_height(0., 0.).register();

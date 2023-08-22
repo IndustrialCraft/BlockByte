@@ -694,6 +694,7 @@ impl Entity {
                 position.x as f32,
                 position.y as f32,
                 position.z as f32,
+                0.,
             ))
             .unwrap();
         {
@@ -708,7 +709,7 @@ impl Entity {
                             5,
                         )),
                     )
-                    .unwrap();
+                    .ok();
             }
         }
         entity
@@ -739,6 +740,9 @@ impl Entity {
             crate::net::MovementType::NoClip,
         ));*/
         entity
+    }
+    pub fn get_rotation(&self) -> f32 {
+        *self.rotation.lock().unwrap()
     }
     pub fn set_open_inventory(&self, new_inventory: Option<InventoryWrapper>) {
         let mut current_inventory = self.open_inventory.lock().unwrap();
@@ -801,6 +805,7 @@ impl Entity {
             position.x as f32,
             position.y as f32,
             position.z as f32,
+            rotation.unwrap_or(f32::NAN),
         ))
         .ok();
     }

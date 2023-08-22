@@ -375,6 +375,9 @@ impl ModManager {
         engine.register_fn("get_position", |entity: Arc<Entity>| {
             entity.get_location().position
         });
+        engine.register_fn("get_rotation", |entity: Arc<Entity>| {
+            entity.get_rotation() as f64
+        });
         engine.register_fn("abilities", |entity: Arc<Entity>| PlayerAbilitiesWrapper {
             entity,
         });
@@ -388,6 +391,18 @@ impl ModManager {
                     world: chunk.world.clone(),
                 };
                 entity.teleport(&location, None);
+            },
+        );
+        engine.register_fn(
+            "teleport_position_rotation",
+            |entity: &mut Arc<Entity>, position: Position, rotation: f64| {
+                let position = position.clone();
+                let chunk = entity.get_location().chunk.clone();
+                let location = Location {
+                    position,
+                    world: chunk.world.clone(),
+                };
+                entity.teleport(&location, Some(rotation as f32));
             },
         );
 
