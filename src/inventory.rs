@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::{
     net::MouseButton,
-    registry::{Item, ItemRegistry},
+    registry::{InteractionResult, Item, ItemRegistry},
     util::Identifier,
     world::{Entity, EntityData, WorldBlock},
 };
@@ -54,8 +54,10 @@ impl ItemStack {
         self.item_count
     }
 }
-pub trait InventoryClickHandler = Fn(&mut Inventory, &Entity, u32, MouseButton, bool) + Send + Sync;
-pub trait InventoryScrollHandler = Fn(&mut Inventory, &Entity, u32, i32, i32, bool) + Send + Sync;
+pub trait InventoryClickHandler =
+    Fn(&mut Inventory, &Entity, u32, MouseButton, bool) -> InteractionResult + Send + Sync;
+pub trait InventoryScrollHandler =
+    Fn(&mut Inventory, &Entity, u32, i32, i32, bool) -> InteractionResult + Send + Sync;
 #[derive(Clone)]
 pub struct Inventory {
     items: Box<[Option<ItemStack>]>,
@@ -190,9 +192,12 @@ impl Inventory {
         }
     }
     pub fn on_click_slot(&mut self, player: &Entity, id: u32, button: MouseButton, shifting: bool) {
-        if let Some(click_handler) = self.click_handler.clone() {
-            click_handler.call((self, player, id, button, shifting));
-        } else {
+        let result = self
+            .click_handler
+            .clone()
+            .map(|handler| handler.call((self, player, id, button, shifting)))
+            .unwrap_or(InteractionResult::Ignored);
+        if let InteractionResult::Ignored = result {
             let mut player_data = player.entity_data.lock().unwrap();
             if button == MouseButton::LEFT {
                 let mut hand = player_data.get_inventory_hand().clone();
@@ -219,9 +224,12 @@ impl Inventory {
         }
     }
     pub fn on_scroll_slot(&mut self, player: &Entity, id: u32, x: i32, y: i32, shifting: bool) {
-        if let Some(scroll_handler) = self.scroll_handler.clone() {
-            scroll_handler.call((self, player, id, x, y, shifting));
-        } else {
+        let result = self
+            .scroll_handler
+            .clone()
+            .map(|handler| handler.call((self, player, id, x, y, shifting)))
+            .unwrap_or(InteractionResult::Ignored);
+        if let InteractionResult::Ignored = result {
             let mut player_data = player.entity_data.lock().unwrap();
             player_data.modify_inventory_hand(|first| {
                 self.modify_item(id, |second| {

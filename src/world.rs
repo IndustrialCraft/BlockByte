@@ -953,8 +953,26 @@ impl Entity {
                                                 } else {
                                                     entity_data.set_inventory_hand(None);
                                                 }
+                                                InteractionResult::Consumed
                                             })),
-                                            None,
+                                            Some(Arc::new(|inventory: &mut Inventory, entity: &Entity, slot: u32, _:i32, y:i32, _: bool|{
+                                                let mut entity_data = entity.entity_data.lock().unwrap();
+                                                entity_data.modify_inventory_hand(|item|{
+                                                    match &mut *item{
+                                                        Some(item) => {
+                                                            item.add_count(if y < 0 {-1} else {1});
+                                                        }
+                                                        None => {
+                                                            if y > 0{
+                                                                if let Some(slot_item) = inventory.get_item(slot).unwrap(){
+                                                                    *item = Some(slot_item.copy(1))
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                });
+                                                InteractionResult::Consumed
+                                            })),
                                         );
                                         let item_registry = &self.server.item_registry;
                                         for (i, id) in item_registry.list().into_iter().enumerate()
