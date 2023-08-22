@@ -958,6 +958,12 @@ impl Entity {
                                 recipe.add_outputs(&mut inventory);
                             }
                         }
+                        49..=57 => {
+                            self.entity_data
+                                .lock()
+                                .unwrap()
+                                .set_hand_slot((key - 49) as u32);
+                        }
                         _ => {}
                     },
                     net::NetworkMessageC2S::GuiClose => {
