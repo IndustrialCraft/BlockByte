@@ -191,8 +191,9 @@ impl ItemRegistry {
     }
 }
 pub struct Item {
+    pub id: Identifier,
     pub client_data: ClientItemRenderData,
-    pub id: u32,
+    pub client_id: u32,
     pub place_block: Option<Arc<Block>>,
     pub on_right_click: Option<ScriptCallback>,
     pub stack_size: u32,
@@ -413,7 +414,7 @@ impl ClientContent {
             };
             items
                 .push(object! {
-                    id: item.1.id,
+                    id: item.1.client_id,
                     name: item.1.client_data.name.clone(),
                     modelType: model.0,
                     modelValue: model.1

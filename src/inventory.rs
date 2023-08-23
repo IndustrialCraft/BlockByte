@@ -1,11 +1,12 @@
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
+use endio::{BERead, LEWrite};
 use fxhash::FxHashMap;
 use json::{object, JsonValue};
 use uuid::Uuid;
 
 use crate::{
-    net::MouseButton,
+    net::{read_string, write_string, MouseButton},
     registry::{InteractionResult, Item, ItemRegistry},
     util::Identifier,
     world::{Entity, EntityData, WorldBlock},
@@ -86,6 +87,7 @@ impl Inventory {
             scroll_handler,
         }
     }
+
     pub fn get_size(&self) -> u32 {
         self.items.len() as u32
     }
@@ -173,7 +175,7 @@ impl Inventory {
     }
     fn item_to_json(item: &Option<ItemStack>) -> Option<JsonValue> {
         item.as_ref()
-            .map(|item| object! {item:item.item_type.id, count:item.item_count})
+            .map(|item| object! {item:item.item_type.client_id, count:item.item_count})
     }
     pub fn set_cursor(entity_data: &mut EntityData) {
         let item = entity_data.get_inventory_hand();
@@ -307,6 +309,36 @@ impl Inventory {
             }
         }
         Some(item.copy(rest))
+    }
+    pub fn serialize(&self, data: &mut Vec<u8>) {
+        data.write_be(self.get_size()).unwrap();
+        for item in self.items.iter() {
+            if let Some(item) = item.as_ref() {
+                data.write_be(item.get_count()).unwrap();
+                write_string(data, &item.item_type.id.to_string());
+            } else {
+                data.write_be(0u32).unwrap();
+            }
+        }
+    }
+    pub fn deserialize(&mut self, data: &mut &[u8], item_registry: &ItemRegistry) {
+        let size: u32 = data.read_be().unwrap();
+        let mut items = Vec::new();
+        for _ in 0..size {
+            let count: u32 = data.read_be().unwrap();
+            items.push(if count == 0 {
+                None
+            } else {
+                Some(ItemStack::new(
+                    item_registry
+                        .item_by_identifier(&Identifier::parse(read_string(data).as_str()).unwrap())
+                        .unwrap()
+                        .clone(),
+                    count,
+                ))
+            })
+        }
+        self.items = items.into_boxed_slice();
     }
 }
 

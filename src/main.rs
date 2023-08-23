@@ -141,9 +141,10 @@ impl Server {
         for item_data in loaded_mods.2 {
             item_registry
                 .borrow_mut()
-                .register(item_data.id, |id| {
+                .register(item_data.id.clone(), |id| {
                     Arc::new(Item {
-                        id,
+                        id: item_data.id,
+                        client_id: id,
                         client_data: item_data.client,
                         place_block: item_data.place.map(|place| {
                             block_registry

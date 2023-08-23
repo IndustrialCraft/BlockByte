@@ -255,14 +255,25 @@ impl Chunk {
                             array_init(|z| {
                                 let block_id: u16 = data.read_be().unwrap();
                                 let block = blocks.get(block_id as usize).unwrap();
-                                block.get_default_state_ref().create_block_data(
+                                let block_data = block.get_default_state_ref().create_block_data(
                                     &chunk,
                                     BlockPosition {
                                         x: (position.x * 16) + x as i32,
                                         y: (position.y * 16) + y as i32,
                                         z: (position.z * 16) + z as i32,
                                     },
-                                )
+                                );
+                                if let BlockData::Data(block) = &block_data {
+                                    let length: u32 = data.read_be().unwrap();
+                                    //todo: optimize
+                                    let mut block_data: Vec<u8> =
+                                        Vec::with_capacity(length as usize);
+                                    for _ in 0..length {
+                                        block_data.push(data.read_be().unwrap());
+                                    }
+                                    block.deserialize(block_data.as_slice());
+                                }
+                                block_data
                             })
                         })
                     });
@@ -497,9 +508,13 @@ impl Chunk {
                         for y in 0..16 {
                             for z in 0..16 {
                                 let block = &blocks[x][y][z];
-                                let block_state_ref = match block {
-                                    BlockData::Simple(id) => BlockStateRef::from_state_id(*id),
-                                    BlockData::Data(block) => block.state,
+                                let (block_state_ref, serialized_block) = match block {
+                                    BlockData::Simple(id) => {
+                                        (BlockStateRef::from_state_id(*id), None)
+                                    }
+                                    BlockData::Data(block) => {
+                                        (block.state, Some(block.serialize()))
+                                    }
                                 };
                                 let block = block_registry.state_by_ref(&block_state_ref);
                                 let block_id = &block.parent.id; //todo: save state
@@ -507,6 +522,10 @@ impl Chunk {
                                 let numeric_id =
                                     *block_map.entry(block_id).or_insert(block_map_len);
                                 block_data.write_be(numeric_id as u16).unwrap();
+                                if let Some(mut serialized_block) = serialized_block {
+                                    block_data.write_be(serialized_block.len() as u32).unwrap();
+                                    block_data.append(&mut serialized_block);
+                                }
                             }
                         }
                     }
@@ -1300,5 +1319,18 @@ impl WorldBlock {
         player.set_open_inventory(Some(InventoryWrapper::Block(self.this.upgrade().unwrap())));
         player.send_chat_message("clicked".to_string());
         InteractionResult::Consumed
+    }
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut block_data = Vec::new();
+        let inventory = self.inventory.lock().unwrap();
+        inventory.serialize(&mut block_data);
+        block_data
+    }
+    pub fn deserialize(&self, mut data: &[u8]) {
+        let mut inventory = self.inventory.lock().unwrap();
+        inventory.deserialize(
+            &mut data,
+            &self.chunk.upgrade().unwrap().world.server.item_registry,
+        );
     }
 }
