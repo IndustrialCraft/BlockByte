@@ -21,7 +21,7 @@ use crate::{
     registry::{
         BlockRegistry, ClientBlockCubeRenderData, ClientBlockDynamicData, ClientBlockRenderData,
         ClientBlockRenderDataType, ClientEntityData, ClientItemModel, ClientItemRenderData,
-        ItemRegistry,
+        ItemRegistry, ToolData, ToolType,
     },
     util::{Identifier, Location, Position},
     world::{Entity, Structure},
@@ -152,6 +152,8 @@ impl ModManager {
         loading_engine
             .register_type_with_name::<BlockBuilder>("BlockBuilder")
             .register_fn("create_block", BlockBuilder::new)
+            .register_fn("breaking_tool", BlockBuilder::breaking_tool)
+            .register_fn("breaking_speed", BlockBuilder::breaking_speed)
             .register_fn("client_type_air", BlockBuilder::client_type_air)
             .register_fn("client_type_cube", BlockBuilder::client_type_cube)
             .register_fn("client_fluid", BlockBuilder::client_fluid)
@@ -192,6 +194,8 @@ impl ModManager {
         loading_engine
             .register_type_with_name::<ItemBuilder>("ItemBuilder")
             .register_fn("create_item", ItemBuilder::new)
+            .register_fn("tool", ItemBuilder::tool)
+            .register_fn("tool_add_type", ItemBuilder::tool_add_type)
             .register_fn("client_name", ItemBuilder::client_name)
             .register_fn("client_model_texture", ItemBuilder::client_model_texture)
             .register_fn("client_model_block", ItemBuilder::client_model_block)
@@ -226,6 +230,8 @@ impl ModManager {
             .register_fn("register", move |this: &mut Arc<Mutex<BiomeBuilder>>| {
                 registered_biomes.lock().unwrap().push(this.clone())
             });
+        loading_engine.register_static_module("ToolType", exported_module!(ToolTypeModule).into());
+
         /*loading_engine.register_fn(
             "create_biome",
             move |top: String, middle: String, bottom: String| {
@@ -420,8 +426,8 @@ impl ModManager {
             .register_type_with_name::<PlayerAbilitiesWrapper>("PlayerAbilities")
             .register_fn("speed", PlayerAbilitiesWrapper::set_speed)
             .register_fn("movement_type", PlayerAbilitiesWrapper::set_movement_type)
-            .register_fn("creative", PlayerAbilitiesWrapper::set_creative)
-            .register_static_module("MovementType", exported_module!(MovementTypeModule).into());
+            .register_fn("creative", PlayerAbilitiesWrapper::set_creative);
+        engine.register_static_module("MovementType", exported_module!(MovementTypeModule).into());
     }
     /*pub fn call_event<T>(&self, event: &str, param: T) {
         //todo
@@ -513,6 +519,7 @@ pub struct BlockBuilder {
     pub id: Identifier,
     pub client: ClientBlockRenderData,
     pub data_container: bool,
+    pub breaking_data: (f32, Option<(ToolType, f32)>),
 }
 impl BlockBuilder {
     pub fn new(id: &str) -> Arc<Mutex<Self>> {
@@ -527,7 +534,20 @@ impl BlockBuilder {
                 selectable: true,
             },
             data_container: false,
+            breaking_data: (1., None),
         }))
+    }
+    pub fn breaking_speed(this: &mut Arc<Mutex<Self>>, breaking_speed: f64) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().breaking_data.0 = breaking_speed as f32;
+        this.clone()
+    }
+    pub fn breaking_tool(
+        this: &mut Arc<Mutex<Self>>,
+        tool_type: ToolType,
+        hardness: f64,
+    ) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().breaking_data.1 = Some((tool_type, hardness as f32));
+        this.clone()
     }
     pub fn mark_data_container(this: &mut Arc<Mutex<Self>>) -> Arc<Mutex<Self>> {
         this.lock().unwrap().data_container = true;
@@ -611,6 +631,7 @@ pub struct ItemBuilder {
     pub place: Option<Identifier>,
     pub on_right_click: Option<FnPtr>,
     pub stack_size: u32,
+    pub tool: Option<ToolData>,
 }
 impl ItemBuilder {
     pub fn new(id: &str) -> Arc<Mutex<Self>> {
@@ -623,7 +644,30 @@ impl ItemBuilder {
             id: Identifier::parse(id).unwrap(),
             on_right_click: None,
             stack_size: 20,
+            tool: None,
         }))
+    }
+    pub fn tool(
+        this: &mut Arc<Mutex<Self>>,
+        durability: i64,
+        speed: f64,
+        hardness: f64,
+    ) -> Arc<Mutex<Self>> {
+        let mut locked = this.lock().unwrap();
+        locked.tool = Some(ToolData {
+            durability: durability as u32,
+            speed: speed as f32,
+            hardness: hardness as f32,
+            type_bitmap: 0u8,
+        });
+        locked.stack_size = 1;
+        this.clone()
+    }
+    pub fn tool_add_type(this: &mut Arc<Mutex<Self>>, tool_type: ToolType) -> Arc<Mutex<Self>> {
+        if let Some(tool) = &mut this.lock().unwrap().tool {
+            tool.add_type(tool_type);
+        }
+        this.clone()
     }
     pub fn client_name(this: &mut Arc<Mutex<Self>>, name: &str) -> Arc<Mutex<Self>> {
         this.lock().unwrap().client.name = name.to_string();
@@ -647,7 +691,12 @@ impl ItemBuilder {
         this.clone()
     }
     pub fn stack_size(this: &mut Arc<Mutex<Self>>, stack_size: u32) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().stack_size = stack_size;
+        let mut locked = this.lock().unwrap();
+        if locked.tool.is_none() {
+            locked.stack_size = stack_size;
+        } else {
+            panic!("setting stack size of tool");
+        }
         this.clone()
     }
 }
@@ -796,4 +845,18 @@ mod MovementTypeModule {
     pub const Fly: MovementType = MovementType::Fly;
     #[allow(non_upper_case_globals)]
     pub const NoClip: MovementType = MovementType::NoClip;
+}
+#[export_module]
+#[allow(non_snake_case)]
+mod ToolTypeModule {
+    use crate::registry::ToolType;
+
+    #[allow(non_upper_case_globals)]
+    pub const Axe: ToolType = ToolType::Axe;
+    #[allow(non_upper_case_globals)]
+    pub const Shovel: ToolType = ToolType::Shovel;
+    #[allow(non_upper_case_globals)]
+    pub const Pickaxe: ToolType = ToolType::Pickaxe;
+    #[allow(non_upper_case_globals)]
+    pub const Wrench: ToolType = ToolType::Wrench;
 }

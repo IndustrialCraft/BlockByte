@@ -47,6 +47,7 @@ impl BlockRegistry {
                         selectable: false,
                     },
                     parent: block.clone(),
+                    breaking_data: (0., None),
                 }];
                 (block, state)
             })
@@ -110,6 +111,7 @@ impl BlockStateRef {
 pub struct BlockState {
     pub state_id: u32,
     pub client_data: ClientBlockRenderData,
+    pub breaking_data: (f32, Option<(ToolType, f32)>),
     pub parent: Arc<Block>,
 }
 impl BlockState {
@@ -197,6 +199,7 @@ pub struct Item {
     pub place_block: Option<Arc<Block>>,
     pub on_right_click: Option<ScriptCallback>,
     pub stack_size: u32,
+    pub tool_data: Option<ToolData>,
 }
 impl Item {
     pub fn on_right_click_block(
@@ -224,13 +227,18 @@ impl Item {
                 block_position.y,
                 block_position.z,
                 0,
-                1,
+                world
+                    .server
+                    .item_registry
+                    .item_by_identifier(&Identifier::new("example", "log_block"))
+                    .unwrap()
+                    .client_id,
             ));
             target_chunk.announce_to_viewers(crate::net::NetworkMessageS2C::BlockAnimation(
                 block_position.x,
                 block_position.y,
                 block_position.z,
-                1,
+                0,
             ));
             return InteractionResult::Consumed;
         }
@@ -431,4 +439,39 @@ impl ClientContent {
             entities: entities,
         }
     }
+}
+#[derive(Clone)]
+pub struct ToolData {
+    pub durability: u32,
+    pub speed: f32,
+    pub hardness: f32,
+    pub type_bitmap: u8,
+}
+impl ToolData {
+    pub fn new(durability: u32, speed: f32, hardness: f32, types: Vec<ToolType>) -> Self {
+        let mut type_bitmap = 0;
+        for tool_type in types {
+            type_bitmap |= tool_type as u8;
+        }
+        Self {
+            durability,
+            speed,
+            hardness,
+            type_bitmap,
+        }
+    }
+    pub fn add_type(&mut self, tool_type: ToolType) {
+        self.type_bitmap |= tool_type as u8;
+    }
+    pub fn breaks_type(&self, tool_type: ToolType) -> bool {
+        (tool_type as u8) & self.type_bitmap > 0
+    }
+}
+#[repr(u8)]
+#[derive(Clone, Debug, Copy)]
+pub enum ToolType {
+    Axe = 1,
+    Shovel = 2,
+    Pickaxe = 4,
+    Wrench = 8,
 }

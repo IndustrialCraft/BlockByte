@@ -133,6 +133,7 @@ impl Server {
                         state_id: id,
                         client_data: block_data.client,
                         parent: block.clone(),
+                        breaking_data: block_data.breaking_data.clone(),
                     }];
                     (block, state)
                 })
@@ -157,6 +158,7 @@ impl Server {
                             .on_right_click
                             .map(|right_click| ScriptCallback::new(right_click)),
                         stack_size: item_data.stack_size,
+                        tool_data: item_data.tool,
                     })
                 })
                 .unwrap();

@@ -202,6 +202,12 @@ impl BlockData {
             Self::Data(block) => block.state.get_client_id(),
         }
     }
+    pub fn get_block_state(&self) -> BlockStateRef {
+        match self {
+            Self::Simple(id) => BlockStateRef::from_state_id(*id),
+            Self::Data(block) => block.state,
+        }
+    }
 }
 
 pub struct Chunk {
@@ -1117,9 +1123,44 @@ impl Entity {
                             .unwrap()
                             .set_animation(Some(if moved { 2 } else { 1 }));
                     }
-                    crate::net::NetworkMessageC2S::RequestBlockBreakTime(id, _) => {
-                        self.try_send_message(&NetworkMessageS2C::BlockBreakTimeResponse(id, 1.))
+                    crate::net::NetworkMessageC2S::RequestBlockBreakTime(id, position) => {
+                        let block_break_time = if self.entity_data.lock().unwrap().creative {
+                            0.
+                        } else {
+                            let world = self.get_location().chunk.world.clone();
+                            let block_state = world.get_block(position).get_block_state();
+                            let block_state =
+                                world.server.block_registry.state_by_ref(&block_state);
+                            let block_tool = &block_state.breaking_data;
+                            let inventory = self.inventory.lock().unwrap();
+                            let item = inventory
+                                .get_item(self.entity_data.lock().unwrap().slot)
+                                .unwrap();
+                            let tool_data = item
+                                .as_ref()
+                                .and_then(|item| item.item_type.tool_data.as_ref());
+                            let block_break_time = match (&block_tool.1, tool_data) {
+                                (Some(block_tool), Some(tool_data)) => {
+                                    if (!tool_data.breaks_type(block_tool.0))
+                                        || tool_data.hardness < block_tool.1
+                                    {
+                                        -1.
+                                    } else {
+                                        tool_data.speed
+                                    }
+                                }
+                                (Some(block_tool), None) => -1.,
+                                _ => tool_data.map(|tool_data| tool_data.speed).unwrap_or(1.),
+                            };
+                            block_break_time / block_tool.0
+                        };
+                        if block_break_time >= 0. {
+                            self.try_send_message(&NetworkMessageS2C::BlockBreakTimeResponse(
+                                id,
+                                block_break_time,
+                            ))
                             .unwrap();
+                        }
                         //todo: check time
                     }
                     crate::net::NetworkMessageC2S::BreakBlock(x, y, z) => {
