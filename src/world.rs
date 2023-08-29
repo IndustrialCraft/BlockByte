@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
     path::PathBuf,
+    str::FromStr,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU8},
         Arc, Mutex, Weak,
@@ -15,6 +16,7 @@ use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{array, object, JsonValue};
 
+use rhai::Dynamic;
 use uuid::Uuid;
 
 use crate::{
@@ -715,6 +717,7 @@ impl Entity {
                 },
                 None,
                 None,
+                None,
             )),
             open_inventory: Mutex::new(None),
             connection: Mutex::new(connection),
@@ -998,6 +1001,7 @@ impl Entity {
                                                 });
                                                 InteractionResult::Consumed
                                             })),
+                                            None
                                         );
                                         let item_registry = &self.server.item_registry;
                                         for (i, id) in item_registry.list().into_iter().enumerate()
@@ -1028,6 +1032,7 @@ impl Entity {
                                             }
                                             slots
                                         },
+                                        None,
                                         None,
                                         None,
                                     )),
@@ -1219,6 +1224,19 @@ impl Entity {
                         let new_slot = player_data.get_hand_slot() as i32 - scroll_y;
                         player_data.set_hand_slot(new_slot as u32);
                     }
+                    net::NetworkMessageC2S::SendMessage(message) => {
+                        if message.starts_with("/") {
+                            let message = &message[1..];
+                            let parts: rhai::Array = message
+                                .split(" ")
+                                .map(|str| Dynamic::from_str(str).unwrap())
+                                .collect();
+                            self.server.call_event(
+                                Identifier::new("bb", "command"),
+                                (self.this.upgrade().unwrap(), parts),
+                            );
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -1350,6 +1368,7 @@ impl WorldBlock {
                     }
                     slots
                 },
+                None,
                 None,
                 None,
             )),

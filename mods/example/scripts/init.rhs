@@ -7,6 +7,8 @@ create_block("example:sand").client_type_cube("example:sand","example:sand","exa
 create_block("example:leaves").client_type_cube("example:leaves","example:leaves","example:leaves","example:leaves","example:leaves","example:leaves").register_item("example:leaves_block","Leaves Block").register();
 create_block("example:test_model").client_type_air().client_dynamic("example:player","example:player").client_dynamic_add_animation("walk").client_dynamic_add_item("main_hand").register_item("example:mode_test_block","Model Test Block").register();
 create_block("example:barell").client_type_cube("example:barell","example:barell","example:barell","example:barell","example:barell","example:barell").register_item("example:barell_block","Barell Block").data_container().register();
+create_block("example:malachite").client_type_cube("example:malachite","example:malachite","example:malachite","example:malachite","example:malachite","example:malachite").breaking_tool(ToolType::Pickaxe,1.).register_item("example:malachite_block","Malachite Block").register();
+create_block("example:malachite_rock").client_type_static("example:stone","example:malachite").register_item("example:malachite_rock","Malachite Rock").register();
 
 create_item("example:plank").client_model_texture("example:plank").client_name("Plank").register();
 create_item("example:wand").on_right_click(|player|{
@@ -31,12 +33,29 @@ register_image("example:sand", "images/sand.png");
 register_image("example:barell", "images/barell.png");
 register_image("example:plank", "images/plank.png");
 register_image("example:flint_axe", "images/flint_axe.png");
+//register_image("slot", "images/slot.png");
+register_image("example:malachite", "images/malachite.png");
 
 register_image("example:player", "images/player.png");
 register_model("example:player", "models/player.bbm");
 
+register_model("example:stone", "models/stone.bbm");
 
 
-
+register_event("bb:command", |player,command|{
+    if command[0] == "creative"{
+        switch command[1]{
+            "true" => {
+                player.abilities().creative(true);
+                player.send_message("You are now in creative");
+            }
+            "false" => {
+                player.abilities().creative(false);
+                player.send_message("You are no longer in creative");
+            }
+            _ => {}
+        }
+    }
+});
 
 register_event("bb:player_join", |player|{player.abilities().creative(true);player.abilities().movement_type(MovementType::NoClip);player.abilities().speed(1.);});

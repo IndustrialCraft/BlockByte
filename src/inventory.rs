@@ -59,6 +59,7 @@ pub trait InventoryClickHandler =
     Fn(&mut Inventory, &Entity, u32, MouseButton, bool) -> InteractionResult + Send + Sync;
 pub trait InventoryScrollHandler =
     Fn(&mut Inventory, &Entity, u32, i32, i32, bool) -> InteractionResult + Send + Sync;
+pub trait InventorySetItemHandler = Fn(&mut Inventory, u32) + Send + Sync;
 #[derive(Clone)]
 pub struct Inventory {
     items: Box<[Option<ItemStack>]>,
@@ -67,6 +68,7 @@ pub struct Inventory {
     slots: Vec<(f32, f32)>,
     click_handler: Option<Arc<dyn InventoryClickHandler>>,
     scroll_handler: Option<Arc<dyn InventoryScrollHandler>>,
+    set_item_handler: Option<Arc<dyn InventorySetItemHandler>>,
 }
 impl Inventory {
     pub fn new<F>(
@@ -74,6 +76,7 @@ impl Inventory {
         ui_creator: F,
         click_handler: Option<Arc<dyn InventoryClickHandler>>,
         scroll_handler: Option<Arc<dyn InventoryScrollHandler>>,
+        set_item_handler: Option<Arc<dyn InventorySetItemHandler>>,
     ) -> Self
     where
         F: FnOnce() -> Vec<(f32, f32)>,
@@ -85,6 +88,7 @@ impl Inventory {
             slots: ui_creator.call_once(()),
             click_handler,
             scroll_handler,
+            set_item_handler,
         }
     }
 
@@ -109,6 +113,9 @@ impl Inventory {
             None => None,
         };
         self.sync_slot(index);
+        if let Some(handler) = self.set_item_handler.clone() {
+            handler.call((self, index));
+        }
         Ok(())
     }
     pub fn modify_item<F>(&mut self, index: u32, function: F) -> Result<(), ()>

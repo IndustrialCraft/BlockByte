@@ -151,6 +151,7 @@ pub struct ClientBlockDynamicData {
 pub enum ClientBlockRenderDataType {
     Air,
     Cube(ClientBlockCubeRenderData),
+    Static(ClientBlockStaticRenderData),
 }
 #[derive(Clone, Debug)]
 pub struct ClientBlockCubeRenderData {
@@ -160,6 +161,11 @@ pub struct ClientBlockCubeRenderData {
     pub left: String,
     pub up: String,
     pub down: String,
+}
+#[derive(Clone, Debug)]
+pub struct ClientBlockStaticRenderData {
+    pub model: String,
+    pub texture: String,
 }
 
 pub struct ItemRegistry {
@@ -234,12 +240,12 @@ impl Item {
                     .unwrap()
                     .client_id,
             ));
-            target_chunk.announce_to_viewers(crate::net::NetworkMessageS2C::BlockAnimation(
+            /*target_chunk.announce_to_viewers(crate::net::NetworkMessageS2C::BlockAnimation(
                 block_position.x,
                 block_position.y,
                 block_position.z,
                 0,
-            ));
+            ));*/
             return InteractionResult::Consumed;
         }
         if let Some(right_click) = &self.on_right_click {
@@ -396,6 +402,15 @@ impl ClientContent {
                     model_json.insert("left", cube_data.left.clone()).unwrap();
                     model_json.insert("up", cube_data.up.clone()).unwrap();
                     model_json.insert("down", cube_data.down.clone()).unwrap();
+                }
+                ClientBlockRenderDataType::Static(static_data) => {
+                    model_json.insert("type", "static").unwrap();
+                    model_json
+                        .insert("model", static_data.model.clone())
+                        .unwrap();
+                    model_json
+                        .insert("texture", static_data.texture.clone())
+                        .unwrap();
                 }
             }
             blocks

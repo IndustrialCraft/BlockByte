@@ -20,8 +20,8 @@ use crate::{
     net::MovementType,
     registry::{
         BlockRegistry, ClientBlockCubeRenderData, ClientBlockDynamicData, ClientBlockRenderData,
-        ClientBlockRenderDataType, ClientEntityData, ClientItemModel, ClientItemRenderData,
-        ItemRegistry, ToolData, ToolType,
+        ClientBlockRenderDataType, ClientBlockStaticRenderData, ClientEntityData, ClientItemModel,
+        ClientItemRenderData, ItemRegistry, ToolData, ToolType,
     },
     util::{Identifier, Location, Position},
     world::{Entity, Structure},
@@ -156,6 +156,7 @@ impl ModManager {
             .register_fn("breaking_speed", BlockBuilder::breaking_speed)
             .register_fn("client_type_air", BlockBuilder::client_type_air)
             .register_fn("client_type_cube", BlockBuilder::client_type_cube)
+            .register_fn("client_type_static", BlockBuilder::client_type_static)
             .register_fn("client_fluid", BlockBuilder::client_fluid)
             .register_fn("client_transparent", BlockBuilder::client_transparent)
             .register_fn("client_selectable", BlockBuilder::client_selectable)
@@ -574,6 +575,18 @@ impl BlockBuilder {
                 left: left.to_string(),
                 up: up.to_string(),
                 down: down.to_string(),
+            });
+        this.clone()
+    }
+    pub fn client_type_static(
+        this: &mut Arc<Mutex<Self>>,
+        model: &str,
+        texture: &str,
+    ) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().client.block_type =
+            ClientBlockRenderDataType::Static(ClientBlockStaticRenderData {
+                model: model.to_string(),
+                texture: texture.to_string(),
             });
         this.clone()
     }

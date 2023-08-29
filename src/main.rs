@@ -245,10 +245,10 @@ impl Server {
             save_directory,
         })
     }
-    pub fn call_event(&self, engine: &Engine, event: Identifier, args: impl FuncArgs + Clone) {
-        if let Some(event_list) = self.events.get(&event) {
+    pub fn call_event(&self, id: Identifier, args: impl FuncArgs + Clone) {
+        if let Some(event_list) = self.events.get(&id) {
             for event in event_list {
-                event.call(engine, args.clone());
+                event.call(&self.engine, args.clone());
             }
         }
     }
@@ -292,11 +292,7 @@ impl Server {
                     .clone(),
                 Some(connection),
             );
-            self.call_event(
-                &self.engine,
-                Identifier::new("bb", "player_join"),
-                (player,),
-            );
+            self.call_event(Identifier::new("bb", "player_join"), (player,));
         }
         let worlds: Vec<Arc<World>> = self
             .worlds
