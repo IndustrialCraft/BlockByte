@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use endio::{BERead, LEWrite};
 use fxhash::FxHashMap;
 use json::{object, JsonValue};
+use splines::Spline;
 use uuid::Uuid;
 
 use crate::{
@@ -409,13 +410,19 @@ impl Recipe {
 }
 
 pub struct LootTable {
-    tables: Vec<ItemStack>,
+    tables: Vec<(Arc<Item>, Spline<f64, f64>)>,
 }
 impl LootTable {
     pub fn from_json(json: JsonValue, item_registry: &ItemRegistry) -> Self {
         let mut tables = Vec::new();
         for table in json["tables"].members() {
-            tables.push(ItemStack::from_json(table, item_registry).unwrap());
+            tables.push((
+                item_registry
+                    .item_by_identifier(&Identifier::parse(table["id"].as_str().unwrap()).unwrap())
+                    .unwrap()
+                    .clone(),
+                crate::mods::spline_from_json(&table["count"]),
+            ));
         }
         Self { tables }
     }
@@ -423,8 +430,16 @@ impl LootTable {
     where
         T: Fn(ItemStack),
     {
+        let rng = rand::thread_rng();
         for table in &self.tables {
-            consumer.call((table.clone(),));
+            consumer.call((ItemStack::new(
+                table.0.clone(),
+                table
+                    .1
+                    .clamped_sample(rand::random::<f64>() % 1.)
+                    .unwrap()
+                    .round() as u32,
+            ),));
         }
     }
 }

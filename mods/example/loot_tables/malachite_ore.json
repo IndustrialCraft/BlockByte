@@ -2,7 +2,10 @@
     "tables": [
         {
             "id":"example:malachite_chunk",
-            "count":5
+            "count":{
+                "0":3,
+                "1":5
+            }
         }
     ]
 }

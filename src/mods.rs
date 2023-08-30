@@ -1,3 +1,4 @@
+use json::JsonValue;
 use rhai::plugin::*;
 use std::{
     cell::OnceCell,
@@ -11,7 +12,7 @@ use std::{
 use anyhow::{bail, Context, Result};
 
 use rhai::{exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, AST};
-use splines::Interpolation;
+use splines::{Interpolation, Spline};
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
@@ -912,4 +913,27 @@ mod ToolTypeModule {
     pub const Pickaxe: ToolType = ToolType::Pickaxe;
     #[allow(non_upper_case_globals)]
     pub const Wrench: ToolType = ToolType::Wrench;
+}
+pub fn spline_from_json(json: &JsonValue) -> Spline<f64, f64> {
+    if json.is_number() {
+        Spline::from_vec(vec![splines::Key {
+            t: 0.,
+            value: json.as_u32().unwrap() as f64,
+            interpolation: splines::Interpolation::Linear,
+        }])
+    } else {
+        Spline::from_vec(
+            json.entries()
+                .map(|(key, value)| {
+                    let key: f64 = key.parse().unwrap();
+                    let value = value.as_u32().unwrap() as f64;
+                    splines::Key {
+                        t: key,
+                        value,
+                        interpolation: splines::Interpolation::Linear,
+                    }
+                })
+                .collect(),
+        )
+    }
 }
