@@ -48,6 +48,7 @@ impl BlockRegistry {
                     },
                     parent: block.clone(),
                     breaking_data: (0., None),
+                    loottable: None,
                 }];
                 (block, state)
             })
@@ -67,6 +68,12 @@ impl BlockRegistry {
         self.id_generator += block_states.len() as u32;
         self.states.append(&mut block_states);
         Ok(numeric_id)
+    }
+    pub fn list_blocks(&self) -> std::collections::hash_map::Iter<Identifier, Arc<Block>> {
+        self.blocks.iter()
+    }
+    pub fn list_block_states(&self) -> &Vec<BlockState> {
+        &self.states
     }
     pub fn block_by_identifier(&self, id: &Identifier) -> Option<&Arc<Block>> {
         self.blocks.get(id)
@@ -112,6 +119,7 @@ pub struct BlockState {
     pub state_id: u32,
     pub client_data: ClientBlockRenderData,
     pub breaking_data: (f32, Option<(ToolType, f32)>),
+    pub loottable: Option<Identifier>,
     pub parent: Arc<Block>,
 }
 impl BlockState {
@@ -128,6 +136,14 @@ impl BlockState {
     pub fn get_ref(&self) -> BlockStateRef {
         BlockStateRef {
             state_id: self.get_full_id(),
+        }
+    }
+    pub fn on_break(&self, position: ChunkBlockLocation, player: &Entity) {
+        if let Some(loottable) = &self.loottable {
+            let loottable = player.server.loot_tables.get(loottable).unwrap();
+            loottable.generate_items(|item| {
+                player.inventory.lock().unwrap().add_item(&item);
+            });
         }
     }
 }

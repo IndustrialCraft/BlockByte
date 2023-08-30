@@ -26,5 +26,8 @@ twox-hash = "1.6.3"
 pathdiff = "0.2.1"
 rand = "0.8.5"
 flate2 = { version = "1.0.17"}
+once_cell = "1.18.0"
+
+
 [profile.release]
 debug = true

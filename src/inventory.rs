@@ -407,3 +407,24 @@ impl Recipe {
         }
     }
 }
+
+pub struct LootTable {
+    tables: Vec<ItemStack>,
+}
+impl LootTable {
+    pub fn from_json(json: JsonValue, item_registry: &ItemRegistry) -> Self {
+        let mut tables = Vec::new();
+        for table in json["tables"].members() {
+            tables.push(ItemStack::from_json(table, item_registry).unwrap());
+        }
+        Self { tables }
+    }
+    pub fn generate_items<T>(&self, consumer: T)
+    where
+        T: Fn(ItemStack),
+    {
+        for table in &self.tables {
+            consumer.call((table.clone(),));
+        }
+    }
+}

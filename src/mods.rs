@@ -16,7 +16,7 @@ use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
 use crate::{
-    inventory::Recipe,
+    inventory::{LootTable, Recipe},
     net::MovementType,
     registry::{
         BlockRegistry, ClientBlockCubeRenderData, ClientBlockDynamicData, ClientBlockRenderData,
@@ -153,6 +153,7 @@ impl ModManager {
             .register_type_with_name::<BlockBuilder>("BlockBuilder")
             .register_fn("create_block", BlockBuilder::new)
             .register_fn("breaking_tool", BlockBuilder::breaking_tool)
+            .register_fn("loot", BlockBuilder::loot)
             .register_fn("breaking_speed", BlockBuilder::breaking_speed)
             .register_fn("client_type_air", BlockBuilder::client_type_air)
             .register_fn("client_type_cube", BlockBuilder::client_type_cube)
@@ -344,6 +345,39 @@ impl ModManager {
         }
         structures
     }
+    pub fn load_loot_tables(
+        &self,
+        item_registry: &ItemRegistry,
+    ) -> HashMap<Identifier, Arc<LootTable>> {
+        let mut loot_tables = HashMap::new();
+        for loaded_mod in &self.mods {
+            let mut path = loaded_mod.1.path.clone();
+            path.push("loot_tables");
+            for loot_table_path in WalkDir::new(&path)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|entry| entry.metadata().unwrap().is_file())
+            {
+                let path_diff = pathdiff::diff_paths(loot_table_path.path(), &path).unwrap();
+                let id = path_diff
+                    .as_os_str()
+                    .to_str()
+                    .unwrap()
+                    .split_once(".")
+                    .unwrap()
+                    .0;
+                let id = Identifier::new(loaded_mod.1.namespace.clone(), id);
+                let json =
+                    json::parse(fs::read_to_string(loot_table_path.path()).unwrap().as_str())
+                        .unwrap();
+                loot_tables.insert(
+                    id.clone(),
+                    Arc::new(LootTable::from_json(json, item_registry)),
+                );
+            }
+        }
+        loot_tables
+    }
     pub fn load_recipes(&self, item_registry: &ItemRegistry) -> HashMap<Identifier, Arc<Recipe>> {
         let mut recipes = HashMap::new();
         for loaded_mod in &self.mods {
@@ -521,6 +555,7 @@ pub struct BlockBuilder {
     pub client: ClientBlockRenderData,
     pub data_container: bool,
     pub breaking_data: (f32, Option<(ToolType, f32)>),
+    pub loot: Option<Identifier>,
 }
 impl BlockBuilder {
     pub fn new(id: &str) -> Arc<Mutex<Self>> {
@@ -536,10 +571,15 @@ impl BlockBuilder {
             },
             data_container: false,
             breaking_data: (1., None),
+            loot: None,
         }))
     }
     pub fn breaking_speed(this: &mut Arc<Mutex<Self>>, breaking_speed: f64) -> Arc<Mutex<Self>> {
         this.lock().unwrap().breaking_data.0 = breaking_speed as f32;
+        this.clone()
+    }
+    pub fn loot(this: &mut Arc<Mutex<Self>>, id: &str) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().loot = Some(Identifier::parse(id).unwrap());
         this.clone()
     }
     pub fn breaking_tool(

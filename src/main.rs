@@ -31,7 +31,7 @@ use std::{
 
 use crossbeam_channel::Receiver;
 use fxhash::FxHashMap;
-use inventory::Recipe;
+use inventory::{LootTable, Recipe};
 use json::object;
 use mods::{ModManager, ScriptCallback};
 use net::PlayerConnection;
@@ -105,6 +105,7 @@ pub struct Server {
     engine: Engine,
     save_directory: PathBuf,
     settings: ServerSettings,
+    loot_tables: HashMap<Identifier, Arc<LootTable>>,
 }
 
 impl Server {
@@ -120,20 +121,21 @@ impl Server {
         let block_registry = RefCell::new(BlockRegistry::new());
         let item_registry = RefCell::new(ItemRegistry::new());
         let entity_registry = RefCell::new(EntityRegistry::new());
-        for block_data in loaded_mods.1 {
+        for block_data in &loaded_mods.1 {
             block_registry
                 .borrow_mut()
                 .register(block_data.id.clone(), |id| {
                     let block = Arc::new(Block {
-                        id: block_data.id,
+                        id: block_data.id.clone(),
                         default_state: id,
                         data_container: block_data.data_container,
                     });
                     let state = vec![BlockState {
                         state_id: id,
-                        client_data: block_data.client,
+                        client_data: block_data.client.clone(),
                         parent: block.clone(),
                         breaking_data: block_data.breaking_data.clone(),
+                        loottable: block_data.loot.clone(),
                     }];
                     (block, state)
                 })
@@ -189,6 +191,7 @@ impl Server {
         };
         let structures = loaded_mods.0.load_structures(&block_registry.borrow());
         let recipes = loaded_mods.0.load_recipes(&item_registry.borrow());
+        let loottables = loaded_mods.0.load_loot_tables(&item_registry.borrow());
         let block_registry = block_registry.into_inner();
         Arc::new_cyclic(|this| Server {
             this: this.clone(),
@@ -243,6 +246,7 @@ impl Server {
                 }
             },
             save_directory,
+            loot_tables: loottables,
         })
     }
     pub fn call_event(&self, id: Identifier, args: impl FuncArgs + Clone) {

@@ -126,6 +126,7 @@ dependencies = [
  "fxhash",
  "json",
  "noise",
+ "once_cell",
  "pathdiff",
  "rand 0.8.5",
  "rhai",

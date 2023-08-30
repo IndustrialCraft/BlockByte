@@ -117,6 +117,28 @@ impl World {
             block,
         );
     }
+    pub fn break_block(&self, position: BlockPosition, player: &Entity) {
+        let chunk_offset = position.chunk_offset();
+        let chunk = self.load_chunk(position.to_chunk_pos());
+        let block_state = self.server.block_registry.state_by_ref(
+            &chunk
+                .get_block(chunk_offset.0, chunk_offset.1, chunk_offset.2)
+                .get_block_state(),
+        );
+        block_state.on_break(
+            ChunkBlockLocation {
+                position,
+                chunk: chunk.clone(),
+            },
+            player,
+        );
+        chunk.set_block(
+            chunk_offset.0,
+            chunk_offset.1,
+            chunk_offset.2,
+            BlockStateRef::from_state_id(0),
+        );
+    }
     pub fn get_block(&self, position: BlockPosition) -> BlockData {
         let chunk_offset = position.chunk_offset();
         self.load_chunk(position.to_chunk_pos()).get_block(
@@ -1171,7 +1193,7 @@ impl Entity {
                     crate::net::NetworkMessageC2S::BreakBlock(x, y, z) => {
                         let block_position = BlockPosition { x, y, z };
                         let world = &self.get_location().chunk.world;
-                        world.set_block(block_position, BlockStateRef::from_state_id(0));
+                        world.break_block(block_position, self);
                     }
                     crate::net::NetworkMessageC2S::RightClickBlock(x, y, z, face, shifting) => {
                         let block_position = BlockPosition { x, y, z };
