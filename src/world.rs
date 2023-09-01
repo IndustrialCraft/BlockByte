@@ -1169,14 +1169,20 @@ impl Entity {
                             let block_break_time = match (&block_tool.1, tool_data) {
                                 (Some(block_tool), Some(tool_data)) => {
                                     if (!tool_data.breaks_type(block_tool.0))
-                                        || tool_data.hardness < block_tool.1
+                                        || (tool_data.hardness < block_tool.1 && block_tool.1 != 0.)
                                     {
                                         -1.
                                     } else {
                                         tool_data.speed
                                     }
                                 }
-                                (Some(block_tool), None) => -1.,
+                                (Some(block_tool), None) => {
+                                    if block_tool.1 != 0. {
+                                        -1.
+                                    } else {
+                                        1.
+                                    }
+                                }
                                 _ => tool_data.map(|tool_data| tool_data.speed).unwrap_or(1.),
                             };
                             block_break_time / block_tool.0

@@ -1,9 +1,9 @@
-create_block("example:stone").client_type_cube("example:stone","example:stone","example:stone","example:stone","example:stone","example:stone").register_item("example:stone_block","Stone Block").register();
+create_block("example:stone").client_type_cube("example:stone","example:stone","example:stone","example:stone","example:stone","example:stone").register_item("example:stone_block","Stone Block").breaking_tool(ToolType::Pickaxe,1.).register();
 create_block("example:water").client_type_cube("example:water","example:water","example:water","example:water","example:water","example:water").client_transparent(true).client_render_data(1).client_fluid(true).register();
-create_block("example:log").client_type_cube("example:log_side","example:log_side","example:log_side","example:log_side","example:log_base","example:log_base").breaking_tool(ToolType::Axe,0.).register_item("example:log_block","Log Block").register();
-create_block("example:grass").client_type_cube("example:grass_side","example:grass_side","example:grass_side","example:grass_side","example:grass","example:dirt").register_item("example:grass_block","Grass Block").register();
-create_block("example:dirt").client_type_cube("example:dirt","example:dirt","example:dirt","example:dirt","example:dirt","example:dirt").register_item("example:dirt_block","Dirt Block").register();
-create_block("example:sand").client_type_cube("example:sand","example:sand","example:sand","example:sand","example:sand","example:sand").register_item("example:sand_block","Sand Block").register();
+create_block("example:log").client_type_cube("example:log_side","example:log_side","example:log_side","example:log_side","example:log_base","example:log_base").breaking_tool(ToolType::Axe,1.).register_item("example:log_block","Log Block").register();
+create_block("example:grass").client_type_cube("example:grass_side","example:grass_side","example:grass_side","example:grass_side","example:grass","example:dirt").register_item("example:grass_block","Grass Block").breaking_tool(ToolType::Shovel,1.).register();
+create_block("example:dirt").client_type_cube("example:dirt","example:dirt","example:dirt","example:dirt","example:dirt","example:dirt").register_item("example:dirt_block","Dirt Block").breaking_tool(ToolType::Shovel,1.).register();
+create_block("example:sand").client_type_cube("example:sand","example:sand","example:sand","example:sand","example:sand","example:sand").register_item("example:sand_block","Sand Block").breaking_tool(ToolType::Shovel,1.).register();
 create_block("example:leaves").client_type_cube("example:leaves","example:leaves","example:leaves","example:leaves","example:leaves","example:leaves").register_item("example:leaves_block","Leaves Block").register();
 create_block("example:test_model").client_type_air().client_dynamic("example:player","example:player").client_dynamic_add_animation("walk").client_dynamic_add_item("main_hand").register_item("example:mode_test_block","Model Test Block").register();
 create_block("example:barell").client_type_cube("example:barell","example:barell","example:barell","example:barell","example:barell","example:barell").register_item("example:barell_block","Barell Block").data_container().register();
@@ -14,8 +14,10 @@ create_item("example:plank").client_model_texture("example:plank").client_name("
 create_item("example:wand").on_right_click(|player|{
     player.teleport_position_rotation(player.get_position(), player.get_rotation() + 90)
 }).register();
-create_item("example:flint_axe").client_model_texture("example:flint_axe").tool(64, 1., 0.).tool_add_type(ToolType::Axe).register();
-create_item("example:malachite_chunk").client_model_texture("example:malachite_chunk").register();
+create_item("example:copper_axe").client_name("Copper Axe").client_model_texture("example:copper_axe").tool(64, 1., 1.).tool_add_type(ToolType::Axe).register();
+create_item("example:copper_shovel").client_name("Copper Shovel").client_model_texture("example:copper_shovel").tool(64, 1., 1.).tool_add_type(ToolType::Shovel).register();
+create_item("example:copper_pickaxe").client_name("Copper Pickaxe").client_model_texture("example:copper_pickaxe").tool(64, 1., 1.).tool_add_type(ToolType::Pickaxe).register();
+create_item("example:malachite_chunk").client_name("Malachite Ore Chunk").client_model_texture("example:malachite_chunk").register();
 
 create_biome("example:forest", "example:grass","example:dirt","example:stone","example:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.02, "example:tree").register();
 create_biome("example:ocean", "example:sand","example:sand","example:stone","example:water").spline_add_height(-1., 1.).spline_add_height(0., 0.).register();
@@ -33,7 +35,9 @@ register_image("example:leaves", "images/leaves.png");
 register_image("example:sand", "images/sand.png");
 register_image("example:barell", "images/barell.png");
 register_image("example:plank", "images/plank.png");
-register_image("example:flint_axe", "images/flint_axe.png");
+register_image("example:copper_axe", "images/copper_axe.png");
+register_image("example:copper_shovel", "images/copper_shovel.png");
+register_image("example:copper_pickaxe", "images/copper_pickaxe.png");
 //register_image("slot", "images/slot.png");
 register_image("example:malachite", "images/malachite.png");
 register_image("example:malachite_chunk", "images/malachite_chunk.png");
