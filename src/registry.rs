@@ -142,7 +142,12 @@ impl BlockState {
         if let Some(loottable) = &self.loottable {
             let loottable = player.server.loot_tables.get(loottable).unwrap();
             loottable.generate_items(|item| {
-                player.inventory.lock().unwrap().add_item(&item);
+                player
+                    .inventory
+                    .lock()
+                    .unwrap()
+                    .get_full_view()
+                    .add_item(&item);
             });
         }
     }

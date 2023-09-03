@@ -20,7 +20,7 @@ use rhai::Dynamic;
 use uuid::Uuid;
 
 use crate::{
-    inventory::{Inventory, InventoryWrapper, ItemStack},
+    inventory::{Inventory, InventoryWrapper, ItemStack, WeakInventoryWrapper},
     net::{self, MouseButton, MovementType, NetworkMessageS2C, PlayerConnection},
     registry::{BlockRegistry, BlockStateRef, EntityType, InteractionResult},
     util::{
@@ -430,9 +430,9 @@ impl Chunk {
         self.viewers
             .lock()
             .unwrap()
-            .insert(ChunkViewer::new(viewer));
+            .insert(ChunkViewer { player: viewer });
     }
-    fn remove_viewer(&self, viewer: Arc<Entity>) {
+    fn remove_viewer(&self, viewer: &Entity) {
         viewer
             .try_send_message(&NetworkMessageS2C::UnloadChunk(
                 self.position.x,
@@ -441,17 +441,16 @@ impl Chunk {
             ))
             .unwrap();
         for entity in self.entities.lock().unwrap().iter() {
-            if Arc::ptr_eq(entity, &viewer) {
+            if entity.id == viewer.id {
                 continue;
             }
             viewer
                 .try_send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id))
                 .unwrap();
         }
-        self.viewers
-            .lock()
-            .unwrap()
-            .remove(&ChunkViewer::new(viewer));
+        self.viewers.lock().unwrap().remove(&ChunkViewer {
+            player: viewer.arc(),
+        });
     }
     pub fn announce_to_viewers(&self, message: NetworkMessageS2C) {
         for viewer in self.viewers.lock().unwrap().iter() {
@@ -585,11 +584,6 @@ impl Chunk {
 struct ChunkViewer {
     pub player: Arc<Entity>,
 }
-impl ChunkViewer {
-    pub fn new(player: Arc<Entity>) -> Self {
-        ChunkViewer { player }
-    }
-}
 impl Hash for ChunkViewer {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.player.id.hash(state)
@@ -710,7 +704,7 @@ static ENTITY_CLIENT_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
 impl Entity {
     pub fn new<T: Into<ChunkLocation>>(
         location: T,
-        entity_type: Arc<EntityType>,
+        entity_type: &Arc<EntityType>,
         connection: Option<PlayerConnection>,
     ) -> Arc<Entity> {
         let location: ChunkLocation = location.into();
@@ -719,7 +713,7 @@ impl Entity {
         let entity = Arc::new_cyclic(|weak| Entity {
             server: location.chunk.world.server.clone(),
             location: Mutex::new(location),
-            entity_type,
+            entity_type: entity_type.clone(),
             removed: AtomicBool::new(false),
             this: weak.clone(),
             client_id: ENTITY_CLIENT_ID_GENERATOR.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
@@ -729,6 +723,7 @@ impl Entity {
             rotation: Mutex::new(0.),
             animation_controller: Mutex::new(AnimationController::new(weak.clone(), 1)),
             inventory: Mutex::new(Inventory::new(
+                WeakInventoryWrapper::Entity(weak.clone()),
                 9,
                 || {
                     let mut slots = Vec::with_capacity(9);
@@ -790,13 +785,11 @@ impl Entity {
         if let Some(current_inventory) = &*current_inventory {
             current_inventory
                 .get_inventory()
-                .unwrap()
                 .remove_viewer(self.this.upgrade().unwrap());
         }
         if let Some(new_inventory) = &new_inventory {
             new_inventory
                 .get_inventory()
-                .unwrap()
                 .add_viewer(self.this.upgrade().unwrap());
         } else {
             let mut player_data = self.entity_data.lock().unwrap();
@@ -922,11 +915,7 @@ impl Entity {
 
                     if !Arc::ptr_eq(&old_location.chunk.world, &new_location.chunk.world) {
                         for pos in old_loaded {
-                            old_location
-                                .chunk
-                                .world
-                                .load_chunk(pos)
-                                .remove_viewer(self.this.upgrade().unwrap());
+                            old_location.chunk.world.load_chunk(pos).remove_viewer(self);
                         }
                         for pos in new_loaded {
                             new_location
@@ -938,9 +927,7 @@ impl Entity {
                     } else {
                         let world = old_location.chunk.world.clone(); //old or new doesn't matter
                         for pos in old_loaded.difference(&new_loaded) {
-                            world
-                                .load_chunk(pos.clone())
-                                .remove_viewer(self.this.upgrade().unwrap());
+                            world.load_chunk(pos.clone()).remove_viewer(self);
                         }
                         for pos in new_loaded.difference(&old_loaded) {
                             world
@@ -982,6 +969,7 @@ impl Entity {
                                 self.set_open_inventory(Some(InventoryWrapper::Own(Arc::new(
                                     Mutex::new({
                                         let mut inventory = Inventory::new(
+                                            self,
                                             27,
                                             || {
                                                 let mut slots = Vec::with_capacity(27);
@@ -999,7 +987,7 @@ impl Entity {
                                                 let mut entity_data = entity.entity_data.lock().unwrap();
                                                 let hand_empty = entity_data.hand_item.is_none();
                                                 if hand_empty{
-                                                    entity_data.set_inventory_hand(inventory.get_item(slot).unwrap().clone());
+                                                    entity_data.set_inventory_hand(inventory.get_full_view().get_item(slot).unwrap().clone());
                                                 } else {
                                                     entity_data.set_inventory_hand(None);
                                                 }
@@ -1014,7 +1002,7 @@ impl Entity {
                                                         }
                                                         None => {
                                                             if y > 0{
-                                                                if let Some(slot_item) = inventory.get_item(slot).unwrap(){
+                                                                if let Some(slot_item) = inventory.get_full_view().get_item(slot).unwrap(){
                                                                     *item = Some(slot_item.copy(1))
                                                                 }
                                                             }
@@ -1030,10 +1018,9 @@ impl Entity {
                                         {
                                             let item_type = item_registry
                                                 .item_by_identifier(id)
-                                                .unwrap()
-                                                .clone();
+                                                .unwrap();
                                             let item_count = item_type.stack_size;
-                                            inventory
+                                            inventory.get_full_view()
                                                 .set_item(
                                                     i as u32,
                                                     Some(ItemStack::new(item_type, item_count)),
@@ -1046,6 +1033,7 @@ impl Entity {
                             } else {
                                 self.set_open_inventory(Some(InventoryWrapper::Own(Arc::new(
                                     Mutex::new(Inventory::new(
+                                        self,
                                         9,
                                         || {
                                             let mut slots = Vec::with_capacity(9);
@@ -1095,7 +1083,7 @@ impl Entity {
                         {
                             if let Some(open_inventory) = &mut *self.open_inventory.lock().unwrap()
                             {
-                                let mut open_inventory = open_inventory.get_inventory().unwrap();
+                                let mut open_inventory = open_inventory.get_inventory();
                                 let slot = open_inventory.resolve_slot(element.as_str());
                                 if let Some(slot) = slot {
                                     open_inventory.on_click_slot(self, slot, button, shifting);
@@ -1116,7 +1104,7 @@ impl Entity {
                         {
                             if let Some(open_inventory) = &mut *self.open_inventory.lock().unwrap()
                             {
-                                let mut open_inventory = open_inventory.get_inventory().unwrap();
+                                let mut open_inventory = open_inventory.get_inventory();
                                 let slot = open_inventory.resolve_slot(element.as_str());
                                 if let Some(slot) = slot {
                                     open_inventory.on_scroll_slot(self, slot, x, y, shifting);
@@ -1159,7 +1147,8 @@ impl Entity {
                             let block_state =
                                 world.server.block_registry.state_by_ref(&block_state);
                             let block_tool = &block_state.breaking_data;
-                            let inventory = self.inventory.lock().unwrap();
+                            let mut inventory = self.inventory.lock().unwrap();
+                            let inventory = inventory.get_full_view();
                             let item = inventory
                                 .get_item(self.entity_data.lock().unwrap().slot)
                                 .unwrap();
@@ -1218,6 +1207,7 @@ impl Entity {
                         self.inventory
                             .lock()
                             .unwrap()
+                            .get_full_view()
                             .modify_item(hand_slot, |stack| {
                                 if let Some(stack) = stack {
                                     right_click_result =
@@ -1237,6 +1227,7 @@ impl Entity {
                         self.inventory
                             .lock()
                             .unwrap()
+                            .get_full_view()
                             .modify_item(hand_slot, |stack| {
                                 if let Some(stack) = stack {
                                     right_click_result = stack
@@ -1292,14 +1283,20 @@ impl Entity {
             };
             let loading_chunks = Entity::get_chunks_to_load_at(&self.server, &position.clone());
             for chunk_position in loading_chunks {
-                world
-                    .load_chunk(chunk_position)
-                    .remove_viewer(self.this.upgrade().unwrap());
+                world.load_chunk(chunk_position).remove_viewer(self);
             }
         }
     }
     fn is_player(&self) -> bool {
         self.connection.lock().unwrap().is_some()
+    }
+    pub fn arc(&self) -> Arc<Entity> {
+        self.this.upgrade().unwrap()
+    }
+}
+impl Into<WeakInventoryWrapper> for &Entity {
+    fn into(self) -> WeakInventoryWrapper {
+        WeakInventoryWrapper::Entity(self.this.clone())
     }
 }
 impl Hash for Entity {
@@ -1388,6 +1385,7 @@ impl WorldBlock {
             position: location.position,
             state,
             inventory: Mutex::new(Inventory::new(
+                WeakInventoryWrapper::Block(this.clone()),
                 9,
                 || {
                     let mut slots = Vec::with_capacity(9);
@@ -1420,5 +1418,13 @@ impl WorldBlock {
             &mut data,
             &self.chunk.upgrade().unwrap().world.server.item_registry,
         );
+    }
+    pub fn arc(&self) -> Arc<WorldBlock> {
+        self.this.upgrade().unwrap()
+    }
+}
+impl Into<WeakInventoryWrapper> for &WorldBlock {
+    fn into(self) -> WeakInventoryWrapper {
+        WeakInventoryWrapper::Block(self.this.clone())
     }
 }

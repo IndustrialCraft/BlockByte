@@ -179,6 +179,24 @@ impl Server {
                 })
                 .unwrap();
         }
+        entity_registry
+            .borrow_mut()
+            .register(Identifier::new("bb", "item"), |client_id| {
+                Arc::new(EntityType {
+                    id: client_id,
+                    client_data: registry::ClientEntityData {
+                        model: "bb:item".to_string(),
+                        texture: "".to_string(),
+                        hitbox_w: 1.,
+                        hitbox_h: 0.1,
+                        hitbox_d: 1.,
+                        animations: vec![],
+                        items: vec!["main".to_string()],
+                    },
+                    ticker: Mutex::new(None),
+                })
+            })
+            .unwrap();
         let client_content = {
             let client_content = registry::ClientContent::generate_zip(
                 &block_registry.borrow(),
@@ -292,8 +310,7 @@ impl Server {
                 &self.get_spawn_location(),
                 self.entity_registry
                     .entity_by_identifier(&Identifier::new("bb", "player"))
-                    .unwrap()
-                    .clone(),
+                    .unwrap(),
                 Some(connection),
             );
             self.call_event(Identifier::new("bb", "player_join"), (player,));
