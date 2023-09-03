@@ -62,6 +62,28 @@ register_event("bb:command", |player,command|{
             _ => {}
         }
     }
+    if command[0] == "movetype"{
+        switch command[1]{
+            "noclip" => {
+                player.abilities().movement_type(MovementType::NoClip);
+                player.send_message("You are now in noclip");
+            }
+            "fly" => {
+                player.abilities().movement_type(MovementType::Fly);
+                player.send_message("You are now flying");
+            }
+            "normal" => {
+                player.abilities().movement_type(MovementType::Normal);
+                player.send_message("You are now moving normally");
+            }
+            _ => {}
+        }
+    }
+    if command[0] == "speed"{
+        let speed = parse_float(command[1]);
+        player.abilities().speed(speed);
+        player.send_message("You are moving at speed of " + speed);
+    }
 });
 
 register_event("bb:player_join", |player|{player.abilities().creative(true);player.abilities().movement_type(MovementType::NoClip);player.abilities().speed(1.);});
