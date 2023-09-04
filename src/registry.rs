@@ -197,7 +197,7 @@ impl ItemRegistry {
     pub fn new() -> Self {
         ItemRegistry {
             items: Default::default(),
-            id_generator: 0,
+            id_generator: 1,
         }
     }
     pub fn list(&self) -> Keys<Identifier, Arc<Item>> {
@@ -249,7 +249,7 @@ impl Item {
                 _ => None,
             });
             let target_chunk = world.get_chunk(block_position.to_chunk_pos()).unwrap();
-            target_chunk.announce_to_viewers(crate::net::NetworkMessageS2C::BlockAddItem(
+            target_chunk.announce_to_viewers(crate::net::NetworkMessageS2C::BlockItem(
                 block_position.x,
                 block_position.y,
                 block_position.z,
@@ -325,10 +325,14 @@ impl EntityRegistry {
         self.entities.get(id)
     }
 }
+pub struct ItemModelMapping {
+    pub mapping: HashMap<u32, u32>,
+}
 pub struct EntityType {
     pub id: u32,
     pub client_data: ClientEntityData,
     pub ticker: Mutex<Option<ScriptCallback>>,
+    pub item_model_mapping: ItemModelMapping,
 }
 #[derive(Clone)]
 pub struct ClientEntityData {

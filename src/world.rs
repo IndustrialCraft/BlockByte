@@ -424,7 +424,7 @@ impl Chunk {
                 continue;
             }
             viewer
-                .try_send_message(&entity.create_add_message(entity.get_location().position))
+                .try_send_messages(&entity.create_add_messages(entity.get_location().position))
                 .unwrap();
         }
         self.viewers
@@ -451,6 +451,13 @@ impl Chunk {
         self.viewers.lock().unwrap().remove(&ChunkViewer {
             player: viewer.arc(),
         });
+    }
+    pub fn announce_to_viewers_except(&self, message: NetworkMessageS2C, player: &Entity) {
+        for viewer in self.viewers.lock().unwrap().iter() {
+            if viewer.player.id != player.id {
+                viewer.player.try_send_message(&message).unwrap();
+            }
+        }
     }
     pub fn announce_to_viewers(&self, message: NetworkMessageS2C) {
         for viewer in self.viewers.lock().unwrap().iter() {
@@ -689,10 +696,10 @@ pub struct Entity {
     location: Mutex<ChunkLocation>,
     rotation: Mutex<f32>,
     teleport: Mutex<Option<ChunkLocation>>,
-    entity_type: Arc<EntityType>,
+    pub entity_type: Arc<EntityType>,
     pub entity_data: Mutex<EntityData>,
     removed: AtomicBool,
-    client_id: u32,
+    pub client_id: u32,
     id: Uuid,
     animation_controller: Mutex<AnimationController>,
     pub inventory: Mutex<Inventory>,
@@ -746,13 +753,21 @@ impl Entity {
                 position.z as f32,
                 0.,
             ))
-            .unwrap();
+            .ok();
 
-        entity
-            .inventory
-            .lock()
-            .unwrap()
-            .add_viewer(entity.this.upgrade().unwrap()); //todo: only add if is player
+        if entity.is_player() {
+            entity
+                .inventory
+                .lock()
+                .unwrap()
+                .add_viewer(entity.this.upgrade().unwrap());
+            for chunk_position in Entity::get_chunks_to_load_at(&chunk.world.server, &position) {
+                chunk
+                    .world
+                    .load_chunk(chunk_position)
+                    .add_viewer(entity.clone());
+            }
+        }
 
         {
             let mut entity_data = entity.entity_data.lock().unwrap();
@@ -760,15 +775,11 @@ impl Entity {
             Inventory::set_cursor(&mut *entity_data);
         }
         chunk.add_entity(entity.clone());
-        let add_message = entity.create_add_message(position);
+        let add_message = entity.create_add_messages(position);
         for viewer in chunk.viewers.lock().unwrap().iter() {
-            viewer.player.try_send_message(&add_message).unwrap();
-        }
-        for chunk_position in Entity::get_chunks_to_load_at(&chunk.world.server, &position) {
-            chunk
-                .world
-                .load_chunk(chunk_position)
-                .add_viewer(entity.clone());
+            if viewer.player.id != entity.id {
+                viewer.player.try_send_messages(&add_message).unwrap();
+            }
         }
 
         /*entity.try_send_message(&NetworkMessageS2C::PlayerAbilities(
@@ -814,13 +825,24 @@ impl Entity {
             Err(())
         }
     }
+    pub fn try_send_messages(&self, messages: &Vec<NetworkMessageS2C>) -> Result<(), ()> {
+        if let Some(connection) = &mut *self.connection.lock().unwrap() {
+            for message in messages {
+                connection.send(message);
+            }
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
     pub fn send_chat_message(&self, text: String) {
         self.try_send_message(&NetworkMessageS2C::ChatMessage(text))
             .ok();
     }
-    pub fn create_add_message(&self, position: Position) -> NetworkMessageS2C {
+    pub fn create_add_messages(&self, position: Position) -> Vec<NetworkMessageS2C> {
         let animation_controller = self.animation_controller.lock().unwrap();
-        NetworkMessageS2C::AddEntity(
+        let mut messages = Vec::new();
+        messages.push(NetworkMessageS2C::AddEntity(
             self.entity_type.id,
             self.client_id,
             position.x as f32,
@@ -829,7 +851,23 @@ impl Entity {
             *self.rotation.lock().unwrap(),
             animation_controller.animation,
             animation_controller.animation_start_time,
-        )
+        ));
+        for (inventory_index, model_index) in &self.entity_type.item_model_mapping.mapping {
+            messages.push(NetworkMessageS2C::EntityItem(
+                self.client_id,
+                *model_index,
+                self.inventory
+                    .lock()
+                    .unwrap()
+                    .get_full_view()
+                    .get_item(*inventory_index)
+                    .unwrap()
+                    .as_ref()
+                    .map(|item| item.item_type.client_id)
+                    .unwrap_or(0),
+            ));
+        }
+        messages
     }
     pub fn teleport<T: Into<ChunkLocation>>(&self, location: T, rotation: Option<f32>) {
         let location: ChunkLocation = location.into();
@@ -897,13 +935,15 @@ impl Entity {
                 {
                     let old_viewers = old_location.chunk.viewers.lock().unwrap();
                     let new_viewers = new_location.chunk.viewers.lock().unwrap();
-                    let add_message = self.create_add_message(new_location.position);
+                    let add_message = self.create_add_messages(new_location.position);
                     let delete_message = NetworkMessageS2C::DeleteEntity(self.client_id);
                     for viewer in old_viewers.difference(&new_viewers) {
                         viewer.player.try_send_message(&delete_message).unwrap();
                     }
                     for viewer in new_viewers.difference(&old_viewers) {
-                        viewer.player.try_send_message(&add_message).unwrap();
+                        if self.id != viewer.player.id {
+                            viewer.player.try_send_messages(&add_message).unwrap();
+                        }
                     }
                 }
                 let is_player = self.is_player();
@@ -937,15 +977,16 @@ impl Entity {
                     }
                 }
             }
-            new_location
-                .chunk
-                .announce_to_viewers(NetworkMessageS2C::MoveEntity(
+            new_location.chunk.announce_to_viewers_except(
+                NetworkMessageS2C::MoveEntity(
                     self.client_id,
                     new_location.position.x as f32,
                     new_location.position.y as f32,
                     new_location.position.z as f32,
                     *self.rotation.lock().unwrap(),
-                ));
+                ),
+                self,
+            );
         }
         {
             *self.teleport.lock().unwrap() = None;

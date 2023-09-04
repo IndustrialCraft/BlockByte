@@ -76,26 +76,19 @@ impl NetworkMessageS2C {
                 data.write_be(*id).unwrap();
                 data.write_be(*time).unwrap();
             }
-            Self::EntityAddItem(id, item_index, item_id) => {
+            Self::EntityItem(id, item_index, item_id) => {
                 data.write_be(8u8).unwrap();
                 data.write_be(*id).unwrap();
                 data.write_be(*item_index).unwrap();
                 data.write_be(*item_id).unwrap();
             }
-            Self::BlockAddItem(x, y, z, item_index, item_id) => {
+            Self::BlockItem(x, y, z, item_index, item_id) => {
                 data.write_be(9u8).unwrap();
                 data.write_be(*x).unwrap();
                 data.write_be(*y).unwrap();
                 data.write_be(*z).unwrap();
                 data.write_be(*item_index).unwrap();
                 data.write_be(*item_id).unwrap();
-            }
-            Self::BlockRemoveItem(x, y, z, item_index) => {
-                data.write_be(10u8).unwrap();
-                data.write_be(*x).unwrap();
-                data.write_be(*y).unwrap();
-                data.write_be(*z).unwrap();
-                data.write_be(*item_index).unwrap();
             }
             Self::Knockback(x, y, z, set) => {
                 data.write_be(12u8).unwrap();
@@ -160,9 +153,8 @@ pub enum NetworkMessageS2C {
     DeleteEntity(u32) = 5,
     GuiData(json::JsonValue) = 6,
     BlockBreakTimeResponse(u32, f32) = 7,
-    EntityAddItem(u32, u32, u32) = 8,
-    BlockAddItem(i32, i32, i32, u32, u32) = 9,
-    BlockRemoveItem(i32, i32, i32, u32) = 10,
+    EntityItem(u32, u32, u32) = 8,
+    BlockItem(i32, i32, i32, u32, u32) = 9,
     Knockback(f32, f32, f32, bool) = 12,
     FluidSelectable(bool) = 13,
     PlaySound(String, f32, f32, f32, f32, f32, bool) = 14,

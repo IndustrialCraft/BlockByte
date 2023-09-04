@@ -31,11 +31,14 @@ use std::{
 
 use crossbeam_channel::Receiver;
 use fxhash::FxHashMap;
-use inventory::{LootTable, Recipe};
+use inventory::{ItemStack, LootTable, Recipe};
 use json::object;
 use mods::{ModManager, ScriptCallback};
 use net::PlayerConnection;
-use registry::{Block, BlockRegistry, BlockState, EntityRegistry, EntityType, Item, ItemRegistry};
+use registry::{
+    Block, BlockRegistry, BlockState, EntityRegistry, EntityType, Item, ItemModelMapping,
+    ItemRegistry,
+};
 use rhai::{Engine, FuncArgs};
 use splines::Spline;
 use threadpool::ThreadPool;
@@ -110,7 +113,7 @@ pub struct Server {
 
 impl Server {
     fn new(port: u16, save_directory: PathBuf) -> Arc<Server> {
-        let loaded_mods = ModManager::load_mods(Path::new("mods"));
+        let mut loaded_mods = ModManager::load_mods(Path::new("mods"));
         for error in &loaded_mods.7 {
             println!("script error from mod {}: {}", error.0, error.1.to_string());
         }
@@ -175,6 +178,9 @@ impl Server {
                         ticker: Mutex::new(
                             entity_data.ticker.map(|ticker| ScriptCallback::new(ticker)),
                         ),
+                        item_model_mapping: ItemModelMapping {
+                            mapping: HashMap::new(),
+                        },
                     })
                 })
                 .unwrap();
@@ -194,9 +200,20 @@ impl Server {
                         items: vec!["main".to_string()],
                     },
                     ticker: Mutex::new(None),
+                    item_model_mapping: ItemModelMapping {
+                        mapping: {
+                            let mut mapping = HashMap::new();
+                            mapping.insert(0, 0);
+                            mapping
+                        },
+                    },
                 })
             })
             .unwrap();
+        loaded_mods.4.models.insert(
+            Identifier::new("bb", "item"),
+            include_bytes!("assets/item_model.bbm").to_vec(),
+        );
         let client_content = {
             let client_content = registry::ClientContent::generate_zip(
                 &block_registry.borrow(),
@@ -313,6 +330,28 @@ impl Server {
                     .unwrap(),
                 Some(connection),
             );
+            Entity::new(
+                //todo: remove
+                &self.get_spawn_location(),
+                self.entity_registry
+                    .entity_by_identifier(&Identifier::new("bb", "item"))
+                    .unwrap(),
+                None,
+            )
+            .inventory
+            .lock()
+            .unwrap()
+            .get_full_view()
+            .set_item(
+                0,
+                Some(ItemStack::new(
+                    self.item_registry
+                        .item_by_identifier(&Identifier::new("example", "copper_axe"))
+                        .unwrap(),
+                    1,
+                )),
+            )
+            .unwrap();
             self.call_event(Identifier::new("bb", "player_join"), (player,));
         }
         let worlds: Vec<Arc<World>> = self

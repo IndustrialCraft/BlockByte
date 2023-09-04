@@ -129,12 +129,30 @@ impl Inventory {
         self.items.len() as u32
     }
     fn sync_slot(&mut self, index: u32) {
+        let item = &self.items[index as usize];
         for viewer in self.viewers.values() {
             viewer.upgrade().unwrap()
             .try_send_message(&crate::net::NetworkMessageS2C::GuiData(
-                object! {id:self.get_slot_id(index),type:"editElement",data_type:"item", item: Self::item_to_json(&self.items[index as usize])},
+                object! {id:self.get_slot_id(index),type:"editElement",data_type:"item", item: Self::item_to_json(item)},
             ))
             .unwrap();
+        }
+        match &self.owner.upgrade().unwrap() {
+            InventoryWrapper::Entity(entity) => {
+                if let Some(mapping) = entity.entity_type.item_model_mapping.mapping.get(&index) {
+                    entity.get_location().chunk.announce_to_viewers(
+                        crate::net::NetworkMessageS2C::EntityItem(
+                            entity.client_id,
+                            *mapping,
+                            item.as_ref()
+                                .map(|item| item.item_type.client_id)
+                                .unwrap_or(0),
+                        ),
+                    );
+                }
+            }
+            //todo: block
+            _ => {}
         }
     }
     pub fn add_viewer(&mut self, viewer: Arc<Entity>) {
