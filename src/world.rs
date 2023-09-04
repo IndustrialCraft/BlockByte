@@ -441,7 +441,7 @@ impl Chunk {
             ))
             .unwrap();
         for entity in self.entities.lock().unwrap().iter() {
-            if entity.id == viewer.id {
+            if entity.as_ref() == viewer {
                 continue;
             }
             viewer
@@ -1333,6 +1333,11 @@ impl Entity {
     }
     pub fn arc(&self) -> Arc<Entity> {
         self.this.upgrade().unwrap()
+    }
+}
+impl PartialEq for Entity {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
     }
 }
 impl Into<WeakInventoryWrapper> for &Entity {
