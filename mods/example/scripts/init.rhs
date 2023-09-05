@@ -22,7 +22,7 @@ create_item("example:malachite_chunk").client_name("Malachite Ore Chunk").client
 create_biome("example:forest", "example:grass","example:dirt","example:stone","example:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.02, "example:tree").register();
 create_biome("example:ocean", "example:sand","example:sand","example:stone","example:water").spline_add_height(-1., 1.).spline_add_height(0., 0.).register();
 
-create_entity("bb:player").client_model("example:player","example:player").client_hitbox(0.3, 1.7, 0.3).register();
+create_entity("bb:player").client_model("example:player","example:player").client_hitbox(0.6, 1.7, 0.6).register();
 
 register_image("example:stone", "images/stone.png");
 register_image("example:water", "images/water.png");
