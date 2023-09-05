@@ -15,10 +15,10 @@ use endio::{BERead, LEWrite};
 use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{array, object, JsonValue};
-
 use rhai::Dynamic;
 use uuid::Uuid;
 
+use crate::registry::BlockState;
 use crate::{
     inventory::{Inventory, InventoryWrapper, ItemStack, WeakInventoryWrapper},
     net::{self, MouseButton, MovementType, NetworkMessageS2C, PlayerConnection},
@@ -42,6 +42,7 @@ pub struct World {
     id: Identifier,
     temporary: bool,
 }
+
 impl World {
     const UNLOAD_TIME: usize = 1000;
     pub fn new(
@@ -107,6 +108,46 @@ impl World {
                 }
             }
         }
+    }
+    pub fn get_chunks_with_center_radius(
+        &self,
+        position: ChunkPosition,
+        radius: u32,
+    ) -> Vec<Arc<Chunk>> {
+        let radius = radius as i32;
+        let mut chunks = Vec::new();
+        for x in (-radius)..=radius {
+            for y in (-radius)..=radius {
+                for z in (-radius)..=radius {
+                    let chunk = self.get_chunk(ChunkPosition {
+                        x: position.x + x,
+                        y: position.y + y,
+                        z: position.z + z,
+                    });
+                    if let Some(chunk) = chunk {
+                        chunks.push(chunk);
+                    }
+                }
+            }
+        }
+        chunks
+    }
+    pub fn collides_entity_with_block(&self, position: BlockPosition) -> bool {
+        let chunks = self.get_chunks_with_center_radius(position.to_chunk_pos(), 1);
+        for chunk in chunks {
+            for entity in &*chunk.entities.lock().unwrap() {
+                let collider = entity.get_collider().iter_blocks();
+                if entity
+                    .get_collider()
+                    .iter_blocks()
+                    .find(|block_position| block_position == &position)
+                    .is_some()
+                {
+                    return true;
+                }
+            }
+        }
+        false
     }
     pub fn set_block(&self, position: BlockPosition, block: BlockStateRef) {
         let chunk_offset = position.chunk_offset();
@@ -214,11 +255,13 @@ impl World {
         }
     }
 }
+
 #[derive(Clone)]
 pub enum BlockData {
     Simple(u32),
     Data(Arc<WorldBlock>),
 }
+
 impl BlockData {
     pub fn get_client_id(&self) -> u32 {
         match self {
@@ -244,6 +287,7 @@ pub struct Chunk {
     loading_stage: AtomicU8,
     this: Weak<Chunk>,
 }
+
 impl Chunk {
     const UNLOAD_TIME: u8 = 200;
     pub fn new(position: ChunkPosition, world: Arc<World>) -> Arc<Self> {
@@ -588,19 +632,23 @@ impl Chunk {
         path
     }
 }
+
 struct ChunkViewer {
     pub player: Arc<Entity>,
 }
+
 impl Hash for ChunkViewer {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.player.id.hash(state)
     }
 }
+
 impl PartialEq for ChunkViewer {
     fn eq(&self, other: &Self) -> bool {
         self.player.id == other.player.id
     }
 }
+
 impl Eq for ChunkViewer {}
 
 pub struct EntityData {
@@ -611,6 +659,7 @@ pub struct EntityData {
     pub creative: bool,
     hand_item: Option<ItemStack>,
 }
+
 impl EntityData {
     pub fn new(player: Weak<Entity>) -> Self {
         EntityData {
@@ -679,12 +728,12 @@ impl EntityData {
             slot % inventory.get_size()
         };
         player.try_send_message(&NetworkMessageS2C::GuiData(
-                object! {id: inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 1, 1, 1]},
-            )).ok();
+            object! {id: inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 1, 1, 1]},
+        )).ok();
         self.slot = slot;
         player.try_send_message(&NetworkMessageS2C::GuiData(
-                object! {id: inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 0, 0, 1]},
-            )).ok();
+            object! {id: inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 0, 0, 1]},
+        )).ok();
     }
     pub fn get_hand_slot(&self) -> u32 {
         self.slot
@@ -706,8 +755,11 @@ pub struct Entity {
     pub server: Arc<Server>,
     open_inventory: Mutex<Option<InventoryWrapper>>,
     pub connection: Mutex<Option<PlayerConnection>>,
+    velocity: Mutex<(f64, f64, f64)>,
 }
+
 static ENTITY_CLIENT_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
+
 impl Entity {
     pub fn new<T: Into<ChunkLocation>>(
         location: T,
@@ -745,6 +797,7 @@ impl Entity {
             )),
             open_inventory: Mutex::new(None),
             connection: Mutex::new(connection),
+            velocity: Mutex::new((0., 0., 0.)),
         });
         entity
             .try_send_message(&NetworkMessageS2C::TeleportPlayer(
@@ -787,6 +840,17 @@ impl Entity {
             crate::net::MovementType::NoClip,
         ));*/
         entity
+    }
+    pub fn get_collider(&self) -> AABB {
+        let position = self.get_location().position;
+        AABB {
+            x: position.x,
+            y: position.y,
+            z: position.z,
+            w: self.entity_type.client_data.hitbox_w, //todo: move from client data
+            h: self.entity_type.client_data.hitbox_h,
+            d: self.entity_type.client_data.hitbox_d,
+        }
     }
     pub fn get_rotation(&self) -> f32 {
         *self.rotation.lock().unwrap()
@@ -915,14 +979,59 @@ impl Entity {
         let location = self.location.lock().unwrap();
         location.clone()
     }
+    pub fn apply_knockback(&self, x: f64, y: f64, z: f64) {
+        let mut velocity = self.velocity.lock().unwrap();
+        velocity.0 += x;
+        velocity.1 += y;
+        velocity.2 += z;
+    }
     pub fn tick(&self) {
-        let teleport_location = {
+        let mut teleport_location = {
             self.teleport
                 .lock()
                 .unwrap()
                 .as_ref()
                 .map(|loc| loc.clone())
         };
+        if !self.is_player() {
+            let mut velocity = self.velocity.lock().unwrap();
+            velocity.1 -= 9.81 / 20.;
+            let mut physics_aabb = self.get_collider();
+            let world = if let Some(teleport_location) = &teleport_location {
+                physics_aabb.set_position(teleport_location.position);
+                teleport_location.chunk.world.clone()
+            } else {
+                self.get_location().chunk.world.clone()
+            };
+            {
+                let x_moved_physics_aabb = physics_aabb.move_by(velocity.0, 0., 0.);
+                if !x_moved_physics_aabb.has_block(&world, |state| state.collidable) {
+                    physics_aabb = x_moved_physics_aabb;
+                } else {
+                    velocity.0 = 0.;
+                }
+            }
+            {
+                let y_moved_physics_aabb = physics_aabb.move_by(0., velocity.1, 0.);
+                if !y_moved_physics_aabb.has_block(&world, |state| state.collidable) {
+                    physics_aabb = y_moved_physics_aabb;
+                } else {
+                    velocity.1 = 0.;
+                }
+            }
+            {
+                let z_moved_physics_aabb = physics_aabb.move_by(0., 0., velocity.2);
+                if !z_moved_physics_aabb.has_block(&world, |state| state.collidable) {
+                    physics_aabb = z_moved_physics_aabb;
+                } else {
+                    velocity.2 = 0.;
+                }
+            }
+            teleport_location = Some(ChunkLocation::from(&Location {
+                world,
+                position: physics_aabb.get_position(),
+            }))
+        }
         if let Some(teleport_location) = teleport_location {
             let old_location = { self.location.lock().unwrap().clone() };
             let new_location: ChunkLocation = teleport_location.clone();
@@ -1024,26 +1133,26 @@ impl Entity {
                                                 }
                                                 slots
                                             },
-                                            Some(Arc::new(move|inventory: &mut Inventory, entity: &Entity, slot:u32, _:MouseButton, _:bool| {
+                                            Some(Arc::new(move |inventory: &mut Inventory, entity: &Entity, slot: u32, _: MouseButton, _: bool| {
                                                 let mut entity_data = entity.entity_data.lock().unwrap();
                                                 let hand_empty = entity_data.hand_item.is_none();
-                                                if hand_empty{
+                                                if hand_empty {
                                                     entity_data.set_inventory_hand(inventory.get_full_view().get_item(slot).unwrap().clone());
                                                 } else {
                                                     entity_data.set_inventory_hand(None);
                                                 }
                                                 InteractionResult::Consumed
                                             })),
-                                            Some(Arc::new(|inventory: &mut Inventory, entity: &Entity, slot: u32, _:i32, y:i32, _: bool|{
+                                            Some(Arc::new(|inventory: &mut Inventory, entity: &Entity, slot: u32, _: i32, y: i32, _: bool| {
                                                 let mut entity_data = entity.entity_data.lock().unwrap();
-                                                entity_data.modify_inventory_hand(|item|{
-                                                    match &mut *item{
+                                                entity_data.modify_inventory_hand(|item| {
+                                                    match &mut *item {
                                                         Some(item) => {
-                                                            item.add_count(if y < 0 {-1} else {1});
+                                                            item.add_count(if y < 0 { -1 } else { 1 });
                                                         }
                                                         None => {
-                                                            if y > 0{
-                                                                if let Some(slot_item) = inventory.get_full_view().get_item(slot).unwrap(){
+                                                            if y > 0 {
+                                                                if let Some(slot_item) = inventory.get_full_view().get_item(slot).unwrap() {
                                                                     *item = Some(slot_item.copy(1))
                                                                 }
                                                             }
@@ -1052,7 +1161,7 @@ impl Entity {
                                                 });
                                                 InteractionResult::Consumed
                                             })),
-                                            None
+                                            None,
                                         );
                                         let item_registry = &self.server.item_registry;
                                         for (i, id) in item_registry.list().into_iter().enumerate()
@@ -1335,27 +1444,147 @@ impl Entity {
         self.this.upgrade().unwrap()
     }
 }
+
 impl PartialEq for Entity {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
+
 impl Into<WeakInventoryWrapper> for &Entity {
     fn into(self) -> WeakInventoryWrapper {
         WeakInventoryWrapper::Entity(self.this.clone())
     }
 }
+
 impl Hash for Entity {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state)
     }
 }
+pub struct AABB {
+    x: f64,
+    y: f64,
+    z: f64,
+    w: f64,
+    h: f64,
+    d: f64,
+}
+impl AABB {
+    pub fn calc_second_point(&self) -> (f64, f64, f64) {
+        (self.x + self.w, self.y + self.h, self.z + self.d)
+    }
+    pub fn collides(&self, other: &AABB) -> bool {
+        let (x2, y2, z2) = self.calc_second_point();
+        let (other_x2, other_y2, other_z2) = other.calc_second_point();
+
+        x2 > other.x
+            && self.x < other_x2
+            && y2 > other.y
+            && self.y < other_y2
+            && z2 > other.z
+            && self.z < other_z2
+    }
+    pub fn move_by(&self, x: f64, y: f64, z: f64) -> AABB {
+        AABB {
+            x: self.x + x,
+            y: self.y + y,
+            z: self.z + z,
+            w: self.w,
+            h: self.h,
+            d: self.d,
+        }
+    }
+    pub fn set_position(&mut self, position: Position) {
+        self.x = position.x;
+        self.y = position.y;
+        self.z = position.z;
+    }
+    pub fn get_position(&mut self) -> Position {
+        Position {
+            x: self.x,
+            y: self.y,
+            z: self.z,
+        }
+    }
+    pub fn iter_blocks(&self) -> AABBBlockIterator {
+        let second_point = self.calc_second_point();
+        let iterator = AABBBlockIterator {
+            start_x: (self.x + 0.05).floor() as i32,
+            start_y: (self.y + 0.05).floor() as i32,
+            start_z: (self.z + 0.05).floor() as i32,
+            end_x: (second_point.0 - 0.05).ceil() as i32 - 1,
+            end_y: (second_point.1 - 0.05).ceil() as i32 - 1,
+            end_z: (second_point.2 - 0.05).ceil() as i32 - 1,
+            x: (self.x + 0.05).floor() as i32,
+            y: (self.y + 0.05).floor() as i32,
+            z: (self.z + 0.05).floor() as i32,
+            finished: false,
+        };
+        iterator
+    }
+    pub fn has_block<F>(&self, world: &World, predicate: F) -> bool
+    where
+        F: Fn(&BlockState) -> bool,
+    {
+        self.iter_blocks()
+            .find(|position| {
+                predicate.call((world
+                    .server
+                    .block_registry
+                    .state_by_ref(&world.get_block(*position).get_block_state()),))
+            })
+            .is_some()
+    }
+}
+pub struct AABBBlockIterator {
+    start_x: i32,
+    start_y: i32,
+    start_z: i32,
+    end_x: i32,
+    end_y: i32,
+    end_z: i32,
+    x: i32,
+    y: i32,
+    z: i32,
+    finished: bool,
+}
+
+impl Iterator for AABBBlockIterator {
+    type Item = BlockPosition;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+        if self.x > self.end_x {
+            self.x = self.start_x;
+            self.y += 1;
+            if self.y > self.end_y {
+                self.y = self.start_y;
+                self.z += 1;
+                if self.z > self.end_z {
+                    self.finished = true;
+                    return None;
+                }
+            }
+        }
+        let return_position = Some(BlockPosition {
+            x: self.x,
+            y: self.y,
+            z: self.z,
+        });
+        self.x += 1;
+        return_position
+    }
+}
+
 pub struct AnimationController {
     entity: Weak<Entity>,
     animation: u32,
     animation_start_time: f32,
     default_animation: u32,
 }
+
 impl AnimationController {
     pub fn new(entity: Weak<Entity>, default_animation: u32) -> Self {
         AnimationController {
@@ -1382,6 +1611,7 @@ pub struct Structure {
     id: Identifier,
     blocks: HashMap<BlockPosition, BlockStateRef>,
 }
+
 impl Structure {
     pub fn from_json(id: Identifier, json: JsonValue, block_registry: &BlockRegistry) -> Self {
         let mut blocks = HashMap::new();
@@ -1424,6 +1654,7 @@ pub struct WorldBlock {
     state: BlockStateRef,
     pub inventory: Mutex<Inventory>,
 }
+
 impl WorldBlock {
     pub fn new(location: ChunkBlockLocation, state: BlockStateRef) -> Arc<WorldBlock> {
         Arc::new_cyclic(|this| WorldBlock {
@@ -1469,6 +1700,7 @@ impl WorldBlock {
         self.this.upgrade().unwrap()
     }
 }
+
 impl Into<WeakInventoryWrapper> for &WorldBlock {
     fn into(self) -> WeakInventoryWrapper {
         WeakInventoryWrapper::Block(self.this.clone())

@@ -6,7 +6,6 @@ use std::{
 };
 
 use json::{array, object, JsonValue};
-
 use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
 
@@ -22,6 +21,7 @@ pub struct BlockRegistry {
     states: Vec<BlockState>,
     id_generator: u32,
 }
+
 impl BlockRegistry {
     pub fn new() -> Self {
         let mut block_registry = BlockRegistry {
@@ -49,6 +49,7 @@ impl BlockRegistry {
                     parent: block.clone(),
                     breaking_data: (0., None),
                     loottable: None,
+                    collidable: false,
                 }];
                 (block, state)
             })
@@ -88,6 +89,7 @@ pub struct Block {
     pub default_state: u32,
     pub data_container: bool,
 }
+
 impl Block {
     pub fn get_default_state_ref(&self) -> BlockStateRef {
         BlockStateRef {
@@ -95,10 +97,12 @@ impl Block {
         }
     }
 }
+
 #[derive(Clone, Copy)]
 pub struct BlockStateRef {
     state_id: u32,
 }
+
 impl BlockStateRef {
     pub fn create_block_data(&self, chunk: &Arc<Chunk>, position: BlockPosition) -> BlockData {
         chunk
@@ -115,13 +119,16 @@ impl BlockStateRef {
         self.state_id
     }
 }
+
 pub struct BlockState {
     pub state_id: u32,
     pub client_data: ClientBlockRenderData,
     pub breaking_data: (f32, Option<(ToolType, f32)>),
     pub loottable: Option<Identifier>,
     pub parent: Arc<Block>,
+    pub collidable: bool,
 }
+
 impl BlockState {
     pub fn to_block_data(&self, chunk_block_location: ChunkBlockLocation) -> BlockData {
         if self.parent.data_container {
@@ -152,6 +159,7 @@ impl BlockState {
         }
     }
 }
+
 #[derive(Clone, Debug)]
 pub struct ClientBlockRenderData {
     pub block_type: ClientBlockRenderDataType,
@@ -161,6 +169,7 @@ pub struct ClientBlockRenderData {
     pub transparent: bool,
     pub selectable: bool,
 }
+
 #[derive(Clone, Debug)]
 pub struct ClientBlockDynamicData {
     pub model: String,
@@ -168,12 +177,14 @@ pub struct ClientBlockDynamicData {
     pub animations: Vec<String>,
     pub items: Vec<String>,
 }
+
 #[derive(Clone, Debug)]
 pub enum ClientBlockRenderDataType {
     Air,
     Cube(ClientBlockCubeRenderData),
     Static(ClientBlockStaticRenderData),
 }
+
 #[derive(Clone, Debug)]
 pub struct ClientBlockCubeRenderData {
     pub front: String,
@@ -183,6 +194,7 @@ pub struct ClientBlockCubeRenderData {
     pub up: String,
     pub down: String,
 }
+
 #[derive(Clone, Debug)]
 pub struct ClientBlockStaticRenderData {
     pub model: String,
@@ -193,6 +205,7 @@ pub struct ItemRegistry {
     items: HashMap<Identifier, Arc<Item>, BuildHasherDefault<XxHash64>>,
     id_generator: u32,
 }
+
 impl ItemRegistry {
     pub fn new() -> Self {
         ItemRegistry {
@@ -219,6 +232,7 @@ impl ItemRegistry {
         self.items.get(id)
     }
 }
+
 pub struct Item {
     pub id: Identifier,
     pub client_data: ClientItemRenderData,
@@ -228,6 +242,7 @@ pub struct Item {
     pub stack_size: u32,
     pub tool_data: Option<ToolData>,
 }
+
 impl Item {
     pub fn on_right_click_block(
         &self,
@@ -241,10 +256,14 @@ impl Item {
             let world = player.get_location().chunk.world.clone();
             world.replace_block(block_position, |block| match block {
                 BlockData::Simple(0) => {
-                    if !player.entity_data.lock().unwrap().creative {
-                        item.add_count(-1);
+                    if !world.collides_entity_with_block(block_position) {
+                        if !player.entity_data.lock().unwrap().creative {
+                            item.add_count(-1);
+                        }
+                        Some(place.get_default_state_ref())
+                    } else {
+                        None
                     }
-                    Some(place.get_default_state_ref())
                 }
                 _ => None,
             });
@@ -283,25 +302,30 @@ impl Item {
         InteractionResult::Ignored
     }
 }
+
 #[derive(PartialEq, Eq)]
 pub enum InteractionResult {
     Consumed,
     Ignored,
 }
+
 #[derive(Clone)]
 pub struct ClientItemRenderData {
     pub name: String,
     pub model: ClientItemModel,
 }
+
 #[derive(Clone)]
 pub enum ClientItemModel {
     Texture(String),
     Block(Identifier),
 }
+
 pub struct EntityRegistry {
     entities: HashMap<Identifier, Arc<EntityType>, BuildHasherDefault<XxHash64>>,
     id_generator: u32,
 }
+
 impl EntityRegistry {
     pub fn new() -> Self {
         EntityRegistry {
@@ -325,27 +349,31 @@ impl EntityRegistry {
         self.entities.get(id)
     }
 }
+
 pub struct ItemModelMapping {
     pub mapping: HashMap<u32, u32>,
 }
+
 pub struct EntityType {
     pub id: u32,
     pub client_data: ClientEntityData,
     pub ticker: Mutex<Option<ScriptCallback>>,
     pub item_model_mapping: ItemModelMapping,
 }
+
 #[derive(Clone)]
 pub struct ClientEntityData {
     pub model: String,
     pub texture: String,
-    pub hitbox_w: f32,
-    pub hitbox_h: f32,
-    pub hitbox_d: f32,
+    pub hitbox_w: f64,
+    pub hitbox_h: f64,
+    pub hitbox_d: f64,
     pub animations: Vec<String>,
     pub items: Vec<String>,
 }
 
 pub struct ClientContent {}
+
 impl ClientContent {
     pub fn generate_zip(
         block_registry: &BlockRegistry,
@@ -480,6 +508,7 @@ impl ClientContent {
         }
     }
 }
+
 #[derive(Clone)]
 pub struct ToolData {
     pub durability: u32,
@@ -487,6 +516,7 @@ pub struct ToolData {
     pub hardness: f32,
     pub type_bitmap: u8,
 }
+
 impl ToolData {
     pub fn new(durability: u32, speed: f32, hardness: f32, types: Vec<ToolType>) -> Self {
         let mut type_bitmap = 0;
@@ -507,6 +537,7 @@ impl ToolData {
         (tool_type as u8) & self.type_bitmap > 0
     }
 }
+
 #[repr(u8)]
 #[derive(Clone, Debug, Copy)]
 pub enum ToolType {

@@ -1,5 +1,3 @@
-use json::JsonValue;
-use rhai::plugin::*;
 use std::{
     cell::OnceCell,
     collections::HashMap,
@@ -10,8 +8,9 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-
-use rhai::{exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, AST};
+use json::JsonValue;
+use rhai::{AST, Engine, EvalAltResult, exported_module, FnPtr, FuncArgs};
+use rhai::plugin::*;
 use splines::{Interpolation, Spline};
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
@@ -24,15 +23,16 @@ use crate::{
         ClientBlockRenderDataType, ClientBlockStaticRenderData, ClientEntityData, ClientItemModel,
         ClientItemRenderData, ItemRegistry, ToolData, ToolType,
     },
+    Server,
     util::{Identifier, Location, Position},
     world::{Entity, Structure},
-    Server,
 };
 
 struct Mod {
     path: PathBuf,
     namespace: String,
 }
+
 impl Mod {
     pub fn new(path: &Path) -> Result<Self> {
         let mut path_buf = path.to_path_buf();
@@ -47,12 +47,12 @@ impl Mod {
                 })?
                 .as_str(),
         )
-        .with_context(|| {
-            format!(
-                "descriptor for mod {} is incorrect",
-                path.file_name().unwrap().to_str().unwrap()
-            )
-        })?;
+            .with_context(|| {
+                format!(
+                    "descriptor for mod {} is incorrect",
+                    path.file_name().unwrap().to_str().unwrap()
+                )
+            })?;
         path_buf.pop();
         let mod_identifier = descriptor["id"].as_str().unwrap().to_string();
         Ok(Mod {
@@ -70,9 +70,9 @@ impl Mod {
             scripts_path.push("scripts");
             scripts_path
         })
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|entry| entry.metadata().unwrap().is_file())
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|entry| entry.metadata().unwrap().is_file())
         {
             if let Err(error) = engine.eval_file::<()>(script.into_path()) {
                 script_errors.push((self.namespace.clone(), error));
@@ -101,6 +101,7 @@ impl Mod {
 pub struct ModManager {
     mods: HashMap<String, Mod>,
 }
+
 impl ModManager {
     pub fn load_mods(
         path: &Path,
@@ -472,6 +473,7 @@ impl ModManager {
         }
     }*/
 }
+
 #[derive(Clone)]
 pub struct BiomeBuilder {
     pub id: Identifier,
@@ -485,6 +487,7 @@ pub struct BiomeBuilder {
     pub spline_moisture: Vec<splines::Key<f64, f64>>,
     pub structures: Vec<(f32, Identifier)>,
 }
+
 impl BiomeBuilder {
     pub fn new(id: &str, top: &str, middle: &str, bottom: &str, water: &str) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(BiomeBuilder {
@@ -550,6 +553,7 @@ impl BiomeBuilder {
         this.clone()
     }
 }
+
 #[derive(Clone, Debug)]
 pub struct BlockBuilder {
     pub id: Identifier,
@@ -558,6 +562,7 @@ pub struct BlockBuilder {
     pub breaking_data: (f32, Option<(ToolType, f32)>),
     pub loot: Option<Identifier>,
 }
+
 impl BlockBuilder {
     pub fn new(id: &str) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(BlockBuilder {
@@ -678,6 +683,7 @@ impl BlockBuilder {
         this.clone()
     }
 }
+
 #[derive(Clone)]
 pub struct ItemBuilder {
     pub id: Identifier,
@@ -687,6 +693,7 @@ pub struct ItemBuilder {
     pub stack_size: u32,
     pub tool: Option<ToolData>,
 }
+
 impl ItemBuilder {
     pub fn new(id: &str) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(ItemBuilder {
@@ -754,12 +761,14 @@ impl ItemBuilder {
         this.clone()
     }
 }
+
 #[derive(Clone)]
 pub struct EntityBuilder {
     pub id: Identifier,
     pub client: ClientEntityData,
     pub ticker: Option<FnPtr>,
 }
+
 impl EntityBuilder {
     pub fn new(id: &str) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(EntityBuilder {
@@ -800,9 +809,9 @@ impl EntityBuilder {
     ) -> Arc<Mutex<Self>> {
         {
             let mut borrowed = this.lock().unwrap();
-            borrowed.client.hitbox_w = width as f32;
-            borrowed.client.hitbox_h = height as f32;
-            borrowed.client.hitbox_d = depth as f32;
+            borrowed.client.hitbox_w = width;
+            borrowed.client.hitbox_h = height;
+            borrowed.client.hitbox_d = depth;
         }
         this.clone()
     }
@@ -819,12 +828,14 @@ impl EntityBuilder {
         this.clone()
     }
 }
+
 #[derive(Clone)]
 pub struct ClientContentData {
     pub images: HashMap<Identifier, Vec<u8>, BuildHasherDefault<XxHash64>>,
     pub sounds: HashMap<Identifier, Vec<u8>, BuildHasherDefault<XxHash64>>,
     pub models: HashMap<Identifier, Vec<u8>, BuildHasherDefault<XxHash64>>,
 }
+
 impl ClientContentData {
     pub fn new() -> Self {
         ClientContentData {
@@ -844,16 +855,19 @@ impl ClientContentData {
         }
     }
 }
+
 #[derive(Clone, Copy)]
 enum ContentType {
     Image,
     Sound,
     Model,
 }
+
 #[derive(Clone)]
 pub struct ScriptCallback {
     function: FnPtr,
 }
+
 impl ScriptCallback {
     const AST: OnceCell<AST> = OnceCell::new();
     pub fn new(function: FnPtr) -> Self {
@@ -865,10 +879,12 @@ impl ScriptCallback {
             .unwrap();
     }
 }
+
 #[derive(Clone)]
 pub struct PlayerAbilitiesWrapper {
     pub entity: Arc<Entity>,
 }
+
 impl PlayerAbilitiesWrapper {
     pub fn set_speed(&mut self, speed: f64) {
         self.entity
@@ -888,6 +904,7 @@ impl PlayerAbilitiesWrapper {
         self.entity.entity_data.lock().unwrap().creative = creative;
     }
 }
+
 #[export_module]
 #[allow(non_snake_case)]
 mod MovementTypeModule {
@@ -900,6 +917,7 @@ mod MovementTypeModule {
     #[allow(non_upper_case_globals)]
     pub const NoClip: MovementType = MovementType::NoClip;
 }
+
 #[export_module]
 #[allow(non_snake_case)]
 mod ToolTypeModule {
@@ -914,6 +932,7 @@ mod ToolTypeModule {
     #[allow(non_upper_case_globals)]
     pub const Wrench: ToolType = ToolType::Wrench;
 }
+
 pub fn spline_from_json(json: &JsonValue) -> Spline<f64, f64> {
     if json.is_number() {
         Spline::from_vec(vec![splines::Key {

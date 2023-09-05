@@ -139,6 +139,7 @@ impl Server {
                         parent: block.clone(),
                         breaking_data: block_data.breaking_data.clone(),
                         loottable: block_data.loot.clone(),
+                        collidable: true, //todo
                     }];
                     (block, state)
                 })
@@ -332,7 +333,14 @@ impl Server {
             );
             Entity::new(
                 //todo: remove
-                &self.get_spawn_location(),
+                &Location {
+                    position: Position {
+                        x: 9.,
+                        y: 10.,
+                        z: -6.,
+                    },
+                    world: self.get_or_create_world(Identifier::new("bb", "lobby")),
+                },
                 self.entity_registry
                     .entity_by_identifier(&Identifier::new("bb", "item"))
                     .unwrap(),
