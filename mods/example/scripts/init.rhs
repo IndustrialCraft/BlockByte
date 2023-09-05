@@ -6,7 +6,7 @@ create_block("example:dirt").client_type_cube("example:dirt","example:dirt","exa
 create_block("example:sand").client_type_cube("example:sand","example:sand","example:sand","example:sand","example:sand","example:sand").register_item("example:sand_block","Sand Block").breaking_tool(ToolType::Shovel,1.).register();
 create_block("example:leaves").client_type_cube("example:leaves","example:leaves","example:leaves","example:leaves","example:leaves","example:leaves").register_item("example:leaves_block","Leaves Block").register();
 create_block("example:test_model").client_type_air().client_dynamic("example:player","example:player").client_dynamic_add_animation("walk").client_dynamic_add_item("main_hand").register_item("example:mode_test_block","Model Test Block").register();
-create_block("example:barell").client_type_cube("example:barell","example:barell","example:barell","example:barell","example:barell","example:barell").register_item("example:barell_block","Barell Block").data_container().register();
+create_block("example:barrel").client_type_cube("example:barrel","example:barrel","example:barrel","example:barrel","example:barrel","example:barrel").register_item("example:barrel_block","Barrel Block").data_container().register();
 create_block("example:malachite").client_type_cube("example:malachite","example:malachite","example:malachite","example:malachite","example:malachite","example:malachite").breaking_tool(ToolType::Pickaxe,1.).loot("example:malachite_ore").register_item("example:malachite_block","Malachite Block").register();
 create_block("example:malachite_rock").client_type_static("example:stone","example:malachite").loot("example:malachite_rock").register_item("example:malachite_rock","Malachite Rock").register();
 
@@ -33,7 +33,7 @@ register_image("example:grass_side", "images/grass_side.png");
 register_image("example:dirt", "images/dirt.png");
 register_image("example:leaves", "images/leaves.png");
 register_image("example:sand", "images/sand.png");
-register_image("example:barell", "images/barell.png");
+register_image("example:barrel", "images/barrel.png");
 register_image("example:plank", "images/plank.png");
 register_image("example:copper_axe", "images/copper_axe.png");
 register_image("example:copper_shovel", "images/copper_shovel.png");
