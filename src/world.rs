@@ -995,7 +995,10 @@ impl Entity {
         };
         if !self.is_player() {
             let mut velocity = self.velocity.lock().unwrap();
-            velocity.1 -= 9.81 / 20.;
+            velocity.0 *= 0.8;
+            velocity.1 *= 0.8;
+            velocity.2 *= 0.8;
+            velocity.1 -= 2. / 20.;
             let mut physics_aabb = self.get_collider();
             let world = if let Some(teleport_location) = &teleport_location {
                 physics_aabb.set_position(teleport_location.position);
@@ -1114,6 +1117,46 @@ impl Entity {
             for message in messages {
                 match message {
                     net::NetworkMessageC2S::Keyboard(key, release, repeat) => match key {
+                        113 => {
+                            let slot = { self.entity_data.lock().unwrap().slot };
+                            self.inventory
+                                .lock()
+                                .unwrap()
+                                .get_full_view()
+                                .modify_item(slot, |item| {
+                                    let item = item.as_mut();
+                                    if let Some(item) = item {
+                                        let mut location = self.get_location();
+                                        location.position.y += 1.7;
+                                        let item_entity = Entity::new(
+                                            location,
+                                            self.server
+                                                .entity_registry
+                                                .entity_by_identifier(&Identifier::new(
+                                                    "bb", "item",
+                                                ))
+                                                .unwrap(),
+                                            None,
+                                        );
+                                        item_entity
+                                            .inventory
+                                            .lock()
+                                            .unwrap()
+                                            .get_full_view()
+                                            .set_item(0, Some(item.copy(1)))
+                                            .unwrap();
+                                        let rotation =
+                                            { *self.rotation.lock().unwrap() }.to_radians();
+                                        item_entity.apply_knockback(
+                                            rotation.sin() as f64,
+                                            0.,
+                                            rotation.cos() as f64,
+                                        );
+                                        item.add_count(-1);
+                                    }
+                                })
+                                .unwrap();
+                        }
                         9 => {
                             if self.entity_data.lock().unwrap().creative {
                                 self.set_open_inventory(Some(InventoryWrapper::Own(Arc::new(

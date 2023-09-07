@@ -31,7 +31,7 @@ use std::{
 
 use crossbeam_channel::Receiver;
 use fxhash::FxHashMap;
-use inventory::{ItemStack, LootTable, Recipe};
+use inventory::{LootTable, Recipe};
 use json::object;
 use mods::{ModManager, ScriptCallback};
 use net::PlayerConnection;
@@ -331,35 +331,6 @@ impl Server {
                     .unwrap(),
                 Some(connection),
             );
-            Entity::new(
-                //todo: remove
-                &Location {
-                    position: Position {
-                        x: 9.,
-                        y: 10.,
-                        z: -6.,
-                    },
-                    world: self.get_or_create_world(Identifier::new("bb", "lobby")),
-                },
-                self.entity_registry
-                    .entity_by_identifier(&Identifier::new("bb", "item"))
-                    .unwrap(),
-                None,
-            )
-            .inventory
-            .lock()
-            .unwrap()
-            .get_full_view()
-            .set_item(
-                0,
-                Some(ItemStack::new(
-                    self.item_registry
-                        .item_by_identifier(&Identifier::new("example", "copper_axe"))
-                        .unwrap(),
-                    1,
-                )),
-            )
-            .unwrap();
             self.call_event(Identifier::new("bb", "player_join"), (player,));
         }
         let worlds: Vec<Arc<World>> = self
