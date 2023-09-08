@@ -1154,13 +1154,15 @@ impl Entity {
 
                                             item.add_count(-(count as i32));
 
-                                            let rotation =
-                                                { *self.rotation.lock().unwrap() }.to_radians();
+                                            let rotation = { *self.rotation.lock().unwrap() };
+                                            let rotation_radians = rotation.to_radians();
                                             item_entity.apply_knockback(
-                                                rotation.sin() as f64,
+                                                rotation_radians.sin() as f64,
                                                 0.,
-                                                rotation.cos() as f64,
+                                                rotation_radians.cos() as f64,
                                             );
+                                            *item_entity.rotation.lock().unwrap() =
+                                                (-rotation) + 180.;
                                         }
                                     })
                                     .unwrap();
@@ -1452,6 +1454,25 @@ impl Entity {
                             }
                         }
                     }
+                    net::NetworkMessageC2S::RightClickEntity(client_id) => {
+                        let location = self.get_location();
+                        for chunk in location
+                            .chunk
+                            .world
+                            .get_chunks_with_center_radius(location.chunk.position, 1)
+                        {
+                            if let Some(entity) = chunk
+                                .entities
+                                .lock()
+                                .unwrap()
+                                .iter()
+                                .find(|entity| entity.client_id == client_id)
+                            {
+                                entity.on_right_click(self);
+                                break;
+                            }
+                        }
+                    }
                     net::NetworkMessageC2S::MouseScroll(scroll_x, scroll_y) => {
                         let mut player_data = self.entity_data.lock().unwrap();
                         let new_slot = player_data.get_hand_slot() as i32 - scroll_y;
@@ -1475,7 +1496,8 @@ impl Entity {
             }
         }
     }
-    pub fn on_attack(&self, player: &Entity) {
+    pub fn on_attack(&self, player: &Entity) {}
+    pub fn on_right_click(&self, player: &Entity) {
         if self.entity_type.client_data.model == "bb:item" {
             let mut inventory = self.inventory.lock().unwrap();
             let mut inventory_view = inventory.get_full_view();
@@ -1495,6 +1517,7 @@ impl Entity {
             inventory_view.set_item(0, overflow).unwrap();
         }
     }
+
     pub fn remove(&self) {
         self.removed
             .store(true, std::sync::atomic::Ordering::Relaxed)
