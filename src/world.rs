@@ -1116,46 +1116,55 @@ impl Entity {
                 .receive_messages();
             for message in messages {
                 match message {
-                    net::NetworkMessageC2S::Keyboard(key, release, repeat) => match key {
+                    net::NetworkMessageC2S::Keyboard(key, key_mod, pressed, repeat) => match key {
                         113 => {
-                            let slot = { self.entity_data.lock().unwrap().slot };
-                            self.inventory
-                                .lock()
-                                .unwrap()
-                                .get_full_view()
-                                .modify_item(slot, |item| {
-                                    let item = item.as_mut();
-                                    if let Some(item) = item {
-                                        let mut location = self.get_location();
-                                        location.position.y += 1.7;
-                                        let item_entity = Entity::new(
-                                            location,
-                                            self.server
-                                                .entity_registry
-                                                .entity_by_identifier(&Identifier::new(
-                                                    "bb", "item",
-                                                ))
-                                                .unwrap(),
-                                            None,
-                                        );
-                                        item_entity
-                                            .inventory
-                                            .lock()
-                                            .unwrap()
-                                            .get_full_view()
-                                            .set_item(0, Some(item.copy(1)))
-                                            .unwrap();
-                                        let rotation =
-                                            { *self.rotation.lock().unwrap() }.to_radians();
-                                        item_entity.apply_knockback(
-                                            rotation.sin() as f64,
-                                            0.,
-                                            rotation.cos() as f64,
-                                        );
-                                        item.add_count(-1);
-                                    }
-                                })
-                                .unwrap();
+                            if pressed {
+                                let slot = { self.entity_data.lock().unwrap().slot };
+                                self.inventory
+                                    .lock()
+                                    .unwrap()
+                                    .get_full_view()
+                                    .modify_item(slot, |item| {
+                                        let item = item.as_mut();
+                                        if let Some(item) = item {
+                                            let mut location = self.get_location();
+                                            location.position.y += 1.7;
+                                            let item_entity = Entity::new(
+                                                location,
+                                                self.server
+                                                    .entity_registry
+                                                    .entity_by_identifier(&Identifier::new(
+                                                        "bb", "item",
+                                                    ))
+                                                    .unwrap(),
+                                                None,
+                                            );
+                                            let count = if key_mod & 0x0040 != 0 {
+                                                item.get_count()
+                                            } else {
+                                                1
+                                            };
+                                            item_entity
+                                                .inventory
+                                                .lock()
+                                                .unwrap()
+                                                .get_full_view()
+                                                .set_item(0, Some(item.copy(count)))
+                                                .unwrap();
+
+                                            item.add_count(-(count as i32));
+
+                                            let rotation =
+                                                { *self.rotation.lock().unwrap() }.to_radians();
+                                            item_entity.apply_knockback(
+                                                rotation.sin() as f64,
+                                                0.,
+                                                rotation.cos() as f64,
+                                            );
+                                        }
+                                    })
+                                    .unwrap();
+                            }
                         }
                         9 => {
                             if self.entity_data.lock().unwrap().creative {
@@ -1470,17 +1479,20 @@ impl Entity {
         if self.entity_type.client_data.model == "bb:item" {
             let mut inventory = self.inventory.lock().unwrap();
             let mut inventory_view = inventory.get_full_view();
-            let itemstack = inventory_view.get_item(0).unwrap().clone();
-            inventory_view.set_item(0, None).unwrap();
-            if let Some(itemstack) = itemstack {
-                player
+            let item_stack = inventory_view.get_item(0).unwrap().as_ref();
+            let overflow = match item_stack {
+                Some(item_stack) => player
                     .inventory
                     .lock()
                     .unwrap()
                     .get_full_view()
-                    .add_item(&itemstack);
+                    .add_item(&item_stack),
+                None => None,
+            };
+            if overflow.is_none() {
+                self.remove();
             }
-            self.remove();
+            inventory_view.set_item(0, overflow).unwrap();
         }
     }
     pub fn remove(&self) {
