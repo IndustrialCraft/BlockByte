@@ -1306,14 +1306,7 @@ impl Entity {
                             }
                         }
                     }
-                    crate::net::NetworkMessageC2S::PlayerPosition(
-                        x,
-                        y,
-                        z,
-                        shift,
-                        rotation,
-                        moved,
-                    ) => {
+                    net::NetworkMessageC2S::PlayerPosition(x, y, z, shift, rotation, moved) => {
                         let world = { self.location.lock().unwrap().chunk.world.clone() };
                         self.move_to(
                             &Location {
@@ -1331,7 +1324,7 @@ impl Entity {
                             .unwrap()
                             .set_animation(Some(if moved { 2 } else { 1 }));
                     }
-                    crate::net::NetworkMessageC2S::RequestBlockBreakTime(id, position) => {
+                    net::NetworkMessageC2S::RequestBlockBreakTime(id, position) => {
                         let block_break_time = if self.entity_data.lock().unwrap().creative {
                             0.
                         } else {
@@ -1378,12 +1371,12 @@ impl Entity {
                         }
                         //todo: check time
                     }
-                    crate::net::NetworkMessageC2S::BreakBlock(x, y, z) => {
+                    net::NetworkMessageC2S::BreakBlock(x, y, z) => {
                         let block_position = BlockPosition { x, y, z };
                         let world = &self.get_location().chunk.world;
                         world.break_block(block_position, self);
                     }
-                    crate::net::NetworkMessageC2S::RightClickBlock(x, y, z, face, shifting) => {
+                    net::NetworkMessageC2S::RightClickBlock(x, y, z, face, shifting) => {
                         let block_position = BlockPosition { x, y, z };
                         let hand_slot = self.entity_data.lock().unwrap().get_hand_slot();
                         let block = self.get_location().chunk.world.get_block(block_position);
@@ -1414,7 +1407,7 @@ impl Entity {
                             })
                             .unwrap();
                     }
-                    crate::net::NetworkMessageC2S::RightClick(shifting) => {
+                    net::NetworkMessageC2S::RightClick(shifting) => {
                         let hand_slot = self.entity_data.lock().unwrap().get_hand_slot();
                         let mut right_click_result = InteractionResult::Ignored;
                         self.inventory
@@ -1431,7 +1424,26 @@ impl Entity {
                             })
                             .unwrap();
                     }
-                    crate::net::NetworkMessageC2S::MouseScroll(scroll_x, scroll_y) => {
+                    net::NetworkMessageC2S::LeftClickEntity(client_id) => {
+                        let location = self.get_location();
+                        for chunk in location
+                            .chunk
+                            .world
+                            .get_chunks_with_center_radius(location.chunk.position, 1)
+                        {
+                            if let Some(entity) = chunk
+                                .entities
+                                .lock()
+                                .unwrap()
+                                .iter()
+                                .find(|entity| entity.client_id == client_id)
+                            {
+                                entity.on_attack(self);
+                                break;
+                            }
+                        }
+                    }
+                    net::NetworkMessageC2S::MouseScroll(scroll_x, scroll_y) => {
                         let mut player_data = self.entity_data.lock().unwrap();
                         let new_slot = player_data.get_hand_slot() as i32 - scroll_y;
                         player_data.set_hand_slot(new_slot as u32);
@@ -1452,6 +1464,23 @@ impl Entity {
                     _ => {}
                 }
             }
+        }
+    }
+    pub fn on_attack(&self, player: &Entity) {
+        if self.entity_type.client_data.model == "bb:item" {
+            let mut inventory = self.inventory.lock().unwrap();
+            let mut inventory_view = inventory.get_full_view();
+            let itemstack = inventory_view.get_item(0).unwrap().clone();
+            inventory_view.set_item(0, None).unwrap();
+            if let Some(itemstack) = itemstack {
+                player
+                    .inventory
+                    .lock()
+                    .unwrap()
+                    .get_full_view()
+                    .add_item(&itemstack);
+            }
+            self.remove();
         }
     }
     pub fn remove(&self) {

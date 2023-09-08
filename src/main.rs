@@ -194,9 +194,9 @@ impl Server {
                     client_data: registry::ClientEntityData {
                         model: "bb:item".to_string(),
                         texture: "".to_string(),
-                        hitbox_w: 1.,
+                        hitbox_w: 0.5,
                         hitbox_h: 0.1,
-                        hitbox_d: 1.,
+                        hitbox_d: 0.5,
                         animations: vec![],
                         items: vec!["main".to_string()],
                     },
