@@ -1169,8 +1169,12 @@ impl Entity {
                             }
                         }
                         9 => {
-                            if self.entity_data.lock().unwrap().creative {
-                                self.set_open_inventory(Some(InventoryWrapper::Own(Arc::new(
+                            if pressed {
+                                if self.open_inventory.lock().unwrap().is_some() {
+                                    self.set_open_inventory(None);
+                                } else {
+                                    if self.entity_data.lock().unwrap().creative {
+                                        self.set_open_inventory(Some(InventoryWrapper::Own(Arc::new(
                                     Mutex::new({
                                         let mut inventory = Inventory::new(
                                             self,
@@ -1234,23 +1238,28 @@ impl Entity {
                                         inventory
                                     }),
                                 ))));
-                            } else {
-                                self.set_open_inventory(Some(InventoryWrapper::Own(Arc::new(
-                                    Mutex::new(Inventory::new(
-                                        self,
-                                        9,
-                                        || {
-                                            let mut slots = Vec::with_capacity(9);
-                                            for i in 0..9 {
-                                                slots.push(((i as f32 * 0.13) - (4.5 * 0.13), 0.));
-                                            }
-                                            slots
-                                        },
-                                        None,
-                                        None,
-                                        None,
-                                    )),
-                                ))));
+                                    } else {
+                                        self.set_open_inventory(Some(InventoryWrapper::Own(
+                                            Arc::new(Mutex::new(Inventory::new(
+                                                self,
+                                                9,
+                                                || {
+                                                    let mut slots = Vec::with_capacity(9);
+                                                    for i in 0..9 {
+                                                        slots.push((
+                                                            (i as f32 * 0.13) - (4.5 * 0.13),
+                                                            0.,
+                                                        ));
+                                                    }
+                                                    slots
+                                                },
+                                                None,
+                                                None,
+                                                None,
+                                            ))),
+                                        )));
+                                    }
+                                }
                             }
                         }
                         103 => {
