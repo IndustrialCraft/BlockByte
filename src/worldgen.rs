@@ -285,14 +285,3 @@ impl Biome {
         fitness
     }
 }
-pub struct StructureGroup {
-    surface_chunk_only: bool,
-    chance: f64,
-    structures: Vec<StructureGroupPart>,
-}
-pub struct StructureGroupPart {
-    chance: f64,
-    max_range_from_center: u32,
-    height_offset: u32,
-    structure: Arc<Structure>,
-}
