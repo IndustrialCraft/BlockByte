@@ -104,13 +104,13 @@ pub struct BlockStateRef {
 }
 
 impl BlockStateRef {
-    pub fn create_block_data(&self, chunk: &Arc<Chunk>, position: BlockPosition) -> BlockData {
+    pub fn create_block_data(&self, chunk: &Chunk, position: BlockPosition) -> BlockData {
         chunk
             .world
             .server
             .block_registry
             .state_by_ref(self)
-            .to_block_data(ChunkBlockLocation::new(position, chunk.clone()).unwrap())
+            .to_block_data(ChunkBlockLocation::new(position, chunk.ptr()).unwrap())
     }
     pub fn from_state_id(state_id: u32) -> Self {
         Self { state_id }

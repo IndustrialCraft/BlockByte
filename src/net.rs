@@ -176,15 +176,15 @@ pub fn write_string(data: &mut Vec<u8>, value: &String) {
         data.write_be(*ch).unwrap();
     }
 }
-pub fn read_string(data: &mut &[u8]) -> String {
-    let len: u16 = data.read_be().unwrap();
+pub fn read_string(data: &mut &[u8]) -> Result<String, ()> {
+    let len: u16 = data.read_be().map_err(|_| ())?;
     let mut str = Vec::new();
     for _ in 0..len {
-        let ch: u8 = data.read_be().unwrap();
+        let ch: u8 = data.read_be().map_err(|_| ())?;
         str.push(ch);
     }
-    let str = String::from_utf8(str).unwrap();
-    str
+    let str = String::from_utf8(str).map_err(|_| ())?;
+    Ok(str)
 }
 fn read_face(data: &mut &[u8]) -> Face {
     let face: u8 = data.read_be().unwrap();
@@ -242,7 +242,7 @@ impl NetworkMessageC2S {
                 data.read_be().unwrap(),
             )),
             5 => Some(NetworkMessageC2S::GuiClick(
-                read_string(&mut data),
+                read_string(&mut data).unwrap(),
                 MouseButton::from_data(&mut data),
                 data.read_be().unwrap(),
             )),
@@ -258,13 +258,15 @@ impl NetworkMessageC2S {
             8 => Some(NetworkMessageC2S::LeftClickEntity(data.read_be().unwrap())),
             9 => Some(NetworkMessageC2S::RightClickEntity(data.read_be().unwrap())),
             10 => Some(NetworkMessageC2S::GuiScroll(
-                read_string(&mut data),
+                read_string(&mut data).unwrap(),
                 data.read_be().unwrap(),
                 data.read_be().unwrap(),
                 data.read_be().unwrap(),
             )),
             11 => Some(NetworkMessageC2S::RightClick(data.read_be().unwrap())),
-            12 => Some(NetworkMessageC2S::SendMessage(read_string(&mut data))),
+            12 => Some(NetworkMessageC2S::SendMessage(
+                read_string(&mut data).unwrap(),
+            )),
             13 => Some(NetworkMessageC2S::ConnectionMode(data.read_be().unwrap())),
             _ => None,
         }

@@ -301,7 +301,9 @@ impl Inventory {
             } else {
                 Some(ItemStack::new(
                     item_registry
-                        .item_by_identifier(&Identifier::parse(read_string(data).as_str()).unwrap())
+                        .item_by_identifier(
+                            &Identifier::parse(read_string(data).unwrap().as_str()).unwrap(),
+                        )
                         .unwrap(),
                     count,
                 ))

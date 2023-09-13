@@ -307,54 +307,10 @@ impl Chunk {
         world.clone().server.thread_pool.execute(Box::new(move || {
             {
                 let save_path = gen_chunk.get_chunk_path();
-                if save_path.exists() {
-                    let data = std::fs::read(save_path).unwrap(); //todo: if save data is corrupted, regenerate chunk
-                    let mut data = data.as_slice();
-                    let block_map_len: u32 = data.read_be().unwrap();
-                    let mut blocks = Vec::with_capacity(block_map_len as usize);
-                    let block_registry = &gen_chunk.world.server.block_registry;
-                    for _ in 0..block_map_len {
-                        blocks.push(
-                            block_registry
-                                .block_by_identifier(
-                                    &Identifier::parse(net::read_string(&mut data).as_str())
-                                        .unwrap(),
-                                )
-                                .unwrap(),
-                        );
-                    }
-                    let chunk = gen_chunk.clone();
-                    *gen_chunk.blocks.lock().unwrap() = array_init(|x| {
-                        array_init(|y| {
-                            array_init(|z| {
-                                let block_id: u16 = data.read_be().unwrap();
-                                let block = blocks.get(block_id as usize).unwrap();
-                                let block_data = block.get_default_state_ref().create_block_data(
-                                    &chunk,
-                                    BlockPosition {
-                                        x: (position.x * 16) + x as i32,
-                                        y: (position.y * 16) + y as i32,
-                                        z: (position.z * 16) + z as i32,
-                                    },
-                                );
-                                if let BlockData::Data(block) = &block_data {
-                                    let length: u32 = data.read_be().unwrap();
-                                    //todo: optimize
-                                    let mut block_data: Vec<u8> =
-                                        Vec::with_capacity(length as usize);
-                                    for _ in 0..length {
-                                        block_data.push(data.read_be().unwrap());
-                                    }
-                                    block.deserialize(block_data.as_slice());
-                                }
-                                block_data
-                            })
-                        })
-                    });
-                } else {
-                    *gen_chunk.blocks.lock().unwrap() =
-                        gen_chunk.world.world_generator.generate(&gen_chunk);
-                }
+                *gen_chunk.blocks.lock().unwrap() = match gen_chunk.load_from_save(save_path) {
+                    Ok(blocks) => blocks,
+                    Err(()) => gen_chunk.world.world_generator.generate(&gen_chunk),
+                };
             }
 
             gen_chunk
@@ -400,6 +356,64 @@ impl Chunk {
             }
         }));
         chunk
+    }
+    pub fn load_from_save(&self, save_path: PathBuf) -> Result<[[[BlockData; 16]; 16]; 16], ()> {
+        let data = std::fs::read(save_path).map_err(|_| ())?;
+        let mut data = data.as_slice();
+        let block_map_len: u32 = data.read_be().map_err(|_| ())?;
+        let mut blocks = Vec::with_capacity(block_map_len as usize);
+        let block_registry = &self.world.server.block_registry;
+        for _ in 0..block_map_len {
+            blocks.push(
+                block_registry
+                    .block_by_identifier(
+                        &Identifier::parse(net::read_string(&mut data)?.as_str()).unwrap(),
+                    )
+                    .unwrap(),
+            );
+        }
+        let blocks = array_init(|x| {
+            array_init(|y| {
+                array_init(|z| {
+                    let block_id: Result<u16, _> = data.read_be();
+                    if let Ok(block_id) = block_id {
+                        if let Some(block) = blocks.get(block_id as usize) {
+                            let block_data = block.get_default_state_ref().create_block_data(
+                                self,
+                                BlockPosition {
+                                    x: (self.position.x * 16) + x as i32,
+                                    y: (self.position.y * 16) + y as i32,
+                                    z: (self.position.z * 16) + z as i32,
+                                },
+                            );
+                            if let BlockData::Data(block) = &block_data {
+                                let mut length: u32 = data.read_be().unwrap_or(0);
+                                let mut block_data: Vec<u8> = Vec::with_capacity(length as usize);
+                                for _ in 0..length {
+                                    if let Ok(data) = data.read_be() {
+                                        block_data.push(data);
+                                    } else {
+                                        length = 0;
+                                    }
+                                }
+                                if length > 0 {
+                                    block.deserialize(block_data.as_slice());
+                                }
+                            }
+                            block_data
+                        } else {
+                            BlockData::Simple(0)
+                        }
+                    } else {
+                        BlockData::Simple(0)
+                    }
+                })
+            })
+        });
+        Ok(blocks)
+    }
+    pub fn ptr(&self) -> Arc<Chunk> {
+        self.this.upgrade().unwrap()
     }
     pub fn place_structure(&self, position: BlockPosition, structure: Arc<Structure>) {
         structure.place(
