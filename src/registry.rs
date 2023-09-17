@@ -187,6 +187,7 @@ pub enum ClientBlockRenderDataType {
     Air,
     Cube(ClientBlockCubeRenderData),
     Static(ClientBlockStaticRenderData),
+    Foliage(ClientBlockFoliageRenderData),
 }
 
 #[derive(Clone, Debug)]
@@ -203,6 +204,13 @@ pub struct ClientBlockCubeRenderData {
 pub struct ClientBlockStaticRenderData {
     pub model: String,
     pub texture: String,
+}
+#[derive(Clone, Debug)]
+pub struct ClientBlockFoliageRenderData {
+    pub texture_1: String,
+    pub texture_2: String,
+    pub texture_3: String,
+    pub texture_4: String,
 }
 
 pub struct ItemRegistry {
@@ -437,7 +445,8 @@ impl ClientContent {
                 transparent: client_data.transparent,
                 fluid: client_data.fluid,
                 render_data: client_data.render_data,
-                selectable: client_data.selectable
+                selectable: client_data.selectable,
+                no_collide: !block.1.collidable
             };
             if let Some(dynamic) = &client_data.dynamic {
                 model_json["dynamic"] = object! {
@@ -467,6 +476,21 @@ impl ClientContent {
                         .unwrap();
                     model_json
                         .insert("texture", static_data.texture.clone())
+                        .unwrap();
+                }
+                ClientBlockRenderDataType::Foliage(foliage_data) => {
+                    model_json.insert("type", "foliage").unwrap();
+                    model_json
+                        .insert("texture1", foliage_data.texture_1.clone())
+                        .unwrap();
+                    model_json
+                        .insert("texture2", foliage_data.texture_2.clone())
+                        .unwrap();
+                    model_json
+                        .insert("texture3", foliage_data.texture_3.clone())
+                        .unwrap();
+                    model_json
+                        .insert("texture4", foliage_data.texture_4.clone())
                         .unwrap();
                 }
             }

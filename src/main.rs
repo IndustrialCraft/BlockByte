@@ -139,7 +139,7 @@ impl Server {
                         parent: block.clone(),
                         breaking_data: block_data.breaking_data.clone(),
                         loottable: block_data.loot.clone(),
-                        collidable: true, //todo
+                        collidable: !block_data.no_collide,
                     }];
                     (block, state)
                 })

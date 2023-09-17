@@ -15,6 +15,7 @@ use splines::{Interpolation, Spline};
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
+use crate::registry::ClientBlockFoliageRenderData;
 use crate::util::BlockPosition;
 use crate::world::World;
 use crate::{
@@ -162,7 +163,9 @@ impl ModManager {
             .register_fn("client_type_air", BlockBuilder::client_type_air)
             .register_fn("client_type_cube", BlockBuilder::client_type_cube)
             .register_fn("client_type_static", BlockBuilder::client_type_static)
+            .register_fn("client_type_foliage", BlockBuilder::client_type_foliage)
             .register_fn("client_fluid", BlockBuilder::client_fluid)
+            .register_fn("no_collide", BlockBuilder::no_collide)
             .register_fn("client_transparent", BlockBuilder::client_transparent)
             .register_fn("client_selectable", BlockBuilder::client_selectable)
             .register_fn("client_render_data", BlockBuilder::client_render_data)
@@ -640,6 +643,7 @@ pub struct BlockBuilder {
     pub data_container: bool,
     pub breaking_data: (f32, Option<(ToolType, f32)>),
     pub loot: Option<Identifier>,
+    pub no_collide: bool,
 }
 
 impl BlockBuilder {
@@ -657,10 +661,15 @@ impl BlockBuilder {
             data_container: false,
             breaking_data: (1., None),
             loot: None,
+            no_collide: false,
         }))
     }
     pub fn breaking_speed(this: &mut Arc<Mutex<Self>>, breaking_speed: f64) -> Arc<Mutex<Self>> {
         this.lock().unwrap().breaking_data.0 = breaking_speed as f32;
+        this.clone()
+    }
+    pub fn no_collide(this: &mut Arc<Mutex<Self>>) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().no_collide = true;
         this.clone()
     }
     pub fn loot(this: &mut Arc<Mutex<Self>>, id: &str) -> Arc<Mutex<Self>> {
@@ -712,6 +721,22 @@ impl BlockBuilder {
             ClientBlockRenderDataType::Static(ClientBlockStaticRenderData {
                 model: model.to_string(),
                 texture: texture.to_string(),
+            });
+        this.clone()
+    }
+    pub fn client_type_foliage(
+        this: &mut Arc<Mutex<Self>>,
+        texture_1: &str,
+        texture_2: &str,
+        texture_3: &str,
+        texture_4: &str,
+    ) -> Arc<Mutex<Self>> {
+        this.lock().unwrap().client.block_type =
+            ClientBlockRenderDataType::Foliage(ClientBlockFoliageRenderData {
+                texture_1: texture_1.to_string(),
+                texture_2: texture_2.to_string(),
+                texture_3: texture_3.to_string(),
+                texture_4: texture_4.to_string(),
             });
         this.clone()
     }
