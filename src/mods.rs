@@ -411,8 +411,10 @@ impl ModManager {
     pub fn runtime_engine_load(engine: &mut Engine, server: Weak<Server>) {
         engine.register_type_with_name::<Position>("Position");
         engine.register_type_with_name::<BlockPosition>("BlockPosition");
-
-        engine.register_fn("Server", move || server.upgrade().unwrap());
+        {
+            let server = server.clone();
+            engine.register_fn("Server", move || server.upgrade().unwrap());
+        }
         engine.register_fn("take_data_point", |entity: &mut Arc<Entity>, id: &str| {
             entity
                 .entity_data
@@ -475,15 +477,24 @@ impl ModManager {
                     position,
                     world: chunk.world.clone(),
                 };
-                entity.teleport(&location, Some(rotation as f32));
+                entity.teleport(&location, Some((rotation as f32, false)));
             },
         );
+        engine.register_fn("is_shifting", |entity: &mut Arc<Entity>| {
+            entity.is_shifting()
+        });
 
         engine.register_fn("Position", |x: f64, y: f64, z: f64| Position { x, y, z });
+        engine.register_fn("to_block_position", |position: &mut Position| {
+            position.to_block_pos()
+        });
         engine.register_fn("BlockPosition", |x: i64, y: i64, z: i64| BlockPosition {
             x: x as i32,
             y: y as i32,
             z: z as i32,
+        });
+        engine.register_fn("to_string", |block_position: &mut BlockPosition| {
+            block_position.to_string()
         });
         engine.register_fn("+", |first: Position, second: Position| {
             first.add_other(second)
@@ -496,12 +507,16 @@ impl ModManager {
 
         engine.register_fn(
             "get_structure",
-            |world: &mut Arc<World>, first: BlockPosition, second: BlockPosition| {
+            |world: &mut Arc<World>,
+             first: BlockPosition,
+             second: BlockPosition,
+             origin: BlockPosition| {
                 Arc::new(Structure::from_world(
                     Identifier::new("bb", "script_requested"),
                     &world,
                     first,
                     second,
+                    origin,
                 ))
             },
         );
@@ -511,6 +526,17 @@ impl ModManager {
                 world.place_structure(position, &structure, true);
             },
         );
+        {
+            let server = server.clone();
+            engine.register_fn(
+                "export_structure",
+                move |structure: &mut Arc<Structure>, name: &str| {
+                    let server = server.upgrade().unwrap();
+                    let json = structure.export(&server.block_registry);
+                    server.export_file(name.to_string(), json.to_string().as_bytes().to_vec());
+                },
+            );
+        }
 
         engine
             .register_type_with_name::<PlayerAbilitiesWrapper>("PlayerAbilities")
@@ -927,9 +953,12 @@ impl ScriptCallback {
         Self { function }
     }
     pub fn call(&self, engine: &Engine, args: impl FuncArgs) {
-        self.function
-            .call::<()>(engine, Self::AST.get_or_init(|| AST::empty()), args)
-            .unwrap();
+        if let Err(error) =
+            self.function
+                .call::<()>(engine, Self::AST.get_or_init(|| AST::empty()), args)
+        {
+            println!("callback error: {error:#?}");
+        }
     }
 }
 

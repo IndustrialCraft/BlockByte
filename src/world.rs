@@ -1,3 +1,4 @@
+use std::ops::Add;
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
@@ -774,7 +775,7 @@ impl EntityData {
 pub struct Entity {
     this: Weak<Self>,
     location: Mutex<ChunkLocation>,
-    rotation: Mutex<f32>,
+    rotation_shifting: Mutex<(f32, bool)>,
     teleport: Mutex<Option<ChunkLocation>>,
     pub entity_type: Arc<EntityType>,
     pub entity_data: Mutex<EntityData>,
@@ -810,7 +811,7 @@ impl Entity {
             id: Uuid::new_v4(),
             teleport: Mutex::new(None),
             entity_data: Mutex::new(EntityData::new(weak.clone())),
-            rotation: Mutex::new(0.),
+            rotation_shifting: Mutex::new((0., false)),
             animation_controller: Mutex::new(AnimationController::new(weak.clone(), 1)),
             inventory: Mutex::new(Inventory::new(
                 WeakInventoryWrapper::Entity(weak.clone()),
@@ -884,7 +885,10 @@ impl Entity {
         }
     }
     pub fn get_rotation(&self) -> f32 {
-        *self.rotation.lock().unwrap()
+        self.rotation_shifting.lock().unwrap().0
+    }
+    pub fn is_shifting(&self) -> bool {
+        self.rotation_shifting.lock().unwrap().1
     }
     pub fn set_open_inventory(&self, new_inventory: Option<InventoryWrapper>) {
         let mut current_inventory = self.open_inventory.lock().unwrap();
@@ -943,7 +947,7 @@ impl Entity {
             position.x as f32,
             position.y as f32,
             position.z as f32,
-            *self.rotation.lock().unwrap(),
+            self.rotation_shifting.lock().unwrap().0,
             animation_controller.animation,
             animation_controller.animation_start_time,
         ));
@@ -964,24 +968,34 @@ impl Entity {
         }
         messages
     }
-    pub fn teleport<T: Into<ChunkLocation>>(&self, location: T, rotation: Option<f32>) {
+    pub fn teleport<T: Into<ChunkLocation>>(
+        &self,
+        location: T,
+        rotation_shifting: Option<(f32, bool)>,
+    ) {
         let location: ChunkLocation = location.into();
         let position = location.position.clone();
-        self.move_to(location, rotation);
+        self.move_to(location, rotation_shifting);
         self.try_send_message(&NetworkMessageS2C::TeleportPlayer(
             position.x as f32,
             position.y as f32,
             position.z as f32,
-            rotation.unwrap_or(f32::NAN),
+            rotation_shifting
+                .map(|rotation_shifting| rotation_shifting.0)
+                .unwrap_or(f32::NAN),
         ))
         .ok();
     }
-    pub fn move_to<T: Into<ChunkLocation>>(&self, location: T, rotation: Option<f32>) {
+    pub fn move_to<T: Into<ChunkLocation>>(
+        &self,
+        location: T,
+        rotation_shifting: Option<(f32, bool)>,
+    ) {
         {
             *self.teleport.lock().unwrap() = Some(location.into());
         }
-        if let Some(rotation) = rotation {
-            *self.rotation.lock().unwrap() = rotation;
+        if let Some(rotation_shifting) = rotation_shifting {
+            *self.rotation_shifting.lock().unwrap() = rotation_shifting;
         }
     }
     pub fn get_chunks_to_load_at(server: &Server, position: &Position) -> FxHashSet<ChunkPosition> {
@@ -1126,7 +1140,7 @@ impl Entity {
                     new_location.position.x as f32,
                     new_location.position.y as f32,
                     new_location.position.z as f32,
-                    *self.rotation.lock().unwrap(),
+                    self.rotation_shifting.lock().unwrap().0,
                 ),
                 self,
             );
@@ -1185,15 +1199,16 @@ impl Entity {
 
                                             item.add_count(-(count as i32));
 
-                                            let rotation = { *self.rotation.lock().unwrap() };
-                                            let rotation_radians = rotation.to_radians();
+                                            let rotation =
+                                                { *self.rotation_shifting.lock().unwrap() };
+                                            let rotation_radians = rotation.0.to_radians();
                                             item_entity.apply_knockback(
                                                 rotation_radians.sin() as f64,
                                                 0.,
                                                 rotation_radians.cos() as f64,
                                             );
-                                            *item_entity.rotation.lock().unwrap() =
-                                                (-rotation) + 180.;
+                                            *item_entity.rotation_shifting.lock().unwrap() =
+                                                ((-rotation.0) + 180., false);
                                         }
                                     })
                                     .unwrap();
@@ -1368,7 +1383,7 @@ impl Entity {
                                 },
                                 world,
                             },
-                            Some(rotation),
+                            Some((rotation, shift)),
                         );
                         self.animation_controller
                             .lock()
@@ -1786,6 +1801,7 @@ impl Structure {
         world: &World,
         first: BlockPosition,
         second: BlockPosition,
+        origin: BlockPosition,
     ) -> Self {
         let fixed_first = BlockPosition {
             x: first.x.min(second.x),
@@ -1798,12 +1814,14 @@ impl Structure {
             z: first.z.max(second.z),
         };
         let mut blocks = HashMap::new();
-        for x in fixed_first.x..fixed_second.x {
-            for y in fixed_first.y..fixed_second.y {
-                for z in fixed_first.z..fixed_second.z {
+        for x in fixed_first.x..=fixed_second.x {
+            for y in fixed_first.y..=fixed_second.y {
+                for z in fixed_first.z..=fixed_second.z {
                     let block_position = BlockPosition { x, y, z };
                     if let Some(block) = world.get_block(&block_position) {
-                        blocks.insert(block_position, block.get_block_state());
+                        if !block.get_block_state().is_air() {
+                            blocks.insert(block_position.add(-origin), block.get_block_state());
+                        }
                     }
                 }
             }

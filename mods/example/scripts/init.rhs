@@ -11,16 +11,39 @@ create_block("example:malachite").client_type_cube("example:malachite","example:
 create_block("example:malachite_rock").client_type_static("example:stone","example:malachite").loot("example:malachite_rock").register_item("example:malachite_rock","Malachite Rock").register();
 
 create_item("example:plank").client_model_texture("example:plank").client_name("Plank").register();
-create_item("example:wand").on_right_click(|player|{
-    let counter = player.take_data_point("example:counter");
-    if counter == (){
-        counter = 0;
+create_item("example:selection_wand").on_right_click(|player,target|{
+    if type_of(target) == "BlockPosition"{
+        if !player.is_shifting(){
+            player.insert_data_point("example:first_selection", target);
+            player.send_message("first point selected at " + target);
+        } else {
+            player.insert_data_point("example:second_selection", target);
+            player.send_message("second point selected at " + target);
+        }
     }
-    counter += 1;
-    print(counter);
-    player.insert_data_point("example:counter", counter);
-    //player.teleport_position_rotation(player.get_position(), player.get_rotation() + 90)
 }).register();
+register_event("bb:command", |player,command|{
+    if command[0] == "/copy"{
+        let first_selection = player.get_data_point("example:first_selection");
+        let second_selection = player.get_data_point("example:second_selection");
+        if type_of(first_selection) == (){
+            player.send_message("first point not selected");
+            return;
+        }
+        if type_of(second_selection) == (){
+            player.send_message("second point not selected");
+            return;
+        }
+        player.insert_data_point("example:structure_selection", player.get_world().get_structure(first_selection,second_selection,player.get_position().to_block_position()));
+        player.send_message("structure saved");
+    }
+    if command[0] == "/export"{
+        let block_structure = player.get_data_point("example:structure_selection");
+        block_structure.export_structure(command[1] + ".json");
+        player.send_message("structure exported");
+    }
+});
+
 create_item("example:copper_axe").client_name("Copper Axe").client_model_texture("example:copper_axe").tool(64, 1., 1.).tool_add_type(ToolType::Axe).register();
 create_item("example:copper_shovel").client_name("Copper Shovel").client_model_texture("example:copper_shovel").tool(64, 1., 1.).tool_add_type(ToolType::Shovel).register();
 create_item("example:copper_pickaxe").client_name("Copper Pickaxe").client_model_texture("example:copper_pickaxe").tool(64, 1., 1.).tool_add_type(ToolType::Pickaxe).register();

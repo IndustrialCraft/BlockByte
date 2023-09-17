@@ -1,3 +1,5 @@
+use std::fmt::Formatter;
+use std::ops::Neg;
 use std::{fmt::Display, sync::Arc};
 
 use crate::world::{Chunk, World};
@@ -103,6 +105,21 @@ pub struct BlockPosition {
     pub x: i32,
     pub y: i32,
     pub z: i32,
+}
+impl Neg for BlockPosition {
+    type Output = BlockPosition;
+    fn neg(self) -> Self::Output {
+        BlockPosition {
+            x: -self.x,
+            y: -self.y,
+            z: -self.z,
+        }
+    }
+}
+impl Display for BlockPosition {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({},{},{})", self.x, self.y, self.z)
+    }
 }
 impl BlockPosition {
     pub fn offset_by_face(&self, face: Face) -> BlockPosition {

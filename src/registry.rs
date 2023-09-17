@@ -6,6 +6,7 @@ use std::{
 };
 
 use json::{array, object, JsonValue};
+use rhai::Dynamic;
 use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
 
@@ -117,6 +118,9 @@ impl BlockStateRef {
     }
     pub fn get_client_id(&self) -> u32 {
         self.state_id
+    }
+    pub fn is_air(&self) -> bool {
+        self.state_id == 0
     }
 }
 
@@ -289,14 +293,14 @@ impl Item {
             return InteractionResult::Consumed;
         }
         if let Some(right_click) = &self.on_right_click {
-            right_click.call(&player.server.clone().engine, (player,));
+            right_click.call(&player.server.clone().engine, (player, block_position));
             return InteractionResult::Consumed;
         }
         InteractionResult::Ignored
     }
     pub fn on_right_click(&self, item: &mut ItemStack, player: Arc<Entity>) -> InteractionResult {
         if let Some(right_click) = &self.on_right_click {
-            right_click.call(&player.server.clone().engine, (player,));
+            right_click.call(&player.server.clone().engine, (player, Dynamic::UNIT));
             return InteractionResult::Consumed;
         }
         InteractionResult::Ignored
