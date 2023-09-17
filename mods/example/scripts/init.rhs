@@ -12,7 +12,14 @@ create_block("example:malachite_rock").client_type_static("example:stone","examp
 
 create_item("example:plank").client_model_texture("example:plank").client_name("Plank").register();
 create_item("example:wand").on_right_click(|player|{
-    player.teleport_position_rotation(player.get_position(), player.get_rotation() + 90)
+    let counter = player.take_data_point("example:counter");
+    if counter == (){
+        counter = 0;
+    }
+    counter += 1;
+    print(counter);
+    player.insert_data_point("example:counter", counter);
+    //player.teleport_position_rotation(player.get_position(), player.get_rotation() + 90)
 }).register();
 create_item("example:copper_axe").client_name("Copper Axe").client_model_texture("example:copper_axe").tool(64, 1., 1.).tool_add_type(ToolType::Axe).register();
 create_item("example:copper_shovel").client_name("Copper Shovel").client_model_texture("example:copper_shovel").tool(64, 1., 1.).tool_add_type(ToolType::Shovel).register();
@@ -51,32 +58,32 @@ register_model("example:stone", "models/stone.bbm");
 register_event("bb:command", |player,command|{
     if command[0] == "creative"{
         switch command[1]{
-            "true" => {
+            "true" => {
                 player.abilities().creative(true);
                 player.send_message("You are now in creative");
             }
-            "false" => {
+            "false" => {
                 player.abilities().creative(false);
                 player.send_message("You are no longer in creative");
             }
-            _ => {}
+            _ => {}
         }
     }
     if command[0] == "movetype"{
         switch command[1]{
-            "noclip" => {
+            "noclip" => {
                 player.abilities().movement_type(MovementType::NoClip);
                 player.send_message("You are now in noclip");
             }
-            "fly" => {
+            "fly" => {
                 player.abilities().movement_type(MovementType::Fly);
                 player.send_message("You are now flying");
             }
-            "normal" => {
+            "normal" => {
                 player.abilities().movement_type(MovementType::Normal);
                 player.send_message("You are now moving normally");
             }
-            _ => {}
+            _ => {}
         }
     }
     if command[0] == "speed"{

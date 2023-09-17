@@ -9,12 +9,14 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use json::JsonValue;
-use rhai::{AST, Engine, EvalAltResult, exported_module, FnPtr, FuncArgs};
 use rhai::plugin::*;
+use rhai::{exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, AST};
 use splines::{Interpolation, Spline};
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
+use crate::util::BlockPosition;
+use crate::world::World;
 use crate::{
     inventory::{LootTable, Recipe},
     net::MovementType,
@@ -23,9 +25,9 @@ use crate::{
         ClientBlockRenderDataType, ClientBlockStaticRenderData, ClientEntityData, ClientItemModel,
         ClientItemRenderData, ItemRegistry, ToolData, ToolType,
     },
-    Server,
     util::{Identifier, Location, Position},
     world::{Entity, Structure},
+    Server,
 };
 
 struct Mod {
@@ -47,12 +49,12 @@ impl Mod {
                 })?
                 .as_str(),
         )
-            .with_context(|| {
-                format!(
-                    "descriptor for mod {} is incorrect",
-                    path.file_name().unwrap().to_str().unwrap()
-                )
-            })?;
+        .with_context(|| {
+            format!(
+                "descriptor for mod {} is incorrect",
+                path.file_name().unwrap().to_str().unwrap()
+            )
+        })?;
         path_buf.pop();
         let mod_identifier = descriptor["id"].as_str().unwrap().to_string();
         Ok(Mod {
@@ -70,9 +72,9 @@ impl Mod {
             scripts_path.push("scripts");
             scripts_path
         })
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|entry| entry.metadata().unwrap().is_file())
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|entry| entry.metadata().unwrap().is_file())
         {
             if let Err(error) = engine.eval_file::<()>(script.into_path()) {
                 script_errors.push((self.namespace.clone(), error));
@@ -408,9 +410,34 @@ impl ModManager {
     }
     pub fn runtime_engine_load(engine: &mut Engine, server: Weak<Server>) {
         engine.register_type_with_name::<Position>("Position");
+        engine.register_type_with_name::<BlockPosition>("BlockPosition");
 
         engine.register_fn("Server", move || server.upgrade().unwrap());
-
+        engine.register_fn("take_data_point", |entity: &mut Arc<Entity>, id: &str| {
+            entity
+                .entity_data
+                .lock()
+                .unwrap()
+                .take_data_point(&Identifier::parse(id).unwrap())
+        });
+        engine.register_fn("get_data_point", |entity: &mut Arc<Entity>, id: &str| {
+            entity
+                .entity_data
+                .lock()
+                .unwrap()
+                .get_data_point_ref(&Identifier::parse(id).unwrap())
+                .clone()
+        });
+        engine.register_fn(
+            "insert_data_point",
+            |entity: &mut Arc<Entity>, id: &str, value: Dynamic| {
+                entity
+                    .entity_data
+                    .lock()
+                    .unwrap()
+                    .put_data_point(&Identifier::parse(id).unwrap(), value)
+            },
+        );
         //engine.register_type_with_name::<Arc<Entity>>("Entity");
         engine.register_fn("send_message", |entity: Arc<Entity>, text: &str| {
             entity.send_chat_message(text.to_string());
@@ -420,6 +447,9 @@ impl ModManager {
         });
         engine.register_fn("get_rotation", |entity: Arc<Entity>| {
             entity.get_rotation() as f64
+        });
+        engine.register_fn("get_world", |entity: Arc<Entity>| {
+            entity.get_location().chunk.world.clone()
         });
         engine.register_fn("abilities", |entity: Arc<Entity>| PlayerAbilitiesWrapper {
             entity,
@@ -450,6 +480,11 @@ impl ModManager {
         );
 
         engine.register_fn("Position", |x: f64, y: f64, z: f64| Position { x, y, z });
+        engine.register_fn("BlockPosition", |x: i64, y: i64, z: i64| BlockPosition {
+            x: x as i32,
+            y: y as i32,
+            z: z as i32,
+        });
         engine.register_fn("+", |first: Position, second: Position| {
             first.add_other(second)
         });
@@ -458,6 +493,24 @@ impl ModManager {
         engine.register_get_set("x", Position::get_x, Position::set_x);
         engine.register_get_set("y", Position::get_y, Position::set_y);
         engine.register_get_set("z", Position::get_z, Position::set_z);
+
+        engine.register_fn(
+            "get_structure",
+            |world: &mut Arc<World>, first: BlockPosition, second: BlockPosition| {
+                Arc::new(Structure::from_world(
+                    Identifier::new("bb", "script_requested"),
+                    &world,
+                    first,
+                    second,
+                ))
+            },
+        );
+        engine.register_fn(
+            "place_structure",
+            |world: &mut Arc<World>, structure: Arc<Structure>, position: BlockPosition| {
+                world.place_structure(position, &structure, true);
+            },
+        );
 
         engine
             .register_type_with_name::<PlayerAbilitiesWrapper>("PlayerAbilities")

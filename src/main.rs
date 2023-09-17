@@ -285,6 +285,14 @@ impl Server {
             loot_tables: loottables,
         })
     }
+    pub fn export_file(&self, filename: String, data: Vec<u8>) {
+        let path = {
+            let mut path = self.save_directory.clone();
+            path.push(filename);
+            path
+        };
+        fs::write(path, data).unwrap();
+    }
     pub fn call_event(&self, id: Identifier, args: impl FuncArgs + Clone) {
         if let Some(event_list) = self.events.get(&id) {
             for event in event_list {

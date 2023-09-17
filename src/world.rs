@@ -180,7 +180,7 @@ impl World {
             BlockStateRef::from_state_id(0),
         );
     }
-    pub fn get_block(&self, position: BlockPosition) -> BlockData {
+    pub fn get_block_load(&self, position: &BlockPosition) -> BlockData {
         let chunk_offset = position.chunk_offset();
         self.load_chunk(position.to_chunk_pos()).get_block(
             chunk_offset.0,
@@ -188,6 +188,12 @@ impl World {
             chunk_offset.2,
         )
     }
+    pub fn get_block(&self, position: &BlockPosition) -> Option<BlockData> {
+        let chunk_offset = position.chunk_offset();
+        self.get_chunk(position.to_chunk_pos())
+            .map(|chunk| chunk.get_block(chunk_offset.0, chunk_offset.1, chunk_offset.2))
+    }
+
     pub fn replace_block<F>(&self, position: BlockPosition, replacer: F)
     where
         F: FnOnce(BlockData) -> Option<BlockStateRef>,
@@ -672,6 +678,7 @@ pub struct EntityData {
     move_type: MovementType,
     pub creative: bool,
     hand_item: Option<ItemStack>,
+    data: HashMap<Identifier, Dynamic>,
 }
 
 impl EntityData {
@@ -683,7 +690,17 @@ impl EntityData {
             move_type: MovementType::Normal,
             creative: false,
             hand_item: None,
+            data: HashMap::new(),
         }
+    }
+    pub fn put_data_point(&mut self, id: &Identifier, data: Dynamic) {
+        self.data.insert(id.clone(), data);
+    }
+    pub fn take_data_point(&mut self, id: &Identifier) -> Dynamic {
+        self.data.remove(id).unwrap_or(Dynamic::UNIT)
+    }
+    pub fn get_data_point_ref(&mut self, id: &Identifier) -> &Dynamic {
+        self.data.get(id).unwrap_or(&Dynamic::UNIT)
     }
     pub fn modify_inventory_hand<F>(&mut self, function: F)
     where
@@ -1363,7 +1380,7 @@ impl Entity {
                             0.
                         } else {
                             let world = self.get_location().chunk.world.clone();
-                            let block_state = world.get_block(position).get_block_state();
+                            let block_state = world.get_block_load(&position).get_block_state();
                             let block_state =
                                 world.server.block_registry.state_by_ref(&block_state);
                             let block_tool = &block_state.breaking_data;
@@ -1413,7 +1430,11 @@ impl Entity {
                     net::NetworkMessageC2S::RightClickBlock(x, y, z, face, shifting) => {
                         let block_position = BlockPosition { x, y, z };
                         let hand_slot = self.entity_data.lock().unwrap().get_hand_slot();
-                        let block = self.get_location().chunk.world.get_block(block_position);
+                        let block = self
+                            .get_location()
+                            .chunk
+                            .world
+                            .get_block_load(&block_position);
                         let mut right_click_result = InteractionResult::Ignored;
                         if !shifting {
                             right_click_result = match block {
@@ -1662,7 +1683,7 @@ impl AABB {
                 predicate.call((world
                     .server
                     .block_registry
-                    .state_by_ref(&world.get_block(*position).get_block_state()),))
+                    .state_by_ref(&world.get_block_load(position).get_block_state()),))
             })
             .is_some()
     }
@@ -1736,7 +1757,7 @@ impl AnimationController {
         }
     }
 }
-
+#[derive(Clone)]
 pub struct Structure {
     id: Identifier,
     blocks: HashMap<BlockPosition, BlockStateRef>,
@@ -1759,6 +1780,49 @@ impl Structure {
             );
         }
         Structure { blocks, id }
+    }
+    pub fn from_world(
+        id: Identifier,
+        world: &World,
+        first: BlockPosition,
+        second: BlockPosition,
+    ) -> Self {
+        let fixed_first = BlockPosition {
+            x: first.x.min(second.x),
+            y: first.y.min(second.y),
+            z: first.z.min(second.z),
+        };
+        let fixed_second = BlockPosition {
+            x: first.x.max(second.x),
+            y: first.y.max(second.y),
+            z: first.z.max(second.z),
+        };
+        let mut blocks = HashMap::new();
+        for x in fixed_first.x..fixed_second.x {
+            for y in fixed_first.y..fixed_second.y {
+                for z in fixed_first.z..fixed_second.z {
+                    let block_position = BlockPosition { x, y, z };
+                    if let Some(block) = world.get_block(&block_position) {
+                        blocks.insert(block_position, block.get_block_state());
+                    }
+                }
+            }
+        }
+        Structure { id, blocks }
+    }
+    pub fn export(&self, block_registry: &BlockRegistry) -> JsonValue {
+        let mut blocks = Vec::new();
+        for (position, block) in &self.blocks {
+            blocks.push(object! {
+                x:position.x,
+                y:position.y,
+                z:position.z,
+                id:block_registry.state_by_ref(block).parent.id.to_string()
+            });
+        }
+        object! {
+            blocks:JsonValue::Array(blocks)
+        }
     }
     pub fn place<F>(&self, mut placer: F, position: BlockPosition)
     where

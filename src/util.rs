@@ -196,9 +196,9 @@ impl ChunkPosition {
     pub fn with_offset(&self, face: &Face) -> Self {
         let offset = face.get_offset();
         ChunkPosition {
-            x: self.x + offset.x,
-            y: self.y + offset.y,
-            z: self.z + offset.z,
+            x: self.x + offset.x as i32,
+            y: self.y + offset.y as i32,
+            z: self.z + offset.z as i32,
         }
     }
     pub fn add(&self, x: i32, y: i32, z: i32) -> Self {
