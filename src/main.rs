@@ -29,9 +29,10 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+use crate::registry::RecipeManager;
 use crossbeam_channel::Receiver;
 use fxhash::FxHashMap;
-use inventory::{LootTable, Recipe};
+use inventory::LootTable;
 use json::object;
 use mods::{ModManager, ScriptCallback};
 use net::PlayerConnection;
@@ -103,7 +104,7 @@ pub struct Server {
     pub thread_pool: ThreadPool,
     world_generator_template: (Vec<Biome>,),
     structures: HashMap<Identifier, Arc<Structure>>,
-    recipes: HashMap<Identifier, Arc<Recipe>>,
+    recipes: RecipeManager,
     events: HashMap<Identifier, Vec<ScriptCallback>>,
     engine: Engine,
     save_directory: PathBuf,
@@ -262,7 +263,7 @@ impl Server {
                 .collect(),),
             block_registry,
             structures,
-            recipes,
+            recipes: RecipeManager::new(recipes),
             events: loaded_mods.6,
             engine: {
                 let mut engine = Engine::new();

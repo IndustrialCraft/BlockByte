@@ -9,6 +9,7 @@ use json::{object, JsonValue};
 use splines::Spline;
 use uuid::Uuid;
 
+use crate::world::UserData;
 use crate::{
     net::{read_string, write_string, MouseButton},
     registry::{InteractionResult, Item, ItemRegistry},
@@ -58,44 +59,44 @@ impl ItemStack {
         self.item_count
     }
 }
-pub trait InventoryClickHandler =
-    Fn(&mut Inventory, &Entity, u32, MouseButton, bool) -> InteractionResult + Send + Sync;
-pub trait InventoryScrollHandler =
-    Fn(&mut Inventory, &Entity, u32, i32, i32, bool) -> InteractionResult + Send + Sync;
-pub trait InventorySetItemHandler = Fn(&mut Inventory, u32) + Send + Sync;
-#[derive(Clone)]
+pub type InventoryClickHandler =
+    Box<dyn Fn(&Inventory, &Entity, u32, MouseButton, bool) -> InteractionResult + Send + Sync>;
+pub type InventoryScrollHandler =
+    Box<dyn Fn(&Inventory, &Entity, u32, i32, i32, bool) -> InteractionResult + Send + Sync>;
+pub type InventorySetItemHandler = Box<dyn Fn(&Inventory, u32) + Send + Sync>;
+
 pub struct Inventory {
     owner: WeakInventoryWrapper,
-    items: Box<[Option<ItemStack>]>,
-    viewers: FxHashMap<Uuid, Weak<Entity>>,
+    items: Mutex<Box<[Option<ItemStack>]>>,
+    viewers: Mutex<FxHashMap<Uuid, Weak<Entity>>>,
     client_id: String,
     slots: Vec<(f32, f32)>,
-    click_handler: Option<Arc<dyn InventoryClickHandler>>,
-    scroll_handler: Option<Arc<dyn InventoryScrollHandler>>,
-    set_item_handler: Option<Arc<dyn InventorySetItemHandler>>,
+    pub user_data: Mutex<UserData>,
+    click_handler: Option<InventoryClickHandler>,
+    scroll_handler: Option<InventoryScrollHandler>,
+    set_item_handler: Option<InventorySetItemHandler>,
 }
 impl Inventory {
     pub fn new_owned<F>(
         size: u32,
         ui_creator: F,
-        click_handler: Option<Arc<dyn InventoryClickHandler>>,
-        scroll_handler: Option<Arc<dyn InventoryScrollHandler>>,
-        set_item_handler: Option<Arc<dyn InventorySetItemHandler>>,
-    ) -> Arc<Mutex<Self>>
+        click_handler: Option<InventoryClickHandler>,
+        scroll_handler: Option<InventoryScrollHandler>,
+        set_item_handler: Option<InventorySetItemHandler>,
+    ) -> Arc<Self>
     where
         F: FnOnce() -> Vec<(f32, f32)>,
     {
-        let inventory = Arc::new_cyclic(|this| {
-            Mutex::new(Inventory {
-                items: vec![None; size as usize].into_boxed_slice(),
-                viewers: FxHashMap::default(),
-                client_id: Uuid::new_v4().to_string(),
-                slots: ui_creator.call_once(()),
-                click_handler,
-                scroll_handler,
-                set_item_handler,
-                owner: WeakInventoryWrapper::Own(this.clone()),
-            })
+        let inventory = Arc::new_cyclic(|this| Inventory {
+            items: Mutex::new(vec![None; size as usize].into_boxed_slice()),
+            viewers: Mutex::new(FxHashMap::default()),
+            client_id: Uuid::new_v4().to_string(),
+            slots: ui_creator.call_once(()),
+            user_data: Mutex::new(UserData::new()),
+            click_handler,
+            scroll_handler,
+            set_item_handler,
+            owner: WeakInventoryWrapper::Own(this.clone()),
         });
         inventory
     }
@@ -103,34 +104,44 @@ impl Inventory {
         owner: T,
         size: u32,
         ui_creator: F,
-        click_handler: Option<Arc<dyn InventoryClickHandler>>,
-        scroll_handler: Option<Arc<dyn InventoryScrollHandler>>,
-        set_item_handler: Option<Arc<dyn InventorySetItemHandler>>,
+        click_handler: Option<InventoryClickHandler>,
+        scroll_handler: Option<InventoryScrollHandler>,
+        set_item_handler: Option<InventorySetItemHandler>,
     ) -> Self
     where
         F: FnOnce() -> Vec<(f32, f32)>,
         T: Into<WeakInventoryWrapper>,
     {
         Inventory {
-            items: vec![None; size as usize].into_boxed_slice(),
-            viewers: FxHashMap::default(),
+            items: Mutex::new(vec![None; size as usize].into_boxed_slice()),
+            viewers: Mutex::new(FxHashMap::default()),
             client_id: Uuid::new_v4().to_string(),
             slots: ui_creator.call_once(()),
+            user_data: Mutex::new(UserData::new()),
             click_handler,
             scroll_handler,
             set_item_handler,
             owner: owner.into(),
         }
     }
+    pub fn get_user_data(&self) -> MutexGuard<UserData> {
+        self.user_data.lock().unwrap()
+    }
+    pub fn export_content(&self) -> Box<[Option<ItemStack>]> {
+        self.items.lock().unwrap().clone()
+    }
+    pub fn load_content(&self, content: Box<[Option<ItemStack>]>) {
+        *self.items.lock().unwrap() = content;
+    }
     pub fn get_owner(&self) -> &WeakInventoryWrapper {
         &self.owner
     }
     pub fn get_size(&self) -> u32 {
-        self.items.len() as u32
+        self.items.lock().unwrap().len() as u32
     }
-    fn sync_slot(&mut self, index: u32) {
-        let item = &self.items[index as usize];
-        for viewer in self.viewers.values() {
+    fn sync_slot(&self, index: u32) {
+        let item = &self.items.lock().unwrap()[index as usize];
+        for viewer in self.viewers.lock().unwrap().values() {
             viewer.upgrade().unwrap()
             .try_send_message(&crate::net::NetworkMessageS2C::GuiData(
                 object! {id:self.get_slot_id(index),type:"editElement",data_type:"item", item: Self::item_to_json(item)},
@@ -155,12 +166,12 @@ impl Inventory {
             _ => {}
         }
     }
-    pub fn add_viewer(&mut self, viewer: Arc<Entity>) {
+    pub fn add_viewer(&self, viewer: Arc<Entity>) {
         let id = viewer.get_id();
-        if self.viewers.contains_key(id) {
+        if self.viewers.lock().unwrap().contains_key(id) {
             return;
         }
-        for item in self.items.iter().enumerate() {
+        for item in self.items.lock().unwrap().iter().enumerate() {
             let slot = self.slots.get(item.0).unwrap();
             let json = object! {
                 id: self.get_slot_id(item.0 as u32),
@@ -174,10 +185,13 @@ impl Inventory {
                 .try_send_message(&crate::net::NetworkMessageS2C::GuiData(json))
                 .unwrap();
         }
-        self.viewers.insert(id.clone(), Arc::downgrade(&viewer));
+        self.viewers
+            .lock()
+            .unwrap()
+            .insert(id.clone(), Arc::downgrade(&viewer));
     }
-    pub fn remove_viewer(&mut self, viewer: Arc<Entity>) {
-        if let Some(viewer) = self.viewers.remove(viewer.get_id()) {
+    pub fn remove_viewer(&self, viewer: Arc<Entity>) {
+        if let Some(viewer) = self.viewers.lock().unwrap().remove(viewer.get_id()) {
             if let Some(entity) = viewer.upgrade() {
                 entity
                     .try_send_message(&crate::net::NetworkMessageS2C::GuiData(
@@ -210,10 +224,10 @@ impl Inventory {
             None
         }
     }
-    pub fn on_click_slot(&mut self, player: &Entity, id: u32, button: MouseButton, shifting: bool) {
+    pub fn on_click_slot(&self, player: &Entity, id: u32, button: MouseButton, shifting: bool) {
         let result = self
             .click_handler
-            .clone()
+            .as_ref()
             .map(|handler| handler.call((self, player, id, button, shifting)))
             .unwrap_or(InteractionResult::Ignored);
         if let InteractionResult::Ignored = result {
@@ -242,10 +256,10 @@ impl Inventory {
             }
         }
     }
-    pub fn on_scroll_slot(&mut self, player: &Entity, id: u32, x: i32, y: i32, shifting: bool) {
+    pub fn on_scroll_slot(&self, player: &Entity, id: u32, x: i32, y: i32, shifting: bool) {
         let result = self
             .scroll_handler
-            .clone()
+            .as_ref()
             .map(|handler| handler.call((self, player, id, x, y, shifting)))
             .unwrap_or(InteractionResult::Ignored);
         if let InteractionResult::Ignored = result {
@@ -282,7 +296,7 @@ impl Inventory {
     }
     pub fn serialize(&self, data: &mut Vec<u8>) {
         data.write_be(self.get_size()).unwrap();
-        for item in self.items.iter() {
+        for item in self.items.lock().unwrap().iter() {
             if let Some(item) = item.as_ref() {
                 data.write_be(item.get_count()).unwrap();
                 write_string(data, &item.item_type.id.to_string());
@@ -291,7 +305,7 @@ impl Inventory {
             }
         }
     }
-    pub fn deserialize(&mut self, data: &mut &[u8], item_registry: &ItemRegistry) {
+    pub fn deserialize(&self, data: &mut &[u8], item_registry: &ItemRegistry) {
         let size: u32 = data.read_be().unwrap();
         let mut items = Vec::new();
         for _ in 0..size {
@@ -309,21 +323,21 @@ impl Inventory {
                 ))
             })
         }
-        self.items = items.into_boxed_slice();
+        *self.items.lock().unwrap() = items.into_boxed_slice();
     }
-    pub fn get_view(&mut self, slot_range: Range<u32>) -> InventoryView {
+    pub fn get_view(&self, slot_range: Range<u32>) -> InventoryView {
         InventoryView {
             slot_range,
             inventory: self,
         }
     }
-    pub fn get_full_view(&mut self) -> InventoryView {
+    pub fn get_full_view(&self) -> InventoryView {
         self.get_view(0..self.get_size())
     }
 }
 pub struct InventoryView<'a> {
     slot_range: Range<u32>,
-    inventory: &'a mut Inventory,
+    inventory: &'a Inventory,
 }
 impl<'a> InventoryView<'a> {
     pub fn get_size(&self) -> u32 {
@@ -339,15 +353,19 @@ impl<'a> InventoryView<'a> {
             Err(())
         }
     }
-    pub fn get_item(&self, index: u32) -> Result<&Option<ItemStack>, ()> {
+    pub fn get_item(&self, index: u32) -> Result<Option<ItemStack>, ()> {
+        //todo: prevent copying
         self.inventory
             .items
+            .lock()
+            .unwrap()
             .get(self.map_slot(index)? as usize)
+            .cloned()
             .ok_or(())
     }
-    pub fn set_item(&mut self, index: u32, item: Option<ItemStack>) -> Result<(), ()> {
+    pub fn set_item(&self, index: u32, item: Option<ItemStack>) -> Result<(), ()> {
         let index = self.map_slot(index)?;
-        self.inventory.items[index as usize] = match item {
+        self.inventory.items.lock().unwrap()[index as usize] = match item {
             Some(item) => {
                 if item.item_count == 0 {
                     None
@@ -358,29 +376,29 @@ impl<'a> InventoryView<'a> {
             None => None,
         };
         self.inventory.sync_slot(index);
-        if let Some(handler) = self.inventory.set_item_handler.clone() {
+        if let Some(handler) = self.inventory.set_item_handler.as_ref() {
             handler.call((self.inventory, index));
         }
         Ok(())
     }
-    pub fn modify_item<F>(&mut self, index: u32, function: F) -> Result<(), ()>
+    pub fn modify_item<F>(&self, index: u32, function: F) -> Result<(), ()>
     where
         F: FnOnce(&mut Option<ItemStack>),
     {
         let index = self.map_slot(index)?;
 
-        function.call_once((&mut self.inventory.items[index as usize],));
-        let set_as_empty = match &self.inventory.items[index as usize] {
+        function.call_once((&mut self.inventory.items.lock().unwrap()[index as usize],));
+        let set_as_empty = match &self.inventory.items.lock().unwrap()[index as usize] {
             Some(item) => item.item_count == 0,
             None => false,
         };
         if set_as_empty {
-            self.inventory.items[index as usize] = None;
+            self.inventory.items.lock().unwrap()[index as usize] = None;
         }
         self.inventory.sync_slot(index);
         Ok(())
     }
-    pub fn add_item(&mut self, item: &ItemStack) -> Option<ItemStack> {
+    pub fn add_item(&self, item: &ItemStack) -> Option<ItemStack> {
         let mut rest = item.get_count();
         for slot in 0..self.get_size() {
             self.modify_item(slot as u32, |slot_item| {
@@ -408,7 +426,7 @@ impl<'a> InventoryView<'a> {
         }
         Some(item.copy(rest))
     }
-    pub fn remove_item(&mut self, item: &ItemStack) -> Option<ItemStack> {
+    pub fn remove_item(&self, item: &ItemStack) -> Option<ItemStack> {
         let mut rest = item.get_count();
         for slot in 0..self.get_size() {
             self.modify_item(slot as u32, |slot_item| {
@@ -433,14 +451,14 @@ impl<'a> InventoryView<'a> {
 pub enum InventoryWrapper {
     Entity(Arc<Entity>),
     Block(Arc<WorldBlock>),
-    Own(Arc<Mutex<Inventory>>),
+    Own(Arc<Inventory>),
 }
 impl InventoryWrapper {
-    pub fn get_inventory(&self) -> MutexGuard<Inventory> {
+    pub fn get_inventory(&self) -> &Inventory {
         match self {
-            Self::Entity(entity) => entity.inventory.lock().unwrap(),
-            Self::Block(block) => block.inventory.lock().unwrap(),
-            Self::Own(inventory) => inventory.lock().unwrap(),
+            Self::Entity(entity) => &entity.inventory,
+            Self::Block(block) => &block.inventory,
+            Self::Own(inventory) => inventory,
         }
     }
     pub fn downgrade(&self) -> WeakInventoryWrapper {
@@ -455,7 +473,7 @@ impl InventoryWrapper {
 pub enum WeakInventoryWrapper {
     Entity(Weak<Entity>),
     Block(Weak<WorldBlock>),
-    Own(Weak<Mutex<Inventory>>),
+    Own(Weak<Inventory>),
 }
 impl WeakInventoryWrapper {
     pub fn upgrade(&self) -> Option<InventoryWrapper> {
@@ -471,11 +489,13 @@ impl WeakInventoryWrapper {
     }
 }
 pub struct Recipe {
+    pub id: Identifier,
+    recipe_type: Identifier,
     input_items: Vec<ItemStack>,
     output_items: Vec<ItemStack>,
 }
 impl Recipe {
-    pub fn from_json(json: JsonValue, item_registry: &ItemRegistry) -> Self {
+    pub fn from_json(id: Identifier, json: JsonValue, item_registry: &ItemRegistry) -> Self {
         let mut input_items = Vec::new();
         let mut output_items = Vec::new();
         for item_input in json["item_inputs"].members() {
@@ -485,32 +505,42 @@ impl Recipe {
             output_items.push(ItemStack::from_json(item_output, item_registry).unwrap());
         }
         Recipe {
+            id,
+            recipe_type: Identifier::parse(json["type"].as_str().unwrap()).unwrap(),
             input_items,
             output_items,
         }
     }
+    pub fn get_icon(&self) -> ItemStack {
+        self.output_items.get(0).unwrap().clone()
+    }
+    pub fn get_type(&self) -> &Identifier {
+        &self.recipe_type
+    }
     pub fn can_craft(&self, inventory: &Inventory) -> bool {
-        let mut inventory_copy = inventory.clone();
-        let mut inventory_copy = inventory_copy.get_full_view();
+        let content = inventory.export_content();
+        let inventory_copy = inventory.get_full_view();
         for input_item in &self.input_items {
             if let Some(_) = inventory_copy.remove_item(input_item) {
+                inventory.load_content(content);
                 return false;
             }
         }
+        inventory.load_content(content);
         true
     }
-    pub fn consume_inputs(&self, inventory: &mut Inventory) -> Result<(), ()> {
+    pub fn consume_inputs(&self, inventory: &Inventory) -> Result<(), ()> {
         if !self.can_craft(inventory) {
             return Err(());
         }
-        let mut inventory = inventory.get_full_view();
+        let inventory = inventory.get_full_view();
         for item in &self.input_items {
             inventory.remove_item(item);
         }
         Ok(())
     }
-    pub fn add_outputs(&self, inventory: &mut Inventory) {
-        let mut inventory = inventory.get_full_view();
+    pub fn add_outputs(&self, inventory: &Inventory) {
+        let inventory = inventory.get_full_view();
         for item in &self.output_items {
             inventory.add_item(item);
         }

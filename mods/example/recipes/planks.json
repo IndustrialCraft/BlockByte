@@ -1,4 +1,5 @@
 {
+    "type": "bb:crafting",
     "item_inputs": [
         {
             "id":"example:log_block",

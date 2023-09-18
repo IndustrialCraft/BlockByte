@@ -6,10 +6,12 @@ use std::{
 };
 
 use json::{array, object, JsonValue};
+use once_cell::sync::Lazy;
 use rhai::Dynamic;
 use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
 
+use crate::inventory::Recipe;
 use crate::{
     inventory::ItemStack,
     mods::{ClientContentData, ScriptCallback},
@@ -153,12 +155,7 @@ impl BlockState {
         if let Some(loottable) = &self.loottable {
             let loottable = player.server.loot_tables.get(loottable).unwrap();
             loottable.generate_items(|item| {
-                player
-                    .inventory
-                    .lock()
-                    .unwrap()
-                    .get_full_view()
-                    .add_item(&item);
+                player.inventory.get_full_view().add_item(&item);
             });
         }
     }
@@ -536,6 +533,31 @@ impl ClientContent {
         }
     }
 }
+
+pub struct RecipeManager {
+    recipes: HashMap<Identifier, Arc<Recipe>>,
+    by_type: HashMap<Identifier, Vec<Arc<Recipe>>>,
+}
+impl RecipeManager {
+    pub fn new(recipes: HashMap<Identifier, Arc<Recipe>>) -> Self {
+        let mut by_type = HashMap::new();
+        for (_, recipe) in &recipes {
+            by_type
+                .entry(recipe.get_type().clone())
+                .or_insert_with(|| Vec::new())
+                .push(recipe.clone());
+        }
+        RecipeManager { recipes, by_type }
+    }
+    pub fn by_id(&self, id: &Identifier) -> Option<Arc<Recipe>> {
+        self.recipes.get(id).cloned()
+    }
+    pub fn by_type(&self, id: &Identifier) -> &Vec<Arc<Recipe>> {
+        self.by_type.get(id).unwrap_or(&EMPTY_RECIPE_LIST)
+    }
+}
+static EMPTY_RECIPE_LIST: Lazy<&'static mut Vec<Arc<Recipe>>> =
+    Lazy::new(|| Box::leak(Box::new(Vec::new())));
 
 #[derive(Clone)]
 pub struct ToolData {

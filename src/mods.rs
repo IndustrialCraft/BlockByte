@@ -406,7 +406,10 @@ impl ModManager {
                 let id = Identifier::new(loaded_mod.1.namespace.clone(), id);
                 let json =
                     json::parse(fs::read_to_string(recipe_path.path()).unwrap().as_str()).unwrap();
-                recipes.insert(id.clone(), Arc::new(Recipe::from_json(json, item_registry)));
+                recipes.insert(
+                    id.clone(),
+                    Arc::new(Recipe::from_json(id, json, item_registry)),
+                );
             }
         }
         recipes
@@ -420,24 +423,25 @@ impl ModManager {
         }
         engine.register_fn("take_data_point", |entity: &mut Arc<Entity>, id: &str| {
             entity
-                .entity_data
+                .user_data
                 .lock()
                 .unwrap()
                 .take_data_point(&Identifier::parse(id).unwrap())
         });
         engine.register_fn("get_data_point", |entity: &mut Arc<Entity>, id: &str| {
             entity
-                .entity_data
+                .user_data
                 .lock()
                 .unwrap()
                 .get_data_point_ref(&Identifier::parse(id).unwrap())
-                .clone()
+                .cloned()
+                .unwrap_or(Dynamic::UNIT)
         });
         engine.register_fn(
             "insert_data_point",
             |entity: &mut Arc<Entity>, id: &str, value: Dynamic| {
                 entity
-                    .entity_data
+                    .user_data
                     .lock()
                     .unwrap()
                     .put_data_point(&Identifier::parse(id).unwrap(), value)
