@@ -29,5 +29,3 @@ flate2 = { version = "1.0.17"}
 once_cell = "1.18.0"
 parking_lot = "0.12"
 common = { path = "../common" }
-[profile.release]
-debug = true
