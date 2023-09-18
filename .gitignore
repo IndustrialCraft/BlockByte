@@ -1,7 +1,2 @@
-/target
-/save
-client_content.zip
-perf.data
-perf.data.old
-font.ttf
+target/
 .idea/

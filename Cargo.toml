@@ -1,33 +1,7 @@
-[package]
-name = "block_byte_server"
-version = "0.1.0"
-edition = "2021"
+[workspace]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-tungstenite = "*"
-json = "0.12.4"
-endio = "0.1.0"
-array-init = "2.1.0"
-atomic-counter = "1.0.1"
-ctrlc = "3.4.0"
-uuid = {version="1.3.3",features=["v4"]}
-rhai = {version = "1.15.1",features=["sync"]}
-anyhow = "1.0.71"
-walkdir = "2.3.3"
-zip = "0.6.6"
-noise = "0.8.2"
-splines = "4.2.0"
-fxhash = "0.2.1"
-sha256 = "1.1.4"
-crossbeam-channel = "0.5.8"
-twox-hash = "1.6.3"
-pathdiff = "0.2.1"
-rand = "0.8.5"
-flate2 = { version = "1.0.17"}
-once_cell = "1.18.0"
-parking_lot = "0.12"
-
-[profile.release]
-debug = true
+members = [
+    "client",
+    "server",
+    "common"
+]
