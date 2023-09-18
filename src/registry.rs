@@ -2,11 +2,12 @@ use std::{
     collections::{hash_map::Keys, HashMap},
     hash::BuildHasherDefault,
     io::Write,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 use json::{array, object, JsonValue};
 use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use rhai::Dynamic;
 use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
@@ -266,7 +267,7 @@ impl Item {
             world.replace_block(block_position, |block| match block {
                 BlockData::Simple(0) => {
                     if !world.collides_entity_with_block(block_position) {
-                        if !player.entity_data.lock().unwrap().creative {
+                        if !player.entity_data.lock().creative {
                             item.add_count(-1);
                         }
                         Some(place.get_default_state_ref())

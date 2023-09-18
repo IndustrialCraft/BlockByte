@@ -27,7 +27,7 @@ pathdiff = "0.2.1"
 rand = "0.8.5"
 flate2 = { version = "1.0.17"}
 once_cell = "1.18.0"
-
+parking_lot = "0.12"
 
 [profile.release]
 debug = true

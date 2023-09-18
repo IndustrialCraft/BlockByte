@@ -24,7 +24,7 @@ use std::{
     net::TcpListener,
     path::{Path, PathBuf},
     process,
-    sync::{atomic::AtomicBool, Arc, Mutex, Weak},
+    sync::{atomic::AtomicBool, Arc, Weak},
     thread::{self, spawn},
     time::{Duration, Instant, SystemTime},
 };
@@ -36,6 +36,7 @@ use inventory::LootTable;
 use json::object;
 use mods::{ModManager, ScriptCallback};
 use net::PlayerConnection;
+use parking_lot::Mutex;
 use registry::{
     Block, BlockRegistry, BlockState, EntityRegistry, EntityType, Item, ItemModelMapping,
     ItemRegistry,
@@ -302,7 +303,7 @@ impl Server {
         }
     }
     pub fn get_or_create_world(&self, identifier: Identifier) -> Arc<World> {
-        let mut worlds = self.worlds.lock().unwrap();
+        let mut worlds = self.worlds.lock();
         if let Some(world) = worlds.get(&identifier) {
             return world.clone();
         }
@@ -318,7 +319,7 @@ impl Server {
         world
     }
     pub fn get_world(&self, identifier: Arc<Identifier>) -> Option<Arc<World>> {
-        let worlds = self.worlds.lock().unwrap();
+        let worlds = self.worlds.lock();
         worlds.get(&identifier).map(|world| world.clone())
     }
     pub fn get_spawn_location(&self) -> Location {
@@ -332,7 +333,7 @@ impl Server {
         }
     }
     pub fn tick(&self) {
-        while let Ok(connection) = self.new_players.lock().unwrap().try_recv() {
+        while let Ok(connection) = self.new_players.lock().try_recv() {
             let player = Entity::new(
                 &self.get_spawn_location(),
                 self.entity_registry
@@ -342,19 +343,12 @@ impl Server {
             );
             self.call_event(Identifier::new("bb", "player_join"), (player,));
         }
-        let worlds: Vec<Arc<World>> = self
-            .worlds
-            .lock()
-            .unwrap()
-            .values()
-            .map(|w| w.clone())
-            .collect();
+        let worlds: Vec<Arc<World>> = self.worlds.lock().values().cloned().collect();
         for world in worlds {
             world.tick();
         }
         self.worlds
             .lock()
-            .unwrap()
             .extract_if(|_, world| world.should_unload())
             .count();
     }
@@ -364,7 +358,7 @@ impl Server {
         }
     }
     pub fn destroy(&self) {
-        for world in self.worlds.lock().unwrap().drain() {
+        for world in self.worlds.lock().drain() {
             world.1.destroy();
         }
         std::fs::write(
@@ -430,14 +424,14 @@ impl ServerSettings {
         }
     }
     pub fn get(&self, key: &str, default: &str) -> String {
-        let mut settings = self.settings.lock().unwrap();
+        let mut settings = self.settings.lock();
         settings
             .entry(key.to_string())
             .or_insert_with(|| default.to_string())
             .clone()
     }
     pub fn get_i64(&self, key: &str, default: i64) -> i64 {
-        let mut settings = self.settings.lock().unwrap();
+        let mut settings = self.settings.lock();
         settings
             .entry(key.to_string())
             .or_insert_with(|| default.to_string())
@@ -445,7 +439,7 @@ impl ServerSettings {
             .unwrap_or(default)
     }
     pub fn get_f64(&self, key: &str, default: f64) -> f64 {
-        let mut settings = self.settings.lock().unwrap();
+        let mut settings = self.settings.lock();
         settings
             .entry(key.to_string())
             .or_insert_with(|| default.to_string())
@@ -454,7 +448,7 @@ impl ServerSettings {
     }
     pub fn save_to_string(&self) -> String {
         let mut output = String::new();
-        let settings = self.settings.lock().unwrap();
+        let settings = self.settings.lock();
         let mut settings: Vec<_> = settings.iter().collect();
         settings.sort_by(|a, b| a.0.cmp(b.0));
         for (key, value) in settings {

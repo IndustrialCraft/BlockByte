@@ -6,7 +6,7 @@ use std::{
     str::FromStr,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU8},
-        Arc, Mutex, Weak,
+        Arc, Weak,
     },
 };
 
@@ -16,6 +16,7 @@ use endio::{BERead, LEWrite};
 use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{array, object, JsonValue};
+use parking_lot::Mutex;
 use rhai::{Array, Dynamic};
 use uuid::Uuid;
 
@@ -97,7 +98,7 @@ impl World {
                     chunk.unwrap().place_structure(position, structure.clone());
                 } else {
                     let mut unloaded_structure_placements =
-                        self.unloaded_structure_placements.lock().unwrap();
+                        self.unloaded_structure_placements.lock();
 
                     if !unloaded_structure_placements.contains_key(&chunk_position) {
                         unloaded_structure_placements.insert(chunk_position, Vec::new());
@@ -136,7 +137,7 @@ impl World {
     pub fn collides_entity_with_block(&self, position: BlockPosition) -> bool {
         let chunks = self.get_chunks_with_center_radius(position.to_chunk_pos(), 1);
         for chunk in chunks {
-            for entity in &*chunk.entities.lock().unwrap() {
+            for entity in &*chunk.entities.lock() {
                 let collider = entity.get_collider().iter_blocks();
                 if entity
                     .get_collider()
@@ -209,33 +210,28 @@ impl World {
     }
     pub fn load_chunk(&self, position: ChunkPosition) -> Arc<Chunk> {
         {
-            let chunks = self.chunks.lock().unwrap();
+            let chunks = self.chunks.lock();
             if let Some(chunk) = chunks.get(&position) {
                 return chunk.clone();
             }
         }
-        let mut chunks = self.chunks.lock().unwrap();
+        let mut chunks = self.chunks.lock();
         let chunk = Chunk::new(position, self.this.upgrade().unwrap());
         chunks.insert(position, chunk.clone());
         chunk
     }
     pub fn get_chunk(&self, position: ChunkPosition) -> Option<Arc<Chunk>> {
-        let chunks = self.chunks.lock().unwrap();
+        let chunks = self.chunks.lock();
         chunks.get(&position).map(|c| c.clone())
     }
     pub fn tick(&self) {
-        let chunks_to_tick: Vec<Arc<Chunk>> = self
-            .chunks
-            .lock()
-            .unwrap()
-            .values()
-            .map(|c| c.clone())
-            .collect();
+        let chunks_to_tick: Vec<Arc<Chunk>> =
+            self.chunks.lock().values().map(|c| c.clone()).collect();
         for chunk in chunks_to_tick {
             chunk.tick();
         }
         let non_empty = {
-            let mut chunks = self.chunks.lock().unwrap();
+            let mut chunks = self.chunks.lock();
             chunks
                 .extract_if(|_, chunk| {
                     let should_unload = chunk.should_unload();
@@ -257,7 +253,7 @@ impl World {
         self.unload_timer.get() >= World::UNLOAD_TIME
     }
     pub fn destroy(&self) {
-        for chunk in self.chunks.lock().unwrap().drain() {
+        for chunk in self.chunks.lock().drain() {
             chunk.1.destroy();
         }
     }
@@ -314,7 +310,7 @@ impl Chunk {
         world.clone().server.thread_pool.execute(Box::new(move || {
             {
                 let save_path = gen_chunk.get_chunk_path();
-                *gen_chunk.blocks.lock().unwrap() = match gen_chunk.load_from_save(save_path) {
+                *gen_chunk.blocks.lock() = match gen_chunk.load_from_save(save_path) {
                     Ok(blocks) => blocks,
                     Err(()) => gen_chunk.world.world_generator.generate(&gen_chunk),
                 };
@@ -328,7 +324,6 @@ impl Chunk {
                     .world
                     .unloaded_structure_placements
                     .lock()
-                    .unwrap()
                     .remove(&position)
             } {
                 for (position, structure) in placement_list {
@@ -340,7 +335,7 @@ impl Chunk {
                 .store(2, std::sync::atomic::Ordering::SeqCst);
             let mut data = Vec::with_capacity(16 * 16 * 16 * 4);
             {
-                let real_blocks = gen_chunk.blocks.lock().unwrap();
+                let real_blocks = gen_chunk.blocks.lock();
                 for x in 0..16 {
                     for y in 0..16 {
                         for z in 0..16 {
@@ -358,7 +353,7 @@ impl Chunk {
                 position.z,
                 encoder.finish().unwrap(),
             );
-            for viewer in gen_chunk.viewers.lock().unwrap().iter() {
+            for viewer in gen_chunk.viewers.lock().iter() {
                 viewer.player.try_send_message(&load_message).ok();
             }
         }));
@@ -448,20 +443,19 @@ impl Chunk {
                 block.get_client_id(),
             ));
         }
-        self.blocks.lock().unwrap()[offset_x as usize][offset_y as usize][offset_z as usize] =
-            block;
+        self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize] = block;
     }
     pub fn get_block(&self, offset_x: u8, offset_y: u8, offset_z: u8) -> BlockData {
-        self.blocks.lock().unwrap()[offset_x as usize][offset_y as usize][offset_z as usize].clone()
+        self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize].clone()
     }
     fn add_entity(&self, entity: Arc<Entity>) {
-        self.entities.lock().unwrap().push(entity);
+        self.entities.lock().push(entity);
     }
     fn add_viewer(&self, viewer: Arc<Entity>) {
         if self.loading_stage.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
             let mut data = Vec::with_capacity(16 * 16 * 16 * 4);
             {
-                let real_blocks = self.blocks.lock().unwrap();
+                let real_blocks = self.blocks.lock();
                 for x in 0..16 {
                     for y in 0..16 {
                         for z in 0..16 {
@@ -484,7 +478,7 @@ impl Chunk {
                 thread_viewer.try_send_message(&load_message).ok();
             }));
         }
-        for entity in self.entities.lock().unwrap().iter() {
+        for entity in self.entities.lock().iter() {
             if Arc::ptr_eq(entity, &viewer) {
                 continue;
             }
@@ -492,10 +486,7 @@ impl Chunk {
                 .try_send_messages(&entity.create_add_messages(entity.get_location().position))
                 .unwrap();
         }
-        self.viewers
-            .lock()
-            .unwrap()
-            .insert(ChunkViewer { player: viewer });
+        self.viewers.lock().insert(ChunkViewer { player: viewer });
     }
     fn remove_viewer(&self, viewer: &Entity) {
         viewer
@@ -505,7 +496,7 @@ impl Chunk {
                 self.position.z,
             ))
             .unwrap();
-        for entity in self.entities.lock().unwrap().iter() {
+        for entity in self.entities.lock().iter() {
             if entity.as_ref() == viewer {
                 continue;
             }
@@ -513,19 +504,19 @@ impl Chunk {
                 .try_send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id))
                 .unwrap();
         }
-        self.viewers.lock().unwrap().remove(&ChunkViewer {
+        self.viewers.lock().remove(&ChunkViewer {
             player: viewer.arc(),
         });
     }
     pub fn announce_to_viewers_except(&self, message: NetworkMessageS2C, player: &Entity) {
-        for viewer in self.viewers.lock().unwrap().iter() {
+        for viewer in self.viewers.lock().iter() {
             if viewer.player.id != player.id {
                 viewer.player.try_send_message(&message).unwrap();
             }
         }
     }
     pub fn announce_to_viewers(&self, message: NetworkMessageS2C) {
-        for viewer in self.viewers.lock().unwrap().iter() {
+        for viewer in self.viewers.lock().iter() {
             viewer.player.try_send_message(&message).unwrap();
         }
     }
@@ -536,7 +527,6 @@ impl Chunk {
         let mut removed_entities = Vec::new();
         self.entities
             .lock()
-            .unwrap()
             .extract_if(|entity| {
                 let new_location = entity.get_location();
                 let not_same_chunk = new_location.chunk.position != self.position;
@@ -544,8 +534,7 @@ impl Chunk {
                     for viewer in self
                         .viewers
                         .lock()
-                        .unwrap()
-                        .difference(&new_location.chunk.viewers.lock().unwrap())
+                        .difference(&new_location.chunk.viewers.lock())
                     {
                         viewer
                             .player
@@ -556,7 +545,7 @@ impl Chunk {
                 let removed = entity.is_removed();
                 if removed && !not_same_chunk {
                     removed_entities.push(entity.clone());
-                    for viewer in self.viewers.lock().unwrap().iter() {
+                    for viewer in self.viewers.lock().iter() {
                         viewer
                             .player
                             .try_send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id))
@@ -570,14 +559,8 @@ impl Chunk {
             entity.post_remove();
         }
 
-        let entities: Vec<_> = self
-            .entities
-            .lock()
-            .unwrap()
-            .iter()
-            .map(|e| e.clone())
-            .collect();
-        if self.viewers.lock().unwrap().len() > 0 {
+        let entities: Vec<_> = self.entities.lock().iter().map(|e| e.clone()).collect();
+        if self.viewers.lock().len() > 0 {
             self.unload_timer
                 .store(0, std::sync::atomic::Ordering::Relaxed);
         }
@@ -590,7 +573,7 @@ impl Chunk {
         }
     }
     pub fn needs_ticking(&self) -> bool {
-        self.entities.lock().unwrap().len() > 0
+        self.entities.lock().len() > 0
     }
     pub fn should_unload(&self) -> bool {
         self.unload_timer.load(std::sync::atomic::Ordering::Relaxed) >= Chunk::UNLOAD_TIME
@@ -603,7 +586,7 @@ impl Chunk {
                     let mut data = Vec::new();
                     let mut block_data = Vec::with_capacity(16 * 16 * 16 * 2);
                     let mut block_map = FxHashMap::default();
-                    let blocks = chunk.blocks.lock().unwrap();
+                    let blocks = chunk.blocks.lock();
                     let block_registry = &chunk.world.server.block_registry;
                     for x in 0..16 {
                         for y in 0..16 {
@@ -641,8 +624,8 @@ impl Chunk {
                 }
             }));
         }
-        self.entities.lock().unwrap().clear();
-        self.viewers.lock().unwrap().clear();
+        self.entities.lock().clear();
+        self.viewers.lock().clear();
     }
     pub fn get_chunk_path(&self) -> PathBuf {
         let mut path = self.world.get_world_path();
@@ -863,13 +846,13 @@ impl Entity {
         }
 
         {
-            let mut entity_data = entity.entity_data.lock().unwrap();
+            let mut entity_data = entity.entity_data.lock();
             entity_data.set_hand_slot(0);
             Inventory::set_cursor(&mut *entity_data);
         }
         chunk.add_entity(entity.clone());
         let add_message = entity.create_add_messages(position);
-        for viewer in chunk.viewers.lock().unwrap().iter() {
+        for viewer in chunk.viewers.lock().iter() {
             if viewer.player.id != entity.id {
                 viewer.player.try_send_messages(&add_message).unwrap();
             }
@@ -893,13 +876,13 @@ impl Entity {
         }
     }
     pub fn get_rotation(&self) -> f32 {
-        self.rotation_shifting.lock().unwrap().0
+        self.rotation_shifting.lock().0
     }
     pub fn is_shifting(&self) -> bool {
-        self.rotation_shifting.lock().unwrap().1
+        self.rotation_shifting.lock().1
     }
     pub fn set_open_inventory(&self, new_inventory: Option<InventoryWrapper>) {
-        let mut current_inventory = self.open_inventory.lock().unwrap();
+        let mut current_inventory = self.open_inventory.lock();
         if let Some(current_inventory) = &*current_inventory {
             current_inventory
                 .get_inventory()
@@ -910,7 +893,7 @@ impl Entity {
                 .get_inventory()
                 .add_viewer(self.this.upgrade().unwrap());
         } else {
-            let mut player_data = self.entity_data.lock().unwrap();
+            let mut player_data = self.entity_data.lock();
             //todo: drop hand item
             player_data.set_inventory_hand(None);
             Inventory::set_cursor(&mut *player_data);
@@ -925,7 +908,7 @@ impl Entity {
         &self.id
     }
     pub fn try_send_message(&self, message: &NetworkMessageS2C) -> Result<(), ()> {
-        if let Some(connection) = &mut *self.connection.lock().unwrap() {
+        if let Some(connection) = &mut *self.connection.lock() {
             connection.send(message);
             Ok(())
         } else {
@@ -933,7 +916,7 @@ impl Entity {
         }
     }
     pub fn try_send_messages(&self, messages: &Vec<NetworkMessageS2C>) -> Result<(), ()> {
-        if let Some(connection) = &mut *self.connection.lock().unwrap() {
+        if let Some(connection) = &mut *self.connection.lock() {
             for message in messages {
                 connection.send(message);
             }
@@ -947,7 +930,7 @@ impl Entity {
             .ok();
     }
     pub fn create_add_messages(&self, position: Position) -> Vec<NetworkMessageS2C> {
-        let animation_controller = self.animation_controller.lock().unwrap();
+        let animation_controller = self.animation_controller.lock();
         let mut messages = Vec::new();
         messages.push(NetworkMessageS2C::AddEntity(
             self.entity_type.id,
@@ -955,7 +938,7 @@ impl Entity {
             position.x as f32,
             position.y as f32,
             position.z as f32,
-            self.rotation_shifting.lock().unwrap().0,
+            self.rotation_shifting.lock().0,
             animation_controller.animation,
             animation_controller.animation_start_time,
         ));
@@ -998,10 +981,10 @@ impl Entity {
         rotation_shifting: Option<(f32, bool)>,
     ) {
         {
-            *self.teleport.lock().unwrap() = Some(location.into());
+            *self.teleport.lock() = Some(location.into());
         }
         if let Some(rotation_shifting) = rotation_shifting {
-            *self.rotation_shifting.lock().unwrap() = rotation_shifting;
+            *self.rotation_shifting.lock() = rotation_shifting;
         }
     }
     pub fn get_chunks_to_load_at(server: &Server, position: &Position) -> FxHashSet<ChunkPosition> {
@@ -1027,25 +1010,19 @@ impl Entity {
         positions
     }
     pub fn get_location(&self) -> ChunkLocation {
-        let location = self.location.lock().unwrap();
+        let location = self.location.lock();
         location.clone()
     }
     pub fn apply_knockback(&self, x: f64, y: f64, z: f64) {
-        let mut velocity = self.velocity.lock().unwrap();
+        let mut velocity = self.velocity.lock();
         velocity.0 += x;
         velocity.1 += y;
         velocity.2 += z;
     }
     pub fn tick(&self) {
-        let mut teleport_location = {
-            self.teleport
-                .lock()
-                .unwrap()
-                .as_ref()
-                .map(|loc| loc.clone())
-        };
+        let mut teleport_location = { self.teleport.lock().as_ref().map(|loc| loc.clone()) };
         if !self.is_player() {
-            let mut velocity = self.velocity.lock().unwrap();
+            let mut velocity = self.velocity.lock();
             velocity.0 *= 0.8;
             velocity.1 *= 0.8;
             velocity.2 *= 0.8;
@@ -1087,17 +1064,17 @@ impl Entity {
             }))
         }
         if let Some(teleport_location) = teleport_location {
-            let old_location = { self.location.lock().unwrap().clone() };
+            let old_location = { self.location.lock().clone() };
             let new_location: ChunkLocation = teleport_location.clone();
             {
-                *self.location.lock().unwrap() = new_location.clone();
+                *self.location.lock() = new_location.clone();
             }
             if !Arc::ptr_eq(&old_location.chunk, &new_location.chunk) {
                 new_location.chunk.add_entity(self.this.upgrade().unwrap());
 
                 {
-                    let old_viewers = old_location.chunk.viewers.lock().unwrap();
-                    let new_viewers = new_location.chunk.viewers.lock().unwrap();
+                    let old_viewers = old_location.chunk.viewers.lock();
+                    let new_viewers = new_location.chunk.viewers.lock();
                     let add_message = self.create_add_messages(new_location.position);
                     let delete_message = NetworkMessageS2C::DeleteEntity(self.client_id);
                     for viewer in old_viewers.difference(&new_viewers) {
@@ -1146,31 +1123,25 @@ impl Entity {
                     new_location.position.x as f32,
                     new_location.position.y as f32,
                     new_location.position.z as f32,
-                    self.rotation_shifting.lock().unwrap().0,
+                    self.rotation_shifting.lock().0,
                 ),
                 self,
             );
         }
         {
-            *self.teleport.lock().unwrap() = None;
+            *self.teleport.lock() = None;
         }
-        if let Some(ticker) = &*self.entity_type.ticker.lock().unwrap() {
+        if let Some(ticker) = &*self.entity_type.ticker.lock() {
             ticker.call(&self.server.engine, (self.this.upgrade().unwrap(),));
         }
         if self.is_player() {
-            let messages = self
-                .connection
-                .lock()
-                .unwrap()
-                .as_mut()
-                .unwrap()
-                .receive_messages();
+            let messages = self.connection.lock().as_mut().unwrap().receive_messages();
             for message in messages {
                 match message {
                     net::NetworkMessageC2S::Keyboard(key, key_mod, pressed, repeat) => match key {
                         113 => {
                             if pressed {
-                                let slot = { self.entity_data.lock().unwrap().slot };
+                                let slot = { self.entity_data.lock().slot };
                                 self.inventory
                                     .get_full_view()
                                     .modify_item(slot, |item| {
@@ -1201,15 +1172,14 @@ impl Entity {
 
                                             item.add_count(-(count as i32));
 
-                                            let rotation =
-                                                { *self.rotation_shifting.lock().unwrap() };
+                                            let rotation = { *self.rotation_shifting.lock() };
                                             let rotation_radians = rotation.0.to_radians();
                                             item_entity.apply_knockback(
                                                 rotation_radians.sin() as f64,
                                                 0.,
                                                 rotation_radians.cos() as f64,
                                             );
-                                            *item_entity.rotation_shifting.lock().unwrap() =
+                                            *item_entity.rotation_shifting.lock() =
                                                 ((-rotation.0) + 180., false);
                                         }
                                     })
@@ -1218,10 +1188,10 @@ impl Entity {
                         }
                         9 => {
                             if pressed {
-                                if self.open_inventory.lock().unwrap().is_some() {
+                                if self.open_inventory.lock().is_some() {
                                     self.set_open_inventory(None);
                                 } else {
-                                    if self.entity_data.lock().unwrap().creative {
+                                    if self.entity_data.lock().creative {
                                         self.set_open_inventory(Some(InventoryWrapper::Own(Arc::new(
                                     {
                                         let inventory = Inventory::new(
@@ -1240,7 +1210,7 @@ impl Entity {
                                                 slots
                                             },
                                             Some(Box::new(move |inventory: &Inventory, entity: &Entity, slot: u32, _: MouseButton, _: bool| {
-                                                let mut entity_data = entity.entity_data.lock().unwrap();
+                                                let mut entity_data = entity.entity_data.lock();
                                                 let hand_empty = entity_data.hand_item.is_none();
                                                 if hand_empty {
                                                     entity_data.set_inventory_hand(inventory.get_full_view().get_item(slot).unwrap().clone());
@@ -1250,7 +1220,7 @@ impl Entity {
                                                 InteractionResult::Consumed
                                             })),
                                             Some(Box::new(|inventory: &Inventory, entity: &Entity, slot: u32, _: i32, y: i32, _: bool| {
-                                                let mut entity_data = entity.entity_data.lock().unwrap();
+                                                let mut entity_data = entity.entity_data.lock();
                                                 entity_data.modify_inventory_hand(|item| {
                                                     match &mut *item {
                                                         Some(item) => {
@@ -1312,7 +1282,7 @@ impl Entity {
                         }
                         99 => {
                             if pressed {
-                                if self.open_inventory.lock().unwrap().is_some() {
+                                if self.open_inventory.lock().is_some() {
                                     self.set_open_inventory(None);
                                 } else {
                                     let inventory = Inventory::new_owned(
@@ -1390,10 +1360,7 @@ impl Entity {
                             */
                         }
                         49..=57 => {
-                            self.entity_data
-                                .lock()
-                                .unwrap()
-                                .set_hand_slot((key - 49) as u32);
+                            self.entity_data.lock().set_hand_slot((key - 49) as u32);
                         }
                         _ => {}
                     },
@@ -1409,8 +1376,7 @@ impl Entity {
                             }
                         }
                         {
-                            if let Some(open_inventory) = &mut *self.open_inventory.lock().unwrap()
-                            {
+                            if let Some(open_inventory) = &mut *self.open_inventory.lock() {
                                 let open_inventory = open_inventory.get_inventory();
                                 let slot = open_inventory.resolve_slot(element.as_str());
                                 if let Some(slot) = slot {
@@ -1429,8 +1395,7 @@ impl Entity {
                             }
                         }
                         {
-                            if let Some(open_inventory) = &mut *self.open_inventory.lock().unwrap()
-                            {
+                            if let Some(open_inventory) = &mut *self.open_inventory.lock() {
                                 let open_inventory = open_inventory.get_inventory();
                                 let slot = open_inventory.resolve_slot(element.as_str());
                                 if let Some(slot) = slot {
@@ -1441,7 +1406,7 @@ impl Entity {
                         }
                     }
                     net::NetworkMessageC2S::PlayerPosition(x, y, z, shift, rotation, moved) => {
-                        let world = { self.location.lock().unwrap().chunk.world.clone() };
+                        let world = { self.location.lock().chunk.world.clone() };
                         self.move_to(
                             &Location {
                                 position: Position {
@@ -1455,11 +1420,10 @@ impl Entity {
                         );
                         self.animation_controller
                             .lock()
-                            .unwrap()
                             .set_animation(Some(if moved { 2 } else { 1 }));
                     }
                     net::NetworkMessageC2S::RequestBlockBreakTime(id, position) => {
-                        let block_break_time = if self.entity_data.lock().unwrap().creative {
+                        let block_break_time = if self.entity_data.lock().creative {
                             0.
                         } else {
                             let world = self.get_location().chunk.world.clone();
@@ -1468,9 +1432,7 @@ impl Entity {
                                 world.server.block_registry.state_by_ref(&block_state);
                             let block_tool = &block_state.breaking_data;
                             let inventory = self.inventory.get_full_view();
-                            let item = inventory
-                                .get_item(self.entity_data.lock().unwrap().slot)
-                                .unwrap();
+                            let item = inventory.get_item(self.entity_data.lock().slot).unwrap();
                             let tool_data = item
                                 .as_ref()
                                 .and_then(|item| item.item_type.tool_data.as_ref());
@@ -1511,7 +1473,7 @@ impl Entity {
                     }
                     net::NetworkMessageC2S::RightClickBlock(x, y, z, face, shifting) => {
                         let block_position = BlockPosition { x, y, z };
-                        let hand_slot = self.entity_data.lock().unwrap().get_hand_slot();
+                        let hand_slot = self.entity_data.lock().get_hand_slot();
                         let block = self
                             .get_location()
                             .chunk
@@ -1543,7 +1505,7 @@ impl Entity {
                             .unwrap();
                     }
                     net::NetworkMessageC2S::RightClick(shifting) => {
-                        let hand_slot = self.entity_data.lock().unwrap().get_hand_slot();
+                        let hand_slot = self.entity_data.lock().get_hand_slot();
                         let mut right_click_result = InteractionResult::Ignored;
                         self.inventory
                             .get_full_view()
@@ -1567,7 +1529,6 @@ impl Entity {
                             if let Some(entity) = chunk
                                 .entities
                                 .lock()
-                                .unwrap()
                                 .iter()
                                 .find(|entity| entity.client_id == client_id)
                             {
@@ -1586,7 +1547,6 @@ impl Entity {
                             if let Some(entity) = chunk
                                 .entities
                                 .lock()
-                                .unwrap()
                                 .iter()
                                 .find(|entity| entity.client_id == client_id)
                             {
@@ -1596,7 +1556,7 @@ impl Entity {
                         }
                     }
                     net::NetworkMessageC2S::MouseScroll(scroll_x, scroll_y) => {
-                        let mut player_data = self.entity_data.lock().unwrap();
+                        let mut player_data = self.entity_data.lock();
                         let new_slot = player_data.get_hand_slot() as i32 - scroll_y;
                         player_data.set_hand_slot(new_slot as u32);
                     }
@@ -1643,7 +1603,6 @@ impl Entity {
             | self
                 .connection
                 .lock()
-                .unwrap()
                 .as_ref()
                 .map(|connection| connection.is_closed())
                 .unwrap_or(false)
@@ -1651,7 +1610,7 @@ impl Entity {
     pub fn post_remove(&self) {
         if self.is_player() {
             let (world, position) = {
-                let location = self.location.lock().unwrap();
+                let location = self.location.lock();
                 (location.chunk.world.clone(), location.position)
             };
             let loading_chunks = Entity::get_chunks_to_load_at(&self.server, &position.clone());
@@ -1661,7 +1620,7 @@ impl Entity {
         }
     }
     fn is_player(&self) -> bool {
-        self.connection.lock().unwrap().is_some()
+        self.connection.lock().is_some()
     }
     pub fn arc(&self) -> Arc<Entity> {
         self.this.upgrade().unwrap()
@@ -1823,9 +1782,14 @@ impl AnimationController {
             self.animation = new_animation;
             self.animation_start_time = 0.; //todo
             let entity = self.entity.upgrade().unwrap();
-            entity.location.lock().unwrap().chunk.announce_to_viewers(
-                NetworkMessageS2C::EntityAnimation(entity.client_id, self.animation),
-            );
+            entity
+                .location
+                .lock()
+                .chunk
+                .announce_to_viewers(NetworkMessageS2C::EntityAnimation(
+                    entity.client_id,
+                    self.animation,
+                ));
         }
     }
 }

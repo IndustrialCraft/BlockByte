@@ -1,11 +1,12 @@
 use std::{
     ops::Range,
-    sync::{Arc, Mutex, MutexGuard, Weak},
+    sync::{Arc, Weak},
 };
 
 use endio::{BERead, LEWrite};
 use fxhash::FxHashMap;
 use json::{object, JsonValue};
+use parking_lot::{Mutex, MutexGuard};
 use splines::Spline;
 use uuid::Uuid;
 
@@ -125,23 +126,23 @@ impl Inventory {
         }
     }
     pub fn get_user_data(&self) -> MutexGuard<UserData> {
-        self.user_data.lock().unwrap()
+        self.user_data.lock()
     }
     pub fn export_content(&self) -> Box<[Option<ItemStack>]> {
-        self.items.lock().unwrap().clone()
+        self.items.lock().clone()
     }
     pub fn load_content(&self, content: Box<[Option<ItemStack>]>) {
-        *self.items.lock().unwrap() = content;
+        *self.items.lock() = content;
     }
     pub fn get_owner(&self) -> &WeakInventoryWrapper {
         &self.owner
     }
     pub fn get_size(&self) -> u32 {
-        self.items.lock().unwrap().len() as u32
+        self.items.lock().len() as u32
     }
     fn sync_slot(&self, index: u32) {
-        let item = &self.items.lock().unwrap()[index as usize];
-        for viewer in self.viewers.lock().unwrap().values() {
+        let item = &self.items.lock()[index as usize];
+        for viewer in self.viewers.lock().values() {
             viewer.upgrade().unwrap()
             .try_send_message(&crate::net::NetworkMessageS2C::GuiData(
                 object! {id:self.get_slot_id(index),type:"editElement",data_type:"item", item: Self::item_to_json(item)},
@@ -168,10 +169,10 @@ impl Inventory {
     }
     pub fn add_viewer(&self, viewer: Arc<Entity>) {
         let id = viewer.get_id();
-        if self.viewers.lock().unwrap().contains_key(id) {
+        if self.viewers.lock().contains_key(id) {
             return;
         }
-        for item in self.items.lock().unwrap().iter().enumerate() {
+        for item in self.items.lock().iter().enumerate() {
             let slot = self.slots.get(item.0).unwrap();
             let json = object! {
                 id: self.get_slot_id(item.0 as u32),
@@ -187,11 +188,10 @@ impl Inventory {
         }
         self.viewers
             .lock()
-            .unwrap()
             .insert(id.clone(), Arc::downgrade(&viewer));
     }
     pub fn remove_viewer(&self, viewer: Arc<Entity>) {
-        if let Some(viewer) = self.viewers.lock().unwrap().remove(viewer.get_id()) {
+        if let Some(viewer) = self.viewers.lock().remove(viewer.get_id()) {
             if let Some(entity) = viewer.upgrade() {
                 entity
                     .try_send_message(&crate::net::NetworkMessageS2C::GuiData(
@@ -231,7 +231,7 @@ impl Inventory {
             .map(|handler| handler.call((self, player, id, button, shifting)))
             .unwrap_or(InteractionResult::Ignored);
         if let InteractionResult::Ignored = result {
-            let mut player_data = player.entity_data.lock().unwrap();
+            let mut player_data = player.entity_data.lock();
             if button == MouseButton::LEFT {
                 let mut hand = player_data.get_inventory_hand().clone();
                 let mut slot = self.get_full_view().get_item(id).unwrap().clone();
@@ -263,7 +263,7 @@ impl Inventory {
             .map(|handler| handler.call((self, player, id, x, y, shifting)))
             .unwrap_or(InteractionResult::Ignored);
         if let InteractionResult::Ignored = result {
-            let mut player_data = player.entity_data.lock().unwrap();
+            let mut player_data = player.entity_data.lock();
             player_data.modify_inventory_hand(|first| {
                 self.get_full_view()
                     .modify_item(id, |second| {
@@ -296,7 +296,7 @@ impl Inventory {
     }
     pub fn serialize(&self, data: &mut Vec<u8>) {
         data.write_be(self.get_size()).unwrap();
-        for item in self.items.lock().unwrap().iter() {
+        for item in self.items.lock().iter() {
             if let Some(item) = item.as_ref() {
                 data.write_be(item.get_count()).unwrap();
                 write_string(data, &item.item_type.id.to_string());
@@ -323,7 +323,7 @@ impl Inventory {
                 ))
             })
         }
-        *self.items.lock().unwrap() = items.into_boxed_slice();
+        *self.items.lock() = items.into_boxed_slice();
     }
     pub fn get_view(&self, slot_range: Range<u32>) -> InventoryView {
         InventoryView {
@@ -358,14 +358,13 @@ impl<'a> InventoryView<'a> {
         self.inventory
             .items
             .lock()
-            .unwrap()
             .get(self.map_slot(index)? as usize)
             .cloned()
             .ok_or(())
     }
     pub fn set_item(&self, index: u32, item: Option<ItemStack>) -> Result<(), ()> {
         let index = self.map_slot(index)?;
-        self.inventory.items.lock().unwrap()[index as usize] = match item {
+        self.inventory.items.lock()[index as usize] = match item {
             Some(item) => {
                 if item.item_count == 0 {
                     None
@@ -387,13 +386,13 @@ impl<'a> InventoryView<'a> {
     {
         let index = self.map_slot(index)?;
 
-        function.call_once((&mut self.inventory.items.lock().unwrap()[index as usize],));
-        let set_as_empty = match &self.inventory.items.lock().unwrap()[index as usize] {
+        function.call_once((&mut self.inventory.items.lock()[index as usize],));
+        let set_as_empty = match &self.inventory.items.lock()[index as usize] {
             Some(item) => item.item_count == 0,
             None => false,
         };
         if set_as_empty {
-            self.inventory.items.lock().unwrap()[index as usize] = None;
+            self.inventory.items.lock()[index as usize] = None;
         }
         self.inventory.sync_slot(index);
         Ok(())

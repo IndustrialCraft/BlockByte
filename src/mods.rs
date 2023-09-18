@@ -4,11 +4,12 @@ use std::{
     fs,
     hash::BuildHasherDefault,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Weak},
 };
 
 use anyhow::{bail, Context, Result};
 use json::JsonValue;
+use parking_lot::Mutex;
 use rhai::plugin::*;
 use rhai::{exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, AST};
 use splines::{Interpolation, Spline};
@@ -148,7 +149,7 @@ impl ModManager {
         let registered_biomes = biomes.clone();
         let registered_events = events.clone();
         loading_engine.register_fn("register_event", move |event: &str, callback: FnPtr| {
-            let mut registerd_events = registered_events.lock().unwrap();
+            let mut registerd_events = registered_events.lock();
             registerd_events
                 .entry(Identifier::parse(event).unwrap())
                 .or_insert(Vec::new())
@@ -180,7 +181,7 @@ impl ModManager {
             )
             .register_fn("data_container", BlockBuilder::mark_data_container)
             .register_fn("register", move |this: &mut Arc<Mutex<BlockBuilder>>| {
-                registered_blocks.lock().unwrap().push(this.clone())
+                registered_blocks.lock().push(this.clone())
             })
             .register_fn(
                 "register_item",
@@ -190,13 +191,10 @@ impl ModManager {
                       -> Arc<Mutex<BlockBuilder>> {
                     let mut item_builder = ItemBuilder::new(item_id);
                     ItemBuilder::client_name(&mut item_builder, name);
-                    let block_id = { this.lock().unwrap().id.to_string() };
+                    let block_id = { this.lock().id.to_string() };
                     ItemBuilder::client_model_block(&mut item_builder, block_id.as_str());
                     ItemBuilder::place(&mut item_builder, block_id.as_str());
-                    registered_items_from_blocks
-                        .lock()
-                        .unwrap()
-                        .push(item_builder);
+                    registered_items_from_blocks.lock().push(item_builder);
                     this.clone()
                 },
             );
@@ -212,7 +210,7 @@ impl ModManager {
             .register_fn("on_right_click", ItemBuilder::on_right_click)
             .register_fn("stack_size", ItemBuilder::stack_size)
             .register_fn("register", move |this: &mut Arc<Mutex<ItemBuilder>>| {
-                registered_items.lock().unwrap().push(this.clone())
+                registered_items.lock().push(this.clone())
             });
         loading_engine
             .register_type_with_name::<EntityBuilder>("EntityBuilder")
@@ -223,7 +221,7 @@ impl ModManager {
             .register_fn("client_add_item", EntityBuilder::client_add_item)
             .register_fn("tick", EntityBuilder::tick)
             .register_fn("register", move |this: &mut Arc<Mutex<EntityBuilder>>| {
-                registered_entities.lock().unwrap().push(this.clone())
+                registered_entities.lock().push(this.clone())
             });
         loading_engine
             .register_type_with_name::<BiomeBuilder>("BiomeBuilder")
@@ -237,7 +235,7 @@ impl ModManager {
             )
             .register_fn("spline_add_moisture", BiomeBuilder::spline_add_moisture)
             .register_fn("register", move |this: &mut Arc<Mutex<BiomeBuilder>>| {
-                registered_biomes.lock().unwrap().push(this.clone())
+                registered_biomes.lock().push(this.clone())
             });
         loading_engine.register_static_module("ToolType", exported_module!(ToolTypeModule).into());
 
@@ -255,20 +253,16 @@ impl ModManager {
             let register_current_mod_path = current_mod_path.clone();
             let register_content = content.clone();
             loading_engine.register_fn(name, move |id: &str, path: &str| {
-                let start_path = { register_current_mod_path.lock().unwrap().clone() };
+                let start_path = { register_current_mod_path.lock().clone() };
                 let mut full_path = start_path.clone();
                 full_path.push(path);
                 if !full_path.starts_with(start_path) {
                     panic!("path travelsal attack");
                 }
-                register_content
-                    .lock()
-                    .unwrap()
-                    .by_type(content_type)
-                    .insert(
-                        Identifier::parse(id).unwrap(),
-                        std::fs::read(full_path).unwrap(),
-                    );
+                register_content.lock().by_type(content_type).insert(
+                    Identifier::parse(id).unwrap(),
+                    std::fs::read(full_path).unwrap(),
+                );
             });
         };
         content_register.call_mut(("register_image", ContentType::Image));
@@ -276,7 +270,7 @@ impl ModManager {
         content_register.call_mut(("register_model", ContentType::Model));
         for loaded_mod in &mods {
             {
-                let mut path = current_mod_path.lock().unwrap();
+                let mut path = current_mod_path.lock();
                 path.clear();
                 path.push(loaded_mod.1.path.clone());
             }
@@ -284,31 +278,27 @@ impl ModManager {
         }
         let blocks = blocks
             .lock()
-            .unwrap()
             .iter()
-            .map(|block| block.lock().unwrap().clone())
+            .map(|block| block.lock().clone())
             .collect();
         let items = items
             .lock()
-            .unwrap()
             .iter()
-            .map(|item| item.lock().unwrap().clone())
+            .map(|item| item.lock().clone())
             .collect();
         let entities = entities
             .lock()
-            .unwrap()
             .iter()
-            .map(|entity| entity.lock().unwrap().clone())
+            .map(|entity| entity.lock().clone())
             .collect();
         let biomes = biomes
             .lock()
-            .unwrap()
             .iter()
-            .map(|biome| biome.lock().unwrap().clone())
+            .map(|biome| biome.lock().clone())
             .collect();
-        let events = (*events.lock().unwrap()).clone();
+        let events = (*events.lock()).clone();
         //println!("{blocks:#?}\n{items:#?}\n{entities:#?}");
-        let content = content.lock().unwrap().clone();
+        let content = content.lock().clone();
         (
             ModManager { mods },
             blocks,
@@ -425,14 +415,12 @@ impl ModManager {
             entity
                 .user_data
                 .lock()
-                .unwrap()
                 .take_data_point(&Identifier::parse(id).unwrap())
         });
         engine.register_fn("get_data_point", |entity: &mut Arc<Entity>, id: &str| {
             entity
                 .user_data
                 .lock()
-                .unwrap()
                 .get_data_point_ref(&Identifier::parse(id).unwrap())
                 .cloned()
                 .unwrap_or(Dynamic::UNIT)
@@ -443,7 +431,6 @@ impl ModManager {
                 entity
                     .user_data
                     .lock()
-                    .unwrap()
                     .put_data_point(&Identifier::parse(id).unwrap(), value)
             },
         );
@@ -591,7 +578,6 @@ impl BiomeBuilder {
     }
     pub fn add_structure(this: &mut Arc<Mutex<Self>>, chance: f64, id: &str) -> Arc<Mutex<Self>> {
         this.lock()
-            .unwrap()
             .structures
             .push((chance as f32, Identifier::parse(id).unwrap()));
         this.clone()
@@ -601,16 +587,13 @@ impl BiomeBuilder {
         key: f64,
         value: f64,
     ) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().spline_height.push(splines::Key::new(
-            key,
-            value,
-            Interpolation::Linear,
-        ));
+        this.lock()
+            .spline_height
+            .push(splines::Key::new(key, value, Interpolation::Linear));
         this.clone()
     }
     pub fn spline_add_land(this: &mut Arc<Mutex<Self>>, key: f64, value: f64) -> Arc<Mutex<Self>> {
         this.lock()
-            .unwrap()
             .spline_land
             .push(splines::Key::new(key, value, Interpolation::Linear));
         this.clone()
@@ -621,7 +604,6 @@ impl BiomeBuilder {
         value: f64,
     ) -> Arc<Mutex<Self>> {
         this.lock()
-            .unwrap()
             .spline_temperature
             .push(splines::Key::new(key, value, Interpolation::Linear));
         this.clone()
@@ -631,11 +613,9 @@ impl BiomeBuilder {
         key: f64,
         value: f64,
     ) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().spline_moisture.push(splines::Key::new(
-            key,
-            value,
-            Interpolation::Linear,
-        ));
+        this.lock()
+            .spline_moisture
+            .push(splines::Key::new(key, value, Interpolation::Linear));
         this.clone()
     }
 }
@@ -669,15 +649,15 @@ impl BlockBuilder {
         }))
     }
     pub fn breaking_speed(this: &mut Arc<Mutex<Self>>, breaking_speed: f64) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().breaking_data.0 = breaking_speed as f32;
+        this.lock().breaking_data.0 = breaking_speed as f32;
         this.clone()
     }
     pub fn no_collide(this: &mut Arc<Mutex<Self>>) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().no_collide = true;
+        this.lock().no_collide = true;
         this.clone()
     }
     pub fn loot(this: &mut Arc<Mutex<Self>>, id: &str) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().loot = Some(Identifier::parse(id).unwrap());
+        this.lock().loot = Some(Identifier::parse(id).unwrap());
         this.clone()
     }
     pub fn breaking_tool(
@@ -685,15 +665,15 @@ impl BlockBuilder {
         tool_type: ToolType,
         hardness: f64,
     ) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().breaking_data.1 = Some((tool_type, hardness as f32));
+        this.lock().breaking_data.1 = Some((tool_type, hardness as f32));
         this.clone()
     }
     pub fn mark_data_container(this: &mut Arc<Mutex<Self>>) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().data_container = true;
+        this.lock().data_container = true;
         this.clone()
     }
     pub fn client_type_air(this: &mut Arc<Mutex<Self>>) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().client.block_type = ClientBlockRenderDataType::Air;
+        this.lock().client.block_type = ClientBlockRenderDataType::Air;
         this.clone()
     }
     pub fn client_type_cube(
@@ -705,7 +685,7 @@ impl BlockBuilder {
         up: &str,
         down: &str,
     ) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().client.block_type =
+        this.lock().client.block_type =
             ClientBlockRenderDataType::Cube(ClientBlockCubeRenderData {
                 front: front.to_string(),
                 back: back.to_string(),
@@ -721,7 +701,7 @@ impl BlockBuilder {
         model: &str,
         texture: &str,
     ) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().client.block_type =
+        this.lock().client.block_type =
             ClientBlockRenderDataType::Static(ClientBlockStaticRenderData {
                 model: model.to_string(),
                 texture: texture.to_string(),
@@ -735,7 +715,7 @@ impl BlockBuilder {
         texture_3: &str,
         texture_4: &str,
     ) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().client.block_type =
+        this.lock().client.block_type =
             ClientBlockRenderDataType::Foliage(ClientBlockFoliageRenderData {
                 texture_1: texture_1.to_string(),
                 texture_2: texture_2.to_string(),
@@ -745,19 +725,19 @@ impl BlockBuilder {
         this.clone()
     }
     pub fn client_fluid(this: &mut Arc<Mutex<Self>>, fluid: bool) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().client.fluid = fluid;
+        this.lock().client.fluid = fluid;
         this.clone()
     }
     pub fn client_transparent(this: &mut Arc<Mutex<Self>>, transparent: bool) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().client.transparent = transparent;
+        this.lock().client.transparent = transparent;
         this.clone()
     }
     pub fn client_selectable(this: &mut Arc<Mutex<Self>>, selectable: bool) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().client.selectable = selectable;
+        this.lock().client.selectable = selectable;
         this.clone()
     }
     pub fn client_render_data(this: &mut Arc<Mutex<Self>>, render_data: i64) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().client.render_data = render_data as u8;
+        this.lock().client.render_data = render_data as u8;
         this.clone()
     }
     pub fn client_dynamic(
@@ -765,7 +745,7 @@ impl BlockBuilder {
         model: &str,
         texture: &str,
     ) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().client.dynamic = Some(ClientBlockDynamicData {
+        this.lock().client.dynamic = Some(ClientBlockDynamicData {
             model: model.to_string(),
             texture: texture.to_string(),
             animations: Vec::new(),
@@ -778,14 +758,14 @@ impl BlockBuilder {
         animation: &str,
     ) -> Arc<Mutex<Self>> {
         //todo: result
-        if let Some(dynamic) = &mut this.lock().unwrap().client.dynamic {
+        if let Some(dynamic) = &mut this.lock().client.dynamic {
             dynamic.animations.push(animation.to_string());
         }
         this.clone()
     }
     pub fn client_dynamic_add_item(this: &mut Arc<Mutex<Self>>, item: &str) -> Arc<Mutex<Self>> {
         //todo: result
-        if let Some(dynamic) = &mut this.lock().unwrap().client.dynamic {
+        if let Some(dynamic) = &mut this.lock().client.dynamic {
             dynamic.items.push(item.to_string());
         }
         this.clone()
@@ -822,7 +802,7 @@ impl ItemBuilder {
         speed: f64,
         hardness: f64,
     ) -> Arc<Mutex<Self>> {
-        let mut locked = this.lock().unwrap();
+        let mut locked = this.lock();
         locked.tool = Some(ToolData {
             durability: durability as u32,
             speed: speed as f32,
@@ -833,34 +813,33 @@ impl ItemBuilder {
         this.clone()
     }
     pub fn tool_add_type(this: &mut Arc<Mutex<Self>>, tool_type: ToolType) -> Arc<Mutex<Self>> {
-        if let Some(tool) = &mut this.lock().unwrap().tool {
+        if let Some(tool) = &mut this.lock().tool {
             tool.add_type(tool_type);
         }
         this.clone()
     }
     pub fn client_name(this: &mut Arc<Mutex<Self>>, name: &str) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().client.name = name.to_string();
+        this.lock().client.name = name.to_string();
         this.clone()
     }
     pub fn client_model_texture(this: &mut Arc<Mutex<Self>>, texture: &str) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().client.model = ClientItemModel::Texture(texture.to_string());
+        this.lock().client.model = ClientItemModel::Texture(texture.to_string());
         this.clone()
     }
     pub fn client_model_block(this: &mut Arc<Mutex<Self>>, block: &str) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().client.model =
-            ClientItemModel::Block(Identifier::parse(block).unwrap());
+        this.lock().client.model = ClientItemModel::Block(Identifier::parse(block).unwrap());
         this.clone()
     }
     pub fn place(this: &mut Arc<Mutex<Self>>, place: &str) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().place = Some(Identifier::parse(place).unwrap());
+        this.lock().place = Some(Identifier::parse(place).unwrap());
         this.clone()
     }
     pub fn on_right_click(this: &mut Arc<Mutex<Self>>, callback: FnPtr) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().on_right_click = Some(callback);
+        this.lock().on_right_click = Some(callback);
         this.clone()
     }
     pub fn stack_size(this: &mut Arc<Mutex<Self>>, stack_size: u32) -> Arc<Mutex<Self>> {
-        let mut locked = this.lock().unwrap();
+        let mut locked = this.lock();
         if locked.tool.is_none() {
             locked.stack_size = stack_size;
         } else {
@@ -894,7 +873,7 @@ impl EntityBuilder {
         }))
     }
     pub fn tick(this: &mut Arc<Mutex<Self>>, callback: FnPtr) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().ticker = Some(callback);
+        this.lock().ticker = Some(callback);
         this.clone()
     }
     pub fn client_model(
@@ -903,7 +882,7 @@ impl EntityBuilder {
         texture: &str,
     ) -> Arc<Mutex<Self>> {
         {
-            let mut borrowed = this.lock().unwrap();
+            let mut borrowed = this.lock();
             borrowed.client.model = model.to_string();
             borrowed.client.texture = texture.to_string();
         }
@@ -916,7 +895,7 @@ impl EntityBuilder {
         depth: f64,
     ) -> Arc<Mutex<Self>> {
         {
-            let mut borrowed = this.lock().unwrap();
+            let mut borrowed = this.lock();
             borrowed.client.hitbox_w = width;
             borrowed.client.hitbox_h = height;
             borrowed.client.hitbox_d = depth;
@@ -924,15 +903,11 @@ impl EntityBuilder {
         this.clone()
     }
     pub fn client_add_animation(this: &mut Arc<Mutex<Self>>, animation: &str) -> Arc<Mutex<Self>> {
-        this.lock()
-            .unwrap()
-            .client
-            .animations
-            .push(animation.to_string());
+        this.lock().client.animations.push(animation.to_string());
         this.clone()
     }
     pub fn client_add_item(this: &mut Arc<Mutex<Self>>, item: &str) -> Arc<Mutex<Self>> {
-        this.lock().unwrap().client.items.push(item.to_string());
+        this.lock().client.items.push(item.to_string());
         this.clone()
     }
 }
@@ -998,21 +973,13 @@ pub struct PlayerAbilitiesWrapper {
 
 impl PlayerAbilitiesWrapper {
     pub fn set_speed(&mut self, speed: f64) {
-        self.entity
-            .entity_data
-            .lock()
-            .unwrap()
-            .set_speed(speed as f32);
+        self.entity.entity_data.lock().set_speed(speed as f32);
     }
     pub fn set_movement_type(&mut self, move_type: MovementType) {
-        self.entity
-            .entity_data
-            .lock()
-            .unwrap()
-            .set_move_type(move_type);
+        self.entity.entity_data.lock().set_move_type(move_type);
     }
     pub fn set_creative(&mut self, creative: bool) {
-        self.entity.entity_data.lock().unwrap().creative = creative;
+        self.entity.entity_data.lock().creative = creative;
     }
 }
 
