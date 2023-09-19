@@ -6,6 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+block_byte_common = { path = "../common" }
+
 tungstenite = "*"
 json = "0.12.4"
 endio = "0.1.0"
@@ -28,4 +30,3 @@ rand = "0.8.5"
 flate2 = { version = "1.0.17"}
 once_cell = "1.18.0"
 parking_lot = "0.12"
-common = { path = "../common" }

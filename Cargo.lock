@@ -252,6 +252,7 @@ dependencies = [
 name = "block_byte_client"
 version = "0.1.0"
 dependencies = [
+ "block_byte_common",
  "cfg-if",
  "console_error_panic_hook",
  "console_log",
@@ -266,13 +267,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "block_byte_common"
+version = "0.1.0"
+
+[[package]]
 name = "block_byte_server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "array-init",
  "atomic-counter",
- "common",
+ "block_byte_common",
  "crossbeam-channel",
  "ctrlc",
  "endio",
@@ -400,10 +405,6 @@ name = "com-rs"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf43edc576402991846b093a7ca18a3477e0ef9c588cde84964b5d3e43016642"
-
-[[package]]
-name = "common"
-version = "0.1.0"
 
 [[package]]
 name = "console_error_panic_hook"

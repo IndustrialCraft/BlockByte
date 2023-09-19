@@ -13,6 +13,8 @@ name = "block_byte_client"
 path = "src/main.rs"
 
 [dependencies]
+block_byte_common = { path = "../common" }
+
 cfg-if = "1"
 winit = "0.28"
 env_logger = "0.10"
