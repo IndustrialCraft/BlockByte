@@ -12,23 +12,24 @@ use std::{
 
 use array_init::array_init;
 use atomic_counter::{AtomicCounter, RelaxedCounter};
-use endio::{BERead, LEWrite};
-use flate2::Compression;
+use bitcode::__private::Serialize;
+use block_byte_common::messages::{
+    MouseButton, MovementType, NetworkMessageC2S, NetworkMessageS2C,
+};
+use block_byte_common::{BlockPosition, ChunkPosition, Position};
 use fxhash::{FxHashMap, FxHashSet};
 use json::{array, object, JsonValue};
 use parking_lot::Mutex;
 use rhai::{Array, Dynamic};
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::registry::BlockState;
 use crate::{
     inventory::{Inventory, InventoryWrapper, ItemStack, WeakInventoryWrapper},
-    net::{self, MouseButton, MovementType, NetworkMessageS2C, PlayerConnection},
+    net::PlayerConnection,
     registry::{BlockRegistry, BlockStateRef, EntityType, InteractionResult},
-    util::{
-        BlockPosition, ChunkBlockLocation, ChunkLocation, ChunkPosition, Identifier, Location,
-        Position,
-    },
+    util::{ChunkBlockLocation, ChunkLocation, Identifier, Location},
     worldgen::WorldGenerator,
     Server,
 };
@@ -333,25 +334,27 @@ impl Chunk {
             gen_chunk
                 .loading_stage
                 .store(2, std::sync::atomic::Ordering::SeqCst);
-            let mut data = Vec::with_capacity(16 * 16 * 16 * 4);
-            {
-                let real_blocks = gen_chunk.blocks.lock();
-                for x in 0..16 {
-                    for y in 0..16 {
-                        for z in 0..16 {
-                            data.write_be(real_blocks[x][y][z].get_client_id()).unwrap();
-                        }
+            let mut palette = Vec::new();
+            let mut block_data = Vec::with_capacity(16 * 16 * 16);
+            let blocks = gen_chunk.blocks.lock();
+            for x in 0..16 {
+                for y in 0..16 {
+                    for z in 0..16 {
+                        let block_id = blocks[x][y][z].get_client_id();
+                        let palette_entry =
+                            match palette.iter().position(|block| *block == block_id) {
+                                Some(entry) => entry,
+                                None => {
+                                    palette.push(block_id);
+                                    palette.len() - 1
+                                }
+                            };
+                        block_data[x + (y * 16) + (z * 16 * 16)] = palette_entry as u16;
                     }
                 }
             }
-            //let mut encoder = Encoder::new().unwrap();
-            let mut encoder = flate2::write::GzEncoder::new(Vec::new(), Compression::default());
-            std::io::copy(&mut data.as_slice(), &mut encoder).unwrap();
             let load_message = NetworkMessageS2C::LoadChunk(
-                position.x,
-                position.y,
-                position.z,
-                encoder.finish().unwrap(),
+                position.x, position.y, position.z, palette, block_data,
             );
             for viewer in gen_chunk.viewers.lock().iter() {
                 viewer.player.try_send_message(&load_message).ok();
@@ -360,55 +363,49 @@ impl Chunk {
         chunk
     }
     pub fn load_from_save(&self, save_path: PathBuf) -> Result<[[[BlockData; 16]; 16]; 16], ()> {
-        let data = std::fs::read(save_path).map_err(|_| ())?;
-        let mut data = data.as_slice();
-        let block_map_len: u32 = data.read_be().map_err(|_| ())?;
-        let mut blocks = Vec::with_capacity(block_map_len as usize);
+        let chunk_save_data = bitcode::deserialize::<ChunkSaveData>(
+            std::fs::read(save_path).map_err(|_| ())?.as_slice(),
+        )
+        .map_err(|_| ())?;
         let block_registry = &self.world.server.block_registry;
-        for _ in 0..block_map_len {
-            blocks.push(
+        let block_palette: Vec<_> = chunk_save_data
+            .palette
+            .iter()
+            .map(|id| {
                 block_registry
-                    .block_by_identifier(
-                        &Identifier::parse(net::read_string(&mut data)?.as_str()).unwrap(),
-                    )
-                    .unwrap(),
-            );
-        }
+                    .block_by_identifier(&Identifier::parse(id.as_str()).unwrap())
+                    .unwrap()
+            })
+            .collect();
         let blocks = array_init(|x| {
             array_init(|y| {
                 array_init(|z| {
-                    let block_id: Result<u16, _> = data.read_be();
-                    if let Ok(block_id) = block_id {
-                        if let Some(block) = blocks.get(block_id as usize) {
-                            let block_data = block.get_default_state_ref().create_block_data(
-                                self,
-                                BlockPosition {
-                                    x: (self.position.x * 16) + x as i32,
-                                    y: (self.position.y * 16) + y as i32,
-                                    z: (self.position.z * 16) + z as i32,
-                                },
-                            );
-                            if let BlockData::Data(block) = &block_data {
-                                let mut length: u32 = data.read_be().unwrap_or(0);
-                                let mut block_data: Vec<u8> = Vec::with_capacity(length as usize);
-                                for _ in 0..length {
-                                    if let Ok(data) = data.read_be() {
-                                        block_data.push(data);
-                                    } else {
-                                        length = 0;
-                                    }
-                                }
-                                if length > 0 {
-                                    block.deserialize(block_data.as_slice());
-                                }
+                    let block_id = chunk_save_data.blocks[x][y][z];
+                    let block = block_palette.get(block_id as usize).unwrap();
+                    let block_data = block.get_default_state_ref().create_block_data(
+                        self,
+                        BlockPosition {
+                            x: (self.position.x * 16) + x as i32,
+                            y: (self.position.y * 16) + y as i32,
+                            z: (self.position.z * 16) + z as i32,
+                        },
+                    );
+                    if let BlockData::Data(block) = &block_data {
+                        /*let mut length: u32 = data.read_be().unwrap_or(0);
+                        let mut block_data: Vec<u8> = Vec::with_capacity(length as usize);
+                        for _ in 0..length {
+                            if let Ok(data) = data.read_be() {
+                                block_data.push(data);
+                            } else {
+                                length = 0;
                             }
-                            block_data
-                        } else {
-                            BlockData::Simple(0)
                         }
-                    } else {
-                        BlockData::Simple(0)
+                        if length > 0 {
+                            block.deserialize(block_data.as_slice());
+                        }*/
+                        //todo
                     }
+                    block_data
                 })
             })
         });
@@ -453,29 +450,32 @@ impl Chunk {
     }
     fn add_viewer(&self, viewer: Arc<Entity>) {
         if self.loading_stage.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
-            let mut data = Vec::with_capacity(16 * 16 * 16 * 4);
-            {
-                let real_blocks = self.blocks.lock();
+            let thread_viewer = viewer.clone();
+            let position = self.position.clone();
+            let chunk = self.ptr();
+            self.world.server.thread_pool.execute(Box::new(move || {
+                let mut palette = Vec::new();
+                let mut block_data = Vec::with_capacity(16 * 16 * 16);
+                let blocks = chunk.blocks.lock();
                 for x in 0..16 {
                     for y in 0..16 {
                         for z in 0..16 {
-                            data.write_be(real_blocks[x][y][z].get_client_id()).unwrap();
+                            let block_id = blocks[x][y][z].get_client_id();
+                            let palette_entry =
+                                match palette.iter().position(|block| *block == block_id) {
+                                    Some(entry) => entry,
+                                    None => {
+                                        palette.push(block_id);
+                                        palette.len() - 1
+                                    }
+                                };
+                            block_data[x + (y * 16) + (z * 16 * 16)] = palette_entry as u16;
                         }
                     }
                 }
-            }
-            let thread_viewer = viewer.clone();
-            let position = self.position.clone();
-            self.world.server.thread_pool.execute(Box::new(move || {
-                let mut encoder = flate2::write::GzEncoder::new(Vec::new(), Compression::default());
-                std::io::copy(&mut data.as_slice(), &mut encoder).unwrap();
                 let load_message = NetworkMessageS2C::LoadChunk(
-                    position.x,
-                    position.y,
-                    position.z,
-                    encoder.finish().unwrap(),
+                    position.x, position.y, position.z, palette, block_data,
                 );
-                thread_viewer.try_send_message(&load_message).ok();
             }));
         }
         for entity in self.entities.lock().iter() {
@@ -583,8 +583,7 @@ impl Chunk {
         if !self.world.temporary {
             self.world.server.thread_pool.execute(Box::new(move || {
                 {
-                    let mut data = Vec::new();
-                    let mut block_data = Vec::with_capacity(16 * 16 * 16 * 2);
+                    let mut blocks_save = [[[0u16; 16]; 16]; 16];
                     let mut block_map = FxHashMap::default();
                     let blocks = chunk.blocks.lock();
                     let block_registry = &chunk.world.server.block_registry;
@@ -605,22 +604,28 @@ impl Chunk {
                                 let block_map_len = block_map.len();
                                 let numeric_id =
                                     *block_map.entry(block_id).or_insert(block_map_len);
-                                block_data.write_be(numeric_id as u16).unwrap();
-                                if let Some(mut serialized_block) = serialized_block {
+                                blocks_save[x][y][z] = numeric_id as u16;
+                                /*if let Some(mut serialized_block) = serialized_block {
                                     block_data.write_be(serialized_block.len() as u32).unwrap();
                                     block_data.append(&mut serialized_block);
-                                }
+                                }*/
+                                //todo
                             }
                         }
                     }
-                    data.write_be(block_map.len() as u32).unwrap();
-                    let mut block_map: Vec<_> = block_map.iter().collect();
-                    block_map.sort_by(|first, second| first.1.cmp(second.1));
-                    for block_map_entry in block_map {
-                        net::write_string(&mut data, &block_map_entry.0.to_string());
-                    }
-                    data.append(&mut block_data);
-                    std::fs::write(chunk.get_chunk_path(), data).unwrap();
+                    let chunk_save_data = ChunkSaveData {
+                        blocks: blocks_save,
+                        palette: {
+                            let mut block_map: Vec<_> = block_map.iter().collect();
+                            block_map.sort_by(|first, second| first.1.cmp(second.1));
+                            block_map.iter().map(|e| e.0.to_string()).collect()
+                        },
+                    };
+                    std::fs::write(
+                        chunk.get_chunk_path(),
+                        bitcode::serialize(&chunk_save_data).unwrap(),
+                    )
+                    .unwrap();
                 }
             }));
         }
@@ -635,6 +640,11 @@ impl Chunk {
         ));
         path
     }
+}
+#[derive(Serialize, Deserialize)]
+pub struct ChunkSaveData {
+    palette: Vec<String>,
+    blocks: [[[u16; 16]; 16]; 16],
 }
 
 struct ChunkViewer {
@@ -753,11 +763,11 @@ impl EntityData {
             slot % player.inventory.get_size()
         };
         player.try_send_message(&NetworkMessageS2C::GuiData(
-            object! {id: player.inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 1, 1, 1]},
+            object! {id: player.inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 1, 1, 1]}.to_string(),
         )).ok();
         self.slot = slot;
         player.try_send_message(&NetworkMessageS2C::GuiData(
-            object! {id: player.inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 0, 0, 1]},
+            object! {id: player.inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 0, 0, 1]}.to_string(),
         )).ok();
     }
     pub fn get_hand_slot(&self) -> u32 {
@@ -899,7 +909,7 @@ impl Entity {
             Inventory::set_cursor(&mut *player_data);
         }
         self.try_send_message(&NetworkMessageS2C::GuiData(
-            object! {"type":"setCursorLock",lock:new_inventory.is_none()},
+            object! {"type":"setCursorLock",lock:new_inventory.is_none()}.to_string(),
         ))
         .unwrap();
         *current_inventory = new_inventory;
@@ -1138,7 +1148,7 @@ impl Entity {
             let messages = self.connection.lock().as_mut().unwrap().receive_messages();
             for message in messages {
                 match message {
-                    net::NetworkMessageC2S::Keyboard(key, key_mod, pressed, repeat) => match key {
+                    NetworkMessageC2S::Keyboard(key, key_mod, pressed, repeat) => match key {
                         113 => {
                             if pressed {
                                 let slot = { self.entity_data.lock().slot };
@@ -1364,10 +1374,10 @@ impl Entity {
                         }
                         _ => {}
                     },
-                    net::NetworkMessageC2S::GuiClose => {
+                    NetworkMessageC2S::GuiClose => {
                         self.set_open_inventory(None);
                     }
-                    net::NetworkMessageC2S::GuiClick(element, button, shifting) => {
+                    NetworkMessageC2S::GuiClick(element, button, shifting) => {
                         {
                             let slot = self.inventory.resolve_slot(element.as_str());
                             if let Some(slot) = slot {
@@ -1386,7 +1396,7 @@ impl Entity {
                             }
                         }
                     }
-                    net::NetworkMessageC2S::GuiScroll(element, x, y, shifting) => {
+                    NetworkMessageC2S::GuiScroll(element, x, y, shifting) => {
                         {
                             let slot = self.inventory.resolve_slot(element.as_str());
                             if let Some(slot) = slot {
@@ -1405,7 +1415,7 @@ impl Entity {
                             }
                         }
                     }
-                    net::NetworkMessageC2S::PlayerPosition(x, y, z, shift, rotation, moved) => {
+                    NetworkMessageC2S::PlayerPosition(x, y, z, shift, rotation, moved) => {
                         let world = { self.location.lock().chunk.world.clone() };
                         self.move_to(
                             &Location {
@@ -1422,7 +1432,7 @@ impl Entity {
                             .lock()
                             .set_animation(Some(if moved { 2 } else { 1 }));
                     }
-                    net::NetworkMessageC2S::RequestBlockBreakTime(id, position) => {
+                    NetworkMessageC2S::RequestBlockBreakTime(id, position) => {
                         let block_break_time = if self.entity_data.lock().creative {
                             0.
                         } else {
@@ -1466,12 +1476,12 @@ impl Entity {
                         }
                         //todo: check time
                     }
-                    net::NetworkMessageC2S::BreakBlock(x, y, z) => {
+                    NetworkMessageC2S::BreakBlock(x, y, z) => {
                         let block_position = BlockPosition { x, y, z };
                         let world = &self.get_location().chunk.world;
                         world.break_block(block_position, self);
                     }
-                    net::NetworkMessageC2S::RightClickBlock(x, y, z, face, shifting) => {
+                    NetworkMessageC2S::RightClickBlock(x, y, z, face, shifting) => {
                         let block_position = BlockPosition { x, y, z };
                         let hand_slot = self.entity_data.lock().get_hand_slot();
                         let block = self
@@ -1504,7 +1514,7 @@ impl Entity {
                             })
                             .unwrap();
                     }
-                    net::NetworkMessageC2S::RightClick(shifting) => {
+                    NetworkMessageC2S::RightClick(shifting) => {
                         let hand_slot = self.entity_data.lock().get_hand_slot();
                         let mut right_click_result = InteractionResult::Ignored;
                         self.inventory
@@ -1519,7 +1529,7 @@ impl Entity {
                             })
                             .unwrap();
                     }
-                    net::NetworkMessageC2S::LeftClickEntity(client_id) => {
+                    NetworkMessageC2S::LeftClickEntity(client_id) => {
                         let location = self.get_location();
                         for chunk in location
                             .chunk
@@ -1537,7 +1547,7 @@ impl Entity {
                             }
                         }
                     }
-                    net::NetworkMessageC2S::RightClickEntity(client_id) => {
+                    NetworkMessageC2S::RightClickEntity(client_id) => {
                         let location = self.get_location();
                         for chunk in location
                             .chunk
@@ -1555,12 +1565,12 @@ impl Entity {
                             }
                         }
                     }
-                    net::NetworkMessageC2S::MouseScroll(scroll_x, scroll_y) => {
+                    NetworkMessageC2S::MouseScroll(scroll_x, scroll_y) => {
                         let mut player_data = self.entity_data.lock();
                         let new_slot = player_data.get_hand_slot() as i32 - scroll_y;
                         player_data.set_hand_slot(new_slot as u32);
                     }
-                    net::NetworkMessageC2S::SendMessage(message) => {
+                    NetworkMessageC2S::SendMessage(message) => {
                         if message.starts_with("/") {
                             let message = &message[1..];
                             let parts: rhai::Array = message
@@ -1917,15 +1927,15 @@ impl WorldBlock {
         InteractionResult::Consumed
     }
     pub fn serialize(&self) -> Vec<u8> {
-        let mut block_data = Vec::new();
-        self.inventory.serialize(&mut block_data);
-        block_data
+        self.inventory.serialize()
     }
-    pub fn deserialize(&self, mut data: &[u8]) {
-        self.inventory.deserialize(
-            &mut data,
-            &self.chunk.upgrade().unwrap().world.server.item_registry,
-        );
+    pub fn deserialize(&self, data: &[u8]) {
+        self.inventory
+            .deserialize(
+                data,
+                &self.chunk.upgrade().unwrap().world.server.item_registry,
+            )
+            .unwrap();
     }
     pub fn arc(&self) -> Arc<WorldBlock> {
         self.this.upgrade().unwrap()

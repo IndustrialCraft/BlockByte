@@ -5,6 +5,8 @@ use std::{
     sync::Arc,
 };
 
+use block_byte_common::messages::NetworkMessageS2C;
+use block_byte_common::{BlockPosition, Face};
 use json::{array, object, JsonValue};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -16,7 +18,7 @@ use crate::inventory::Recipe;
 use crate::{
     inventory::ItemStack,
     mods::{ClientContentData, ScriptCallback},
-    util::{BlockPosition, ChunkBlockLocation, Face, Identifier},
+    util::{ChunkBlockLocation, Identifier},
     world::{BlockData, Chunk, Entity, WorldBlock},
 };
 
@@ -278,7 +280,7 @@ impl Item {
                 _ => None,
             });
             let target_chunk = world.get_chunk(block_position.to_chunk_pos()).unwrap();
-            target_chunk.announce_to_viewers(crate::net::NetworkMessageS2C::BlockItem(
+            target_chunk.announce_to_viewers(NetworkMessageS2C::BlockItem(
                 block_position.x,
                 block_position.y,
                 block_position.z,

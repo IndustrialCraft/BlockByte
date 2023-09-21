@@ -30,6 +30,7 @@ use std::{
 };
 
 use crate::registry::RecipeManager;
+use block_byte_common::Position;
 use crossbeam_channel::Receiver;
 use fxhash::FxHashMap;
 use inventory::LootTable;
@@ -44,7 +45,7 @@ use registry::{
 use rhai::{Engine, FuncArgs};
 use splines::Spline;
 use threadpool::ThreadPool;
-use util::{Identifier, Location, Position};
+use util::{Identifier, Location};
 use world::{Entity, Structure, World};
 use worldgen::{BasicWorldGenerator, Biome};
 

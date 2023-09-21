@@ -1,3 +1,11 @@
+use anyhow::{bail, Context, Result};
+use block_byte_common::messages::MovementType;
+use block_byte_common::{BlockPosition, Position};
+use json::JsonValue;
+use parking_lot::Mutex;
+use rhai::plugin::*;
+use rhai::{exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, AST};
+use splines::{Interpolation, Spline};
 use std::{
     cell::OnceCell,
     collections::HashMap,
@@ -6,28 +14,19 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Weak},
 };
-
-use anyhow::{bail, Context, Result};
-use json::JsonValue;
-use parking_lot::Mutex;
-use rhai::plugin::*;
-use rhai::{exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, AST};
-use splines::{Interpolation, Spline};
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
 use crate::registry::ClientBlockFoliageRenderData;
-use crate::util::BlockPosition;
 use crate::world::World;
 use crate::{
     inventory::{LootTable, Recipe},
-    net::MovementType,
     registry::{
         BlockRegistry, ClientBlockCubeRenderData, ClientBlockDynamicData, ClientBlockRenderData,
         ClientBlockRenderDataType, ClientBlockStaticRenderData, ClientEntityData, ClientItemModel,
         ClientItemRenderData, ItemRegistry, ToolData, ToolType,
     },
-    util::{Identifier, Location, Position},
+    util::{Identifier, Location},
     world::{Entity, Structure},
     Server,
 };
@@ -986,8 +985,6 @@ impl PlayerAbilitiesWrapper {
 #[export_module]
 #[allow(non_snake_case)]
 mod MovementTypeModule {
-    use crate::net::MovementType;
-
     #[allow(non_upper_case_globals)]
     pub const Normal: MovementType = MovementType::Normal;
     #[allow(non_upper_case_globals)]

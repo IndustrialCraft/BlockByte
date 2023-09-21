@@ -33,3 +33,4 @@ web-sys = { version = "0.3.53", features = [
     "Window",
     "Element",
 ]}
+bitcode = "0.4.0"

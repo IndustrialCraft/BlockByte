@@ -3,16 +3,16 @@ use std::{
     sync::{Arc, Weak},
 };
 
-use endio::{BERead, LEWrite};
+use block_byte_common::messages::{MouseButton, NetworkMessageS2C};
 use fxhash::FxHashMap;
 use json::{object, JsonValue};
 use parking_lot::{Mutex, MutexGuard};
+use serde::{Deserialize, Serialize};
 use splines::Spline;
 use uuid::Uuid;
 
 use crate::world::UserData;
 use crate::{
-    net::{read_string, write_string, MouseButton},
     registry::{InteractionResult, Item, ItemRegistry},
     util::Identifier,
     world::{Entity, EntityData, WorldBlock},
@@ -144,23 +144,24 @@ impl Inventory {
         let item = &self.items.lock()[index as usize];
         for viewer in self.viewers.lock().values() {
             viewer.upgrade().unwrap()
-            .try_send_message(&crate::net::NetworkMessageS2C::GuiData(
-                object! {id:self.get_slot_id(index),type:"editElement",data_type:"item", item: Self::item_to_json(item)},
+            .try_send_message(&NetworkMessageS2C::GuiData(
+                object! {id:self.get_slot_id(index),type:"editElement",data_type:"item", item: Self::item_to_json(item)}.to_string(),
             ))
             .unwrap();
         }
         match &self.owner.upgrade().unwrap() {
             InventoryWrapper::Entity(entity) => {
                 if let Some(mapping) = entity.entity_type.item_model_mapping.mapping.get(&index) {
-                    entity.get_location().chunk.announce_to_viewers(
-                        crate::net::NetworkMessageS2C::EntityItem(
+                    entity
+                        .get_location()
+                        .chunk
+                        .announce_to_viewers(NetworkMessageS2C::EntityItem(
                             entity.client_id,
                             *mapping,
                             item.as_ref()
                                 .map(|item| item.item_type.client_id)
                                 .unwrap_or(0),
-                        ),
-                    );
+                        ));
                 }
             }
             //todo: block
@@ -183,7 +184,7 @@ impl Inventory {
                 item: Self::item_to_json(item.1)
             };
             viewer
-                .try_send_message(&crate::net::NetworkMessageS2C::GuiData(json))
+                .try_send_message(&NetworkMessageS2C::GuiData(json.to_string()))
                 .unwrap();
         }
         self.viewers
@@ -194,8 +195,9 @@ impl Inventory {
         if let Some(viewer) = self.viewers.lock().remove(viewer.get_id()) {
             if let Some(entity) = viewer.upgrade() {
                 entity
-                    .try_send_message(&crate::net::NetworkMessageS2C::GuiData(
-                        object! {type:"removeContainer","container":self.client_id.clone()},
+                    .try_send_message(&NetworkMessageS2C::GuiData(
+                        object! {type:"removeContainer","container":self.client_id.clone()}
+                            .to_string(),
                     ))
                     .unwrap();
             }
@@ -212,9 +214,9 @@ impl Inventory {
         let item = entity_data.get_inventory_hand();
         let player = entity_data.player.upgrade().unwrap();
         if item.is_some() {
-            player.try_send_message(&&crate::net::NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"slot",background:false,item: Self::item_to_json(item)})).ok();
+            player.try_send_message(&&NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"slot",background:false,item: Self::item_to_json(item)}.to_string())).ok();
         } else {
-            player.try_send_message(&&crate::net::NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"image",texture:"cursor",w:0.05,h:0.05})).ok();
+            player.try_send_message(&&NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"image",texture:"cursor",w:0.05,h:0.05}.to_string())).ok();
         }
     }
     pub fn resolve_slot(&self, id: &str) -> Option<u32> {
@@ -294,36 +296,38 @@ impl Inventory {
             });
         }
     }
-    pub fn serialize(&self, data: &mut Vec<u8>) {
-        data.write_be(self.get_size()).unwrap();
-        for item in self.items.lock().iter() {
-            if let Some(item) = item.as_ref() {
-                data.write_be(item.get_count()).unwrap();
-                write_string(data, &item.item_type.id.to_string());
-            } else {
-                data.write_be(0u32).unwrap();
-            }
-        }
+    pub fn serialize(&self) -> Vec<u8> {
+        let items = self.export_content();
+        bitcode::serialize(&InventorySaveData {
+            items: items
+                .iter()
+                .map(|item| {
+                    item.as_ref()
+                        .map(|item| (item.item_type.id.to_string(), item.item_count))
+                })
+                .collect(),
+        })
+        .unwrap()
     }
-    pub fn deserialize(&self, data: &mut &[u8], item_registry: &ItemRegistry) {
-        let size: u32 = data.read_be().unwrap();
-        let mut items = Vec::new();
-        for _ in 0..size {
-            let count: u32 = data.read_be().unwrap();
-            items.push(if count == 0 {
-                None
-            } else {
-                Some(ItemStack::new(
-                    item_registry
-                        .item_by_identifier(
-                            &Identifier::parse(read_string(data).unwrap().as_str()).unwrap(),
-                        )
-                        .unwrap(),
-                    count,
-                ))
+    pub fn deserialize(&self, data: &[u8], item_registry: &ItemRegistry) -> Result<(), ()> {
+        let inventory_save_data =
+            bitcode::deserialize::<InventorySaveData>(data).map_err(|_| ())?;
+        let items: Vec<_> = inventory_save_data
+            .items
+            .iter()
+            .map(|item| {
+                item.as_ref().map(|item| {
+                    ItemStack::new(
+                        item_registry
+                            .item_by_identifier(&Identifier::parse(item.0.as_str()).unwrap())
+                            .unwrap(),
+                        item.1,
+                    )
+                })
             })
-        }
-        *self.items.lock() = items.into_boxed_slice();
+            .collect();
+        self.load_content(items.into_boxed_slice());
+        Ok(())
     }
     pub fn get_view(&self, slot_range: Range<u32>) -> InventoryView {
         InventoryView {
@@ -334,6 +338,10 @@ impl Inventory {
     pub fn get_full_view(&self) -> InventoryView {
         self.get_view(0..self.get_size())
     }
+}
+#[derive(Serialize, Deserialize)]
+pub struct InventorySaveData {
+    items: Vec<Option<(String, u32)>>,
 }
 pub struct InventoryView<'a> {
     slot_range: Range<u32>,

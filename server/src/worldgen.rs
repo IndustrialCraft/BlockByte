@@ -1,9 +1,10 @@
 use crate::{
     registry::{BlockRegistry, BlockStateRef},
-    util::{BlockPosition, Identifier},
+    util::Identifier,
     world::{BlockData, Chunk, Structure},
 };
 use array_init::array_init;
+use block_byte_common::BlockPosition;
 use noise::{Fbm, NoiseFn, OpenSimplex};
 use rand::{Rng, SeedableRng};
 use splines::{Key, Spline};
