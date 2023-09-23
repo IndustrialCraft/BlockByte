@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Run server" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+  <configuration default="false" name="Run Server" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
     <option name="command" value="run --bin block_byte_server --release" />
     <option name="workingDirectory" value="file://$PROJECT_DIR$/server" />
     <option name="emulateTerminal" value="false" />
