@@ -159,7 +159,7 @@ impl RenderState {
                 topology: wgpu::PrimitiveTopology::TriangleList, // 1.
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw, // 2.
-                cull_mode: /*Some(wgpu::Face::Back)*/ None,//todo
+                cull_mode: Some(wgpu::Face::Back),
                 // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
                 polygon_mode: wgpu::PolygonMode::Fill,
                 // Requires Features::DEPTH_CLIP_CONTROL
@@ -391,22 +391,22 @@ impl FaceVerticesExtension for Face {
             ),
             Face::Back => (
                 Position {
+                    x: 1.,
+                    y: 0.,
+                    z: 1.,
+                },
+                Position {
                     x: 0.,
                     y: 0.,
                     z: 1.,
                 },
                 Position {
-                    x: 1.,
-                    y: 0.,
-                    z: 1.,
-                },
-                Position {
-                    x: 1.,
+                    x: 0.,
                     y: 1.,
                     z: 1.,
                 },
                 Position {
-                    x: 0.,
+                    x: 1.,
                     y: 1.,
                     z: 1.,
                 },
@@ -435,22 +435,22 @@ impl FaceVerticesExtension for Face {
             ),
             Face::Down => (
                 Position {
+                    x: 1.,
+                    y: 0.,
+                    z: 0.,
+                },
+                Position {
                     x: 0.,
                     y: 0.,
                     z: 0.,
                 },
                 Position {
-                    x: 1.,
-                    y: 0.,
-                    z: 0.,
-                },
-                Position {
-                    x: 1.,
+                    x: 0.,
                     y: 0.,
                     z: 1.,
                 },
                 Position {
-                    x: 0.,
+                    x: 1.,
                     y: 0.,
                     z: 1.,
                 },
@@ -481,31 +481,31 @@ impl FaceVerticesExtension for Face {
                 Position {
                     x: 1.,
                     y: 0.,
-                    z: 0.,
-                },
-                Position {
-                    x: 1.,
-                    y: 1.,
-                    z: 0.,
+                    z: 1.,
                 },
                 Position {
                     x: 1.,
                     y: 1.,
                     z: 1.,
+                },
+                Position {
+                    x: 1.,
+                    y: 1.,
+                    z: 0.,
                 },
                 Position {
                     x: 1.,
                     y: 0.,
-                    z: 1.,
+                    z: 0.,
                 },
             ),
         };
         vertex_consumer.call_mut((first, (coords.u1, coords.v1)));
-        vertex_consumer.call_mut((second, (coords.u2, coords.v1)));
-        vertex_consumer.call_mut((third, (coords.u2, coords.v2)));
-
         vertex_consumer.call_mut((fourth, (coords.u1, coords.v2)));
         vertex_consumer.call_mut((third, (coords.u2, coords.v2)));
+
+        vertex_consumer.call_mut((third, (coords.u2, coords.v2)));
+        vertex_consumer.call_mut((second, (coords.u2, coords.v1)));
         vertex_consumer.call_mut((first, (coords.u1, coords.v1)));
     }
 }
