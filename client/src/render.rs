@@ -369,16 +369,6 @@ impl FaceVerticesExtension for Face {
         let (first, second, third, fourth) = match self {
             Face::Front => (
                 Position {
-                    x: 0.,
-                    y: 0.,
-                    z: 0.,
-                },
-                Position {
-                    x: 1.,
-                    y: 0.,
-                    z: 0.,
-                },
-                Position {
                     x: 1.,
                     y: 1.,
                     z: 0.,
@@ -386,21 +376,21 @@ impl FaceVerticesExtension for Face {
                 Position {
                     x: 0.,
                     y: 1.,
+                    z: 0.,
+                },
+                Position {
+                    x: 0.,
+                    y: 0.,
+                    z: 0.,
+                },
+                Position {
+                    x: 1.,
+                    y: 0.,
                     z: 0.,
                 },
             ),
             Face::Back => (
                 Position {
-                    x: 1.,
-                    y: 0.,
-                    z: 1.,
-                },
-                Position {
-                    x: 0.,
-                    y: 0.,
-                    z: 1.,
-                },
-                Position {
                     x: 0.,
                     y: 1.,
                     z: 1.,
@@ -408,6 +398,16 @@ impl FaceVerticesExtension for Face {
                 Position {
                     x: 1.,
                     y: 1.,
+                    z: 1.,
+                },
+                Position {
+                    x: 1.,
+                    y: 0.,
+                    z: 1.,
+                },
+                Position {
+                    x: 0.,
+                    y: 0.,
                     z: 1.,
                 },
             ),
@@ -458,11 +458,6 @@ impl FaceVerticesExtension for Face {
             Face::Left => (
                 Position {
                     x: 0.,
-                    y: 0.,
-                    z: 0.,
-                },
-                Position {
-                    x: 0.,
                     y: 1.,
                     z: 0.,
                 },
@@ -475,16 +470,16 @@ impl FaceVerticesExtension for Face {
                     x: 0.,
                     y: 0.,
                     z: 1.,
+                },
+                Position {
+                    x: 0.,
+                    y: 0.,
+                    z: 0.,
                 },
             ),
             Face::Right => (
                 Position {
                     x: 1.,
-                    y: 0.,
-                    z: 1.,
-                },
-                Position {
-                    x: 1.,
                     y: 1.,
                     z: 1.,
                 },
@@ -497,6 +492,11 @@ impl FaceVerticesExtension for Face {
                     x: 1.,
                     y: 0.,
                     z: 0.,
+                },
+                Position {
+                    x: 1.,
+                    y: 0.,
+                    z: 1.,
                 },
             ),
         };

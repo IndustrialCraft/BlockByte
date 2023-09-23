@@ -200,7 +200,7 @@ impl Chunk {
                 }
             }
         }
-        let block = block_registry.get_block(1);
+        let block = block_registry.get_block(3);
         match &block.block_type {
             Cube(data) => {
                 for face in Face::all() {
