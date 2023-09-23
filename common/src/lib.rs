@@ -57,13 +57,6 @@ pub struct Position {
     pub z: f64,
 }
 impl Position {
-    pub fn add_other(&self, other: Self) -> Self {
-        Self {
-            x: self.x + other.x,
-            y: self.y + other.y,
-            z: self.z + other.z,
-        }
-    }
     pub fn add(&self, x: f64, y: f64, z: f64) -> Self {
         Self {
             x: self.x + x,
@@ -99,6 +92,17 @@ impl Position {
     }
     pub fn set_z(&mut self, value: f64) {
         self.z = value;
+    }
+}
+impl std::ops::Add for Position {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Position {
+            x: self.x + other.x,
+            y: self.y + other.y,
+            z: self.z + other.z,
+        }
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

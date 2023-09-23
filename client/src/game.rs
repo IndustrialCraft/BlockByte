@@ -1,7 +1,12 @@
-use block_byte_common::{ChunkPosition, Position};
+use crate::content::BlockRegistry;
+use crate::content::BlockRenderDataType::Cube;
+use crate::render::{FaceVerticesExtension, Vertex};
+use block_byte_common::{ChunkPosition, Face, Position};
 use cgmath::{ElementWise, InnerSpace, Matrix4, Point3, Vector3};
 use std::collections::HashMap;
-use wgpu::{Buffer, BufferSlice};
+use std::rc::Rc;
+use wgpu::util::DeviceExt;
+use wgpu::{Buffer, BufferSlice, Device, Queue};
 use winit::event::VirtualKeyCode;
 
 pub struct ClientPlayer {
@@ -80,7 +85,7 @@ impl ClientPlayer {
         move_vector *= self.speed;
         move_vector *= 5.;
 
-        let mut total_move = (move_vector + self.velocity) * delta_time;
+        let total_move = (move_vector + self.velocity) * delta_time;
 
         self.last_moved = move_vector.magnitude() > 0.;
 
@@ -169,7 +174,7 @@ pub struct Chunk {
     position: ChunkPosition,
     blocks: [[[u32; 16]; 16]; 16],
     modified: bool,
-    buffer: Option<Buffer>,
+    buffer: Option<(Buffer, u32)>,
 }
 impl Chunk {
     pub fn new(position: ChunkPosition, blocks: [[[u32; 16]; 16]; 16]) -> Self {
@@ -180,32 +185,90 @@ impl Chunk {
             buffer: None,
         }
     }
-    pub fn rebuild_chunk_mesh(&mut self) {}
-    pub fn get_vertices(&mut self) -> Option<BufferSlice> {
+    pub fn rebuild_chunk_mesh(
+        &mut self,
+        block_registry: &BlockRegistry,
+        device: &Device,
+        queue: &Queue,
+    ) {
+        let mut vertices: Vec<Vertex> = Vec::new();
+        for x in 0..16 {
+            for y in 0..16 {
+                for z in 0..16 {
+                    let block = self.blocks[x][y][z];
+                    let block = block_registry.get_block(block);
+                }
+            }
+        }
+        let block = block_registry.get_block(1);
+        match &block.block_type {
+            Cube(data) => {
+                for face in Face::all() {
+                    let texture = data.by_face(*face);
+                    let base_position = Position {
+                        x: (self.position.x * 16) as f64,
+                        y: (self.position.y * 16) as f64,
+                        z: (self.position.z * 16) as f64,
+                    };
+                    face.add_vertices(texture, &mut |position, coords| {
+                        vertices.push(Vertex {
+                            position: [
+                                (base_position.x + position.x) as f32,
+                                (base_position.y + position.y) as f32,
+                                (base_position.z + position.z) as f32,
+                            ],
+                            tex_coords: [coords.0, coords.1],
+                        })
+                    });
+                }
+            }
+            _ => unimplemented!(),
+        }
+        if vertices.len() == 0 {
+            self.buffer = None;
+        } else {
+            if let Some((buffer, vertex_count)) = &mut self.buffer {
+                queue.write_buffer(buffer, 0, bytemuck::cast_slice(vertices.as_slice()));
+                *vertex_count = vertices.len() as u32;
+            } else {
+                self.buffer = Some((
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Chunk Vertex Buffer"),
+                        contents: bytemuck::cast_slice(vertices.as_slice()),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    }),
+                    vertices.len() as u32,
+                ));
+            }
+        }
+    }
+    pub fn get_vertices(
+        &mut self,
+        block_registry: &BlockRegistry,
+        device: &Device,
+        queue: &Queue,
+    ) -> Option<(BufferSlice, u32)> {
         if self.modified {
-            self.rebuild_chunk_mesh();
+            self.rebuild_chunk_mesh(block_registry, device, queue);
             self.modified = false;
         }
-        self.buffer.as_ref().map(|buffer| buffer.slice(..))
+        self.buffer
+            .as_ref()
+            .map(|buffer| (buffer.0.slice(..), buffer.1))
     }
 }
 pub struct World {
-    chunks: HashMap<ChunkPosition, Chunk>,
+    pub chunks: HashMap<ChunkPosition, Chunk>,
+    pub block_registry: Rc<BlockRegistry>,
 }
 impl World {
-    pub fn new() -> Self {
+    pub fn new(block_registry: Rc<BlockRegistry>) -> Self {
         World {
             chunks: HashMap::new(),
+            block_registry,
         }
     }
-    pub fn add_vertex_buffers<F>(&mut self, vertex_buffer_consumer: &mut F)
-    where
-        F: FnMut(BufferSlice),
-    {
-        for chunk in &mut self.chunks {
-            if let Some(vertex_buffer) = chunk.1.get_vertices() {
-                vertex_buffer_consumer.call_mut((vertex_buffer,));
-            }
-        }
+    pub fn load_chunk(&mut self, position: ChunkPosition, blocks: [[[u32; 16]; 16]; 16]) {
+        self.chunks.insert(position, Chunk::new(position, blocks));
     }
 }

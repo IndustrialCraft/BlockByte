@@ -1,4 +1,4 @@
-use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
+use image::{DynamicImage, Rgba, RgbaImage};
 use rusttype::{GlyphId, Point, Scale};
 use std::collections::HashMap;
 use std::path::Path;
@@ -15,16 +15,6 @@ pub struct Texture {
 }
 
 impl Texture {
-    pub fn from_bytes(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        bytes: &[u8],
-        label: &str,
-    ) -> Self {
-        let img = image::load_from_memory(bytes).unwrap().into_rgba8();
-        Self::from_image(device, queue, &img, Some(label))
-    }
-
     pub fn from_image(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -200,17 +190,17 @@ pub fn pack_textures(
 }
 #[derive(Copy, Clone)]
 pub struct TexCoords {
-    u1: f32,
-    v1: f32,
-    u2: f32,
-    v2: f32,
+    pub u1: f32,
+    pub v1: f32,
+    pub u2: f32,
+    pub v2: f32,
 }
 pub struct TextureAtlas {
     textures: HashMap<String, TexCoords>,
     missing_texture: TexCoords,
 }
 impl TextureAtlas {
-    pub fn get(&self, texture: &str) -> &TexCoords {
-        self.textures.get(texture).unwrap_or(&self.missing_texture)
+    pub fn get(&self, texture: &str) -> TexCoords {
+        *self.textures.get(texture).unwrap_or(&self.missing_texture)
     }
 }

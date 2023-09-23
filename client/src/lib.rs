@@ -5,9 +5,10 @@ mod game;
 mod render;
 mod texture;
 
-use block_byte_common::Position;
+use block_byte_common::{ChunkPosition, Position};
 use std::collections::HashSet;
 use std::path::Path;
+use std::rc::Rc;
 use winit::window::CursorGrabMode;
 use winit::{
     event::*,
@@ -15,7 +16,7 @@ use winit::{
     window::WindowBuilder,
 };
 
-use crate::game::ClientPlayer;
+use crate::game::{ClientPlayer, World};
 use crate::render::RenderState;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -30,7 +31,9 @@ pub async fn run() {
             env_logger::init();
         }
     }
-    let (texture_image,) = content::load_assets(&Path::new("../server/save/content.zip"));
+    let (texture_image, block_registry) =
+        content::load_assets(&Path::new("../server/save/content.zip"));
+    let block_registry = Rc::new(block_registry);
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
@@ -60,6 +63,9 @@ pub async fn run() {
         z: 0.,
     });
     let mut keys = HashSet::new();
+    let mut world = World::new(block_registry.clone());
+    world.load_chunk(ChunkPosition { x: 0, y: 0, z: 0 }, [[[0u32; 16]; 16]; 16]);
+    world.load_chunk(ChunkPosition { x: 0, y: 1, z: 0 }, [[[0u32; 16]; 16]; 16]);
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             ref event,
@@ -121,7 +127,7 @@ pub async fn run() {
                 "BlockByte x: {} y: {} z: {}",
                 camera.position.x, camera.position.y, camera.position.z
             ));
-            match render_state.render(&camera) {
+            match render_state.render(&camera, &mut world) {
                 Ok(_) => {}
                 // Reconfigure the surface if it's lost or outdated
                 Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {

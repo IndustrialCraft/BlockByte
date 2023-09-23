@@ -489,9 +489,7 @@ impl ModManager {
         engine.register_fn("to_string", |block_position: &mut BlockPosition| {
             block_position.to_string()
         });
-        engine.register_fn("+", |first: Position, second: Position| {
-            first.add_other(second)
-        });
+        engine.register_fn("+", |first: Position, second: Position| first + second);
         engine.register_fn("*", |first: Position, scalar: f64| first.multiply(scalar));
         engine.register_fn("distance", Position::distance);
         engine.register_get_set("x", Position::get_x, Position::set_x);

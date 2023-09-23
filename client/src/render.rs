@@ -1,5 +1,6 @@
-use crate::game::ClientPlayer;
-use crate::texture::Texture;
+use crate::game::{ClientPlayer, World};
+use crate::texture::{TexCoords, Texture};
+use block_byte_common::{Face, Position};
 use image::RgbaImage;
 use std::iter;
 use wgpu::util::DeviceExt;
@@ -209,7 +210,11 @@ impl RenderState {
         }
     }
 
-    pub fn render(&mut self, camera: &ClientPlayer) -> Result<(), wgpu::SurfaceError> {
+    pub fn render(
+        &mut self,
+        camera: &ClientPlayer,
+        world: &mut World,
+    ) -> Result<(), wgpu::SurfaceError> {
         self.camera_uniform
             .update_view_proj(camera, self.size.width as f32 / self.size.height as f32);
         self.queue.write_buffer(
@@ -250,8 +255,17 @@ impl RenderState {
             render_pass.set_pipeline(&self.render_pipeline); // 2.
             render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.draw(0..3, 0..1); // 3.
+
+            for chunk in &mut world.chunks {
+                if let Some(vertex_buffer) =
+                    chunk
+                        .1
+                        .get_vertices(&world.block_registry, &self.device, &self.queue)
+                {
+                    render_pass.set_vertex_buffer(0, vertex_buffer.0);
+                    render_pass.draw(0..vertex_buffer.1, 0..1);
+                }
+            }
         }
 
         self.queue.submit(iter::once(encoder.finish()));
@@ -263,9 +277,9 @@ impl RenderState {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    tex_coords: [f32; 2],
+pub struct Vertex {
+    pub position: [f32; 3],
+    pub tex_coords: [f32; 2],
 }
 impl Vertex {
     const ATTRIBS: [wgpu::VertexAttribute; 2] =
@@ -322,4 +336,157 @@ impl CameraUniform {
         0.0, 0.0, 0.5, 0.5,
         0.0, 0.0, 0.0, 1.0,
     );
+}
+pub trait FaceVerticesExtension {
+    fn add_vertices<F>(&self, coords: TexCoords, vertex_consumer: &mut F)
+    where
+        F: FnMut(Position, (f32, f32));
+}
+impl FaceVerticesExtension for Face {
+    fn add_vertices<F>(&self, coords: TexCoords, vertex_consumer: &mut F)
+    where
+        F: FnMut(Position, (f32, f32)),
+    {
+        let (first, second, third, fourth) = match self {
+            Face::Front => (
+                Position {
+                    x: 0.,
+                    y: 0.,
+                    z: 0.,
+                },
+                Position {
+                    x: 1.,
+                    y: 0.,
+                    z: 0.,
+                },
+                Position {
+                    x: 1.,
+                    y: 1.,
+                    z: 0.,
+                },
+                Position {
+                    x: 0.,
+                    y: 1.,
+                    z: 0.,
+                },
+            ),
+            Face::Back => (
+                Position {
+                    x: 0.,
+                    y: 0.,
+                    z: 1.,
+                },
+                Position {
+                    x: 1.,
+                    y: 0.,
+                    z: 1.,
+                },
+                Position {
+                    x: 1.,
+                    y: 1.,
+                    z: 1.,
+                },
+                Position {
+                    x: 0.,
+                    y: 1.,
+                    z: 1.,
+                },
+            ),
+            Face::Up => (
+                Position {
+                    x: 0.,
+                    y: 1.,
+                    z: 0.,
+                },
+                Position {
+                    x: 1.,
+                    y: 1.,
+                    z: 0.,
+                },
+                Position {
+                    x: 1.,
+                    y: 1.,
+                    z: 1.,
+                },
+                Position {
+                    x: 0.,
+                    y: 1.,
+                    z: 1.,
+                },
+            ),
+            Face::Down => (
+                Position {
+                    x: 0.,
+                    y: 0.,
+                    z: 0.,
+                },
+                Position {
+                    x: 1.,
+                    y: 0.,
+                    z: 0.,
+                },
+                Position {
+                    x: 1.,
+                    y: 0.,
+                    z: 1.,
+                },
+                Position {
+                    x: 0.,
+                    y: 0.,
+                    z: 1.,
+                },
+            ),
+            Face::Left => (
+                Position {
+                    x: 0.,
+                    y: 0.,
+                    z: 0.,
+                },
+                Position {
+                    x: 0.,
+                    y: 1.,
+                    z: 0.,
+                },
+                Position {
+                    x: 0.,
+                    y: 1.,
+                    z: 1.,
+                },
+                Position {
+                    x: 0.,
+                    y: 0.,
+                    z: 1.,
+                },
+            ),
+            Face::Right => (
+                Position {
+                    x: 1.,
+                    y: 0.,
+                    z: 0.,
+                },
+                Position {
+                    x: 1.,
+                    y: 1.,
+                    z: 0.,
+                },
+                Position {
+                    x: 1.,
+                    y: 1.,
+                    z: 1.,
+                },
+                Position {
+                    x: 1.,
+                    y: 0.,
+                    z: 1.,
+                },
+            ),
+        };
+        vertex_consumer.call_mut((first, (coords.u1, coords.v1)));
+        vertex_consumer.call_mut((second, (coords.u2, coords.v1)));
+        vertex_consumer.call_mut((third, (coords.u2, coords.v2)));
+
+        vertex_consumer.call_mut((fourth, (coords.u1, coords.v2)));
+        vertex_consumer.call_mut((third, (coords.u2, coords.v2)));
+        vertex_consumer.call_mut((first, (coords.u1, coords.v1)));
+    }
 }
