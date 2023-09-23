@@ -30,6 +30,7 @@ use std::{
 };
 
 use crate::registry::RecipeManager;
+use block_byte_common::content::ClientEntityData;
 use block_byte_common::Position;
 use crossbeam_channel::Receiver;
 use fxhash::FxHashMap;
@@ -194,7 +195,7 @@ impl Server {
             .register(Identifier::new("bb", "item"), |client_id| {
                 Arc::new(EntityType {
                     id: client_id,
-                    client_data: registry::ClientEntityData {
+                    client_data: ClientEntityData {
                         model: "bb:item".to_string(),
                         texture: "".to_string(),
                         hitbox_w: 0.5,
@@ -219,7 +220,7 @@ impl Server {
             include_bytes!("assets/item_model.bbm").to_vec(),
         );
         let client_content = {
-            let client_content = registry::ClientContent::generate_zip(
+            let client_content = registry::ClientContentGenerator::generate_zip(
                 &block_registry.borrow(),
                 &item_registry.borrow(),
                 &entity_registry.borrow(),
@@ -228,6 +229,11 @@ impl Server {
             let hash = sha256::digest(client_content.as_slice());
             (client_content, hash)
         };
+        {
+            let mut content = save_directory.clone();
+            content.push("content.zip");
+            fs::write(content, &client_content.0).unwrap();
+        }
         let structures = loaded_mods.0.load_structures(&block_registry.borrow());
         let recipes = loaded_mods.0.load_recipes(&item_registry.borrow());
         let loottables = loaded_mods.0.load_loot_tables(&item_registry.borrow());

@@ -1,3 +1,4 @@
+pub mod content;
 pub mod messages;
 
 use serde::{Deserialize, Serialize};

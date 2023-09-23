@@ -5,9 +5,11 @@ use std::{
     sync::Arc,
 };
 
+use block_byte_common::content::{
+    ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData,
+};
 use block_byte_common::messages::NetworkMessageS2C;
 use block_byte_common::{BlockPosition, Face};
-use json::{array, object, JsonValue};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rhai::Dynamic;
@@ -44,7 +46,7 @@ impl BlockRegistry {
                 });
                 let state = vec![BlockState {
                     state_id: id,
-                    client_data: ClientBlockRenderData {
+                    client_data: ClientBlockData {
                         block_type: ClientBlockRenderDataType::Air,
                         dynamic: None,
                         fluid: false,
@@ -131,7 +133,7 @@ impl BlockStateRef {
 
 pub struct BlockState {
     pub state_id: u32,
-    pub client_data: ClientBlockRenderData,
+    pub client_data: ClientBlockData,
     pub breaking_data: (f32, Option<(ToolType, f32)>),
     pub loottable: Option<Identifier>,
     pub parent: Arc<Block>,
@@ -162,55 +164,6 @@ impl BlockState {
             });
         }
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct ClientBlockRenderData {
-    pub block_type: ClientBlockRenderDataType,
-    pub dynamic: Option<ClientBlockDynamicData>,
-    pub fluid: bool,
-    pub render_data: u8,
-    pub transparent: bool,
-    pub selectable: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct ClientBlockDynamicData {
-    pub model: String,
-    pub texture: String,
-    pub animations: Vec<String>,
-    pub items: Vec<String>,
-}
-
-#[derive(Clone, Debug)]
-pub enum ClientBlockRenderDataType {
-    Air,
-    Cube(ClientBlockCubeRenderData),
-    Static(ClientBlockStaticRenderData),
-    Foliage(ClientBlockFoliageRenderData),
-}
-
-#[derive(Clone, Debug)]
-pub struct ClientBlockCubeRenderData {
-    pub front: String,
-    pub back: String,
-    pub right: String,
-    pub left: String,
-    pub up: String,
-    pub down: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct ClientBlockStaticRenderData {
-    pub model: String,
-    pub texture: String,
-}
-#[derive(Clone, Debug)]
-pub struct ClientBlockFoliageRenderData {
-    pub texture_1: String,
-    pub texture_2: String,
-    pub texture_3: String,
-    pub texture_4: String,
 }
 
 pub struct ItemRegistry {
@@ -247,7 +200,7 @@ impl ItemRegistry {
 
 pub struct Item {
     pub id: Identifier,
-    pub client_data: ClientItemRenderData,
+    pub client_data: ClientItemData,
     pub client_id: u32,
     pub place_block: Option<Arc<Block>>,
     pub on_right_click: Option<ScriptCallback>,
@@ -321,18 +274,6 @@ pub enum InteractionResult {
     Ignored,
 }
 
-#[derive(Clone)]
-pub struct ClientItemRenderData {
-    pub name: String,
-    pub model: ClientItemModel,
-}
-
-#[derive(Clone)]
-pub enum ClientItemModel {
-    Texture(String),
-    Block(Identifier),
-}
-
 pub struct EntityRegistry {
     entities: HashMap<Identifier, Arc<EntityType>, BuildHasherDefault<XxHash64>>,
     id_generator: u32,
@@ -373,20 +314,9 @@ pub struct EntityType {
     pub item_model_mapping: ItemModelMapping,
 }
 
-#[derive(Clone)]
-pub struct ClientEntityData {
-    pub model: String,
-    pub texture: String,
-    pub hitbox_w: f64,
-    pub hitbox_h: f64,
-    pub hitbox_d: f64,
-    pub animations: Vec<String>,
-    pub items: Vec<String>,
-}
+pub struct ClientContentGenerator {}
 
-pub struct ClientContent {}
-
-impl ClientContent {
+impl ClientContentGenerator {
     pub fn generate_zip(
         block_registry: &BlockRegistry,
         item_registry: &ItemRegistry,
@@ -402,8 +332,6 @@ impl ClientContent {
         zip_writer
             .write_all(
                 Self::generate_content_json(block_registry, item_registry, entity_registry)
-                    .dump()
-                    .as_str()
                     .as_bytes(),
             )
             .unwrap();
@@ -437,103 +365,25 @@ impl ClientContent {
         block_registry: &BlockRegistry,
         item_registry: &ItemRegistry,
         entity_registry: &EntityRegistry,
-    ) -> JsonValue {
-        let mut blocks = array![];
-        for block in block_registry.states.iter().skip(1).enumerate() {
-            let client_data = &block.1.client_data;
-            let mut model_json = object! {
-                transparent: client_data.transparent,
-                fluid: client_data.fluid,
-                render_data: client_data.render_data,
-                selectable: client_data.selectable,
-                no_collide: !block.1.collidable
-            };
-            if let Some(dynamic) = &client_data.dynamic {
-                model_json["dynamic"] = object! {
-                    model: dynamic.model.clone(),
-                    texture: dynamic.texture.clone(),
-                    animations: dynamic.animations.clone(),
-                    items: dynamic.items.clone()
-                };
-            }
-            match &client_data.block_type {
-                ClientBlockRenderDataType::Air => {
-                    model_json.insert("type", "air").unwrap();
-                }
-                ClientBlockRenderDataType::Cube(cube_data) => {
-                    model_json.insert("type", "cube").unwrap();
-                    model_json.insert("north", cube_data.front.clone()).unwrap();
-                    model_json.insert("south", cube_data.back.clone()).unwrap();
-                    model_json.insert("right", cube_data.right.clone()).unwrap();
-                    model_json.insert("left", cube_data.left.clone()).unwrap();
-                    model_json.insert("up", cube_data.up.clone()).unwrap();
-                    model_json.insert("down", cube_data.down.clone()).unwrap();
-                }
-                ClientBlockRenderDataType::Static(static_data) => {
-                    model_json.insert("type", "static").unwrap();
-                    model_json
-                        .insert("model", static_data.model.clone())
-                        .unwrap();
-                    model_json
-                        .insert("texture", static_data.texture.clone())
-                        .unwrap();
-                }
-                ClientBlockRenderDataType::Foliage(foliage_data) => {
-                    model_json.insert("type", "foliage").unwrap();
-                    model_json
-                        .insert("texture1", foliage_data.texture_1.clone())
-                        .unwrap();
-                    model_json
-                        .insert("texture2", foliage_data.texture_2.clone())
-                        .unwrap();
-                    model_json
-                        .insert("texture3", foliage_data.texture_3.clone())
-                        .unwrap();
-                    model_json
-                        .insert("texture4", foliage_data.texture_4.clone())
-                        .unwrap();
-                }
-            }
-            blocks
-                .push(object! {id: block.1.state_id,
-                    model: model_json
-                })
-                .unwrap();
-        }
-        let mut items = array![];
-        for item in item_registry.items.values().into_iter().enumerate() {
-            let model = match &item.1.client_data.model {
-                ClientItemModel::Texture(texture) => {
-                    ("texture", JsonValue::String(texture.clone()))
-                }
-                ClientItemModel::Block(block) => (
-                    "block",
-                    JsonValue::from(
-                        block_registry
-                            .block_by_identifier(block)
-                            .unwrap()
-                            .default_state,
-                    ),
-                ),
-            };
-            items
-                .push(object! {
-                    id: item.1.client_id,
-                    name: item.1.client_data.name.clone(),
-                    modelType: model.0,
-                    modelValue: model.1
-                })
-                .unwrap();
-        }
-        let mut entities = array![];
-        for entity in entity_registry.entities.values().into_iter().enumerate() {
-            entities.push(object! {id: entity.1.id,model:entity.1.client_data.model.clone(),texture:entity.1.client_data.texture.clone(),hitboxW:entity.1.client_data.hitbox_w,hitboxH:entity.1.client_data.hitbox_h,hitboxD:entity.1.client_data.hitbox_d,animations:entity.1.client_data.animations.clone(),items:entity.1.client_data.items.clone()}).unwrap();
-        }
-        object! {
-            blocks: blocks,
-            items: items,
-            entities: entities,
-        }
+    ) -> String {
+        serde_json::to_string(&ClientContent {
+            blocks: block_registry
+                .states
+                .iter()
+                .map(|state| state.client_data.clone())
+                .collect(),
+            items: item_registry
+                .items
+                .iter()
+                .map(|item| item.1.client_data.clone())
+                .collect(),
+            entities: entity_registry
+                .entities
+                .iter()
+                .map(|entity| entity.1.client_data.clone())
+                .collect(),
+        })
+        .unwrap()
     }
 }
 

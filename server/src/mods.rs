@@ -1,4 +1,9 @@
 use anyhow::{bail, Context, Result};
+use block_byte_common::content::{
+    ClientBlockCubeRenderData, ClientBlockData, ClientBlockDynamicData,
+    ClientBlockFoliageRenderData, ClientBlockRenderDataType, ClientBlockStaticRenderData,
+    ClientEntityData, ClientItemData, ClientItemModel,
+};
 use block_byte_common::messages::MovementType;
 use block_byte_common::{BlockPosition, Position};
 use json::JsonValue;
@@ -17,15 +22,10 @@ use std::{
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
-use crate::registry::ClientBlockFoliageRenderData;
 use crate::world::World;
 use crate::{
     inventory::{LootTable, Recipe},
-    registry::{
-        BlockRegistry, ClientBlockCubeRenderData, ClientBlockDynamicData, ClientBlockRenderData,
-        ClientBlockRenderDataType, ClientBlockStaticRenderData, ClientEntityData, ClientItemModel,
-        ClientItemRenderData, ItemRegistry, ToolData, ToolType,
-    },
+    registry::{BlockRegistry, ItemRegistry, ToolData, ToolType},
     util::{Identifier, Location},
     world::{Entity, Structure},
     Server,
@@ -622,7 +622,7 @@ impl BiomeBuilder {
 #[derive(Clone, Debug)]
 pub struct BlockBuilder {
     pub id: Identifier,
-    pub client: ClientBlockRenderData,
+    pub client: ClientBlockData,
     pub data_container: bool,
     pub breaking_data: (f32, Option<(ToolType, f32)>),
     pub loot: Option<Identifier>,
@@ -633,7 +633,7 @@ impl BlockBuilder {
     pub fn new(id: &str) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(BlockBuilder {
             id: Identifier::parse(id).unwrap(),
-            client: ClientBlockRenderData {
+            client: ClientBlockData {
                 block_type: ClientBlockRenderDataType::Air,
                 dynamic: None,
                 fluid: false,
@@ -774,7 +774,7 @@ impl BlockBuilder {
 #[derive(Clone)]
 pub struct ItemBuilder {
     pub id: Identifier,
-    pub client: ClientItemRenderData,
+    pub client: ClientItemData,
     pub place: Option<Identifier>,
     pub on_right_click: Option<FnPtr>,
     pub stack_size: u32,
@@ -784,7 +784,7 @@ pub struct ItemBuilder {
 impl ItemBuilder {
     pub fn new(id: &str) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(ItemBuilder {
-            client: ClientItemRenderData {
+            client: ClientItemData {
                 name: id.to_string(),
                 model: ClientItemModel::Texture(String::new()),
             },
@@ -826,7 +826,7 @@ impl ItemBuilder {
         this.clone()
     }
     pub fn client_model_block(this: &mut Arc<Mutex<Self>>, block: &str) -> Arc<Mutex<Self>> {
-        this.lock().client.model = ClientItemModel::Block(Identifier::parse(block).unwrap());
+        this.lock().client.model = ClientItemModel::Block(block.to_string());
         this.clone()
     }
     pub fn place(this: &mut Arc<Mutex<Self>>, place: &str) -> Arc<Mutex<Self>> {
