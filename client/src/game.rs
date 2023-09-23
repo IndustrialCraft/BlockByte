@@ -1,5 +1,7 @@
-use block_byte_common::Position;
+use block_byte_common::{ChunkPosition, Position};
 use cgmath::{ElementWise, InnerSpace, Matrix4, Point3, Vector3};
+use std::collections::HashMap;
+use wgpu::{Buffer, BufferSlice};
 use winit::event::VirtualKeyCode;
 
 pub struct ClientPlayer {
@@ -161,5 +163,49 @@ impl ClientPlayer {
     }
     pub fn create_projection_matrix(&self, aspect: f32) -> Matrix4<f32> {
         cgmath::perspective(cgmath::Deg(90.), aspect, 0.1, 100.)
+    }
+}
+pub struct Chunk {
+    position: ChunkPosition,
+    blocks: [[[u32; 16]; 16]; 16],
+    modified: bool,
+    buffer: Option<Buffer>,
+}
+impl Chunk {
+    pub fn new(position: ChunkPosition, blocks: [[[u32; 16]; 16]; 16]) -> Self {
+        Chunk {
+            position,
+            blocks,
+            modified: true,
+            buffer: None,
+        }
+    }
+    pub fn rebuild_chunk_mesh(&mut self) {}
+    pub fn get_vertices(&mut self) -> Option<BufferSlice> {
+        if self.modified {
+            self.rebuild_chunk_mesh();
+            self.modified = false;
+        }
+        self.buffer.as_ref().map(|buffer| buffer.slice(..))
+    }
+}
+pub struct World {
+    chunks: HashMap<ChunkPosition, Chunk>,
+}
+impl World {
+    pub fn new() -> Self {
+        World {
+            chunks: HashMap::new(),
+        }
+    }
+    pub fn add_vertex_buffers<F>(&mut self, vertex_buffer_consumer: &mut F)
+    where
+        F: FnMut(BufferSlice),
+    {
+        for chunk in &mut self.chunks {
+            if let Some(vertex_buffer) = chunk.1.get_vertices() {
+                vertex_buffer_consumer.call_mut((vertex_buffer,));
+            }
+        }
     }
 }

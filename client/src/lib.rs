@@ -1,9 +1,13 @@
+#![feature(fn_traits)]
+
+mod content;
 mod game;
 mod render;
 mod texture;
 
 use block_byte_common::Position;
 use std::collections::HashSet;
+use std::path::Path;
 use winit::window::CursorGrabMode;
 use winit::{
     event::*,
@@ -26,6 +30,7 @@ pub async fn run() {
             env_logger::init();
         }
     }
+    let (texture_image,) = content::load_assets(&Path::new("../server/save/content.zip"));
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
@@ -48,7 +53,7 @@ pub async fn run() {
             })
             .expect("Couldn't append canvas to document body.");
     }
-    let mut render_state = RenderState::new(window).await;
+    let mut render_state = RenderState::new(window, texture_image).await;
     let mut camera = ClientPlayer::at_position(Position {
         x: 0.,
         y: 0.,

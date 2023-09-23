@@ -1,10 +1,10 @@
 use crate::game::ClientPlayer;
 use crate::texture::Texture;
+use image::RgbaImage;
 use std::iter;
 use wgpu::util::DeviceExt;
 use wgpu::Buffer;
 use winit::dpi::PhysicalSize;
-use winit::event::WindowEvent;
 use winit::window::Window;
 
 pub struct RenderState {
@@ -27,7 +27,7 @@ pub struct RenderState {
 
 impl RenderState {
     // Creating some of the wgpu types requires async code
-    pub(crate) async fn new(window: Window) -> Self {
+    pub(crate) async fn new(window: Window, texture_image: RgbaImage) -> Self {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -89,8 +89,7 @@ impl RenderState {
             view_formats: vec![],
         };
         surface.configure(&device, &config);
-        let texture =
-            Texture::from_bytes(&device, &queue, include_bytes!("lava.png"), "main texture");
+        let texture = Texture::from_image(&device, &queue, &texture_image, Some("main texture"));
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
