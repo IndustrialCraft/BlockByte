@@ -56,7 +56,6 @@ pub fn load_assets(zip_path: &Path) -> (RgbaImage, BlockRegistry) {
     for block in content.blocks {
         block_registry.add_block(block, &texture_atlas)
     }
-    //let content = load_content(content.unwrap(), &texture_atlas, &texture, models);
     (texture_image, block_registry)
 }
 pub struct BlockRegistry {

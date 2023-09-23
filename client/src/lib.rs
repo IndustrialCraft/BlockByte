@@ -42,8 +42,6 @@ pub async fn run() {
     window.set_cursor_visible(false);
     #[cfg(target_arch = "wasm32")]
     {
-        // Winit prevents sizing with CSS, so we have to set
-        // the size manually when on web.
         use winit::dpi::PhysicalSize;
 
         use winit::platform::web::WindowExtWebSys;
@@ -72,48 +70,45 @@ pub async fn run() {
         Event::WindowEvent {
             ref event,
             window_id,
-        } if window_id == render_state.window().id() => {
-            match event {
-                WindowEvent::CloseRequested
-                | WindowEvent::KeyboardInput {
-                    input:
-                        KeyboardInput {
-                            state: ElementState::Pressed,
-                            virtual_keycode: Some(VirtualKeyCode::Escape),
-                            ..
-                        },
-                    ..
-                } => *control_flow = ControlFlow::Exit,
-                WindowEvent::KeyboardInput {
-                    input:
-                        KeyboardInput {
-                            state,
-                            virtual_keycode,
-                            ..
-                        },
-                    ..
-                } => {
-                    if let Some(virtual_keycode) = virtual_keycode.as_ref() {
-                        match state {
-                            ElementState::Pressed => {
-                                keys.insert(*virtual_keycode);
-                            }
-                            ElementState::Released => {
-                                keys.remove(virtual_keycode);
-                            }
+        } if window_id == render_state.window().id() => match event {
+            WindowEvent::CloseRequested
+            | WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        state: ElementState::Pressed,
+                        virtual_keycode: Some(VirtualKeyCode::Escape),
+                        ..
+                    },
+                ..
+            } => *control_flow = ControlFlow::Exit,
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        state,
+                        virtual_keycode,
+                        ..
+                    },
+                ..
+            } => {
+                if let Some(virtual_keycode) = virtual_keycode.as_ref() {
+                    match state {
+                        ElementState::Pressed => {
+                            keys.insert(*virtual_keycode);
+                        }
+                        ElementState::Released => {
+                            keys.remove(virtual_keycode);
                         }
                     }
                 }
-                WindowEvent::Resized(physical_size) => {
-                    render_state.resize(*physical_size);
-                }
-                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                    // new_inner_size is &&mut so w have to dereference it twice
-                    render_state.resize(**new_inner_size);
-                }
-                _ => {}
             }
-        }
+            WindowEvent::Resized(physical_size) => {
+                render_state.resize(*physical_size);
+            }
+            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                render_state.resize(**new_inner_size);
+            }
+            _ => {}
+        },
         Event::DeviceEvent {
             ref event,
             device_id: _,
@@ -138,19 +133,15 @@ pub async fn run() {
             ));
             match render_state.render(&camera, &mut world) {
                 Ok(_) => {}
-                // Reconfigure the surface if it's lost or outdated
                 Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                     render_state.resize(render_state.size())
                 }
-                // The system is out of memory, we should probably quit
                 Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
 
                 Err(wgpu::SurfaceError::Timeout) => log::warn!("Surface timeout"),
             }
         }
         Event::RedrawEventsCleared => {
-            // RedrawRequested will only trigger once, unless we manually
-            // request it.
             render_state.window().request_redraw();
         }
         _ => {}
