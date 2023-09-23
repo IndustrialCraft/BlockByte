@@ -9,6 +9,7 @@ use block_byte_common::{ChunkPosition, Position};
 use std::collections::HashSet;
 use std::path::Path;
 use std::rc::Rc;
+use std::time::Instant;
 use winit::window::CursorGrabMode;
 use winit::{
     event::*,
@@ -66,6 +67,7 @@ pub async fn run() {
     let mut world = World::new(block_registry.clone());
     world.load_chunk(ChunkPosition { x: 0, y: 0, z: 0 }, [[[0u32; 16]; 16]; 16]);
     world.load_chunk(ChunkPosition { x: 0, y: 1, z: 0 }, [[[0u32; 16]; 16]; 16]);
+    let mut last_render_time = Instant::now();
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             ref event,
@@ -122,10 +124,17 @@ pub async fn run() {
             _ => {}
         },
         Event::RedrawRequested(window_id) if window_id == render_state.window().id() => {
-            camera.update_position(&keys, 1. / 60.);
+            let now = Instant::now();
+            let dt = now - last_render_time;
+            last_render_time = now;
+            let dt = dt.as_secs_f32();
+            camera.update_position(&keys, dt);
             render_state.window().set_title(&format!(
-                "BlockByte x: {} y: {} z: {}",
-                camera.position.x, camera.position.y, camera.position.z
+                "BlockByte x: {} y: {} z: {} fps: {}",
+                camera.position.x,
+                camera.position.y,
+                camera.position.z,
+                1. / dt
             ));
             match render_state.render(&camera, &mut world) {
                 Ok(_) => {}
