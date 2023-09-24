@@ -8,8 +8,9 @@ mod render;
 mod texture;
 
 use array_init::array_init;
-use block_byte_common::messages::NetworkMessageS2C;
+use block_byte_common::messages::{NetworkMessageC2S, NetworkMessageS2C};
 use block_byte_common::{ChunkPosition, Position};
+use cgmath::Point3;
 use std::collections::HashSet;
 use std::path::Path;
 use std::rc::Rc;
@@ -70,7 +71,7 @@ pub async fn run() {
     let mut world = World::new(block_registry.clone());
 
     let mut connection = SocketConnection::new("localhost:4321");
-
+    let mut first_teleport = false;
     let mut last_render_time = Instant::now();
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -137,6 +138,17 @@ pub async fn run() {
                 camera.position.z,
                 1. / dt
             ));
+            //todo: send less frequently
+            if first_teleport {
+                connection.send_message(&NetworkMessageC2S::PlayerPosition(
+                    camera.position.x,
+                    camera.position.y,
+                    camera.position.z,
+                    camera.is_shifting(),
+                    camera.pitch_deg,
+                    camera.last_moved,
+                ));
+            }
             for message in connection.read_messages() {
                 match message {
                     NetworkMessageS2C::SetBlock(_, _, _, _) => {}
@@ -154,7 +166,9 @@ pub async fn run() {
                         });
                         world.load_chunk(position, blocks)
                     }
-                    NetworkMessageS2C::UnloadChunk(_, _, _) => {}
+                    NetworkMessageS2C::UnloadChunk(x, y, z) => {
+                        world.unload_chunk(ChunkPosition { x, y, z });
+                    }
                     NetworkMessageS2C::AddEntity(_, _, _, _, _, _, _, _) => {}
                     NetworkMessageS2C::MoveEntity(_, _, _, _, _) => {}
                     NetworkMessageS2C::DeleteEntity(_) => {}
@@ -168,7 +182,11 @@ pub async fn run() {
                     NetworkMessageS2C::EntityAnimation(_, _) => {}
                     NetworkMessageS2C::ChatMessage(_) => {}
                     NetworkMessageS2C::PlayerAbilities(_, _) => {}
-                    NetworkMessageS2C::TeleportPlayer(_, _, _, _) => {}
+                    NetworkMessageS2C::TeleportPlayer(x, y, z, rotation) => {
+                        camera.position = Point3::new(x, y, z);
+                        camera.pitch_deg = rotation;
+                        first_teleport = true;
+                    }
                     NetworkMessageS2C::BlockAnimation(_, _, _, _) => {}
                 }
             }

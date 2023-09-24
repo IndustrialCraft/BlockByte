@@ -257,7 +257,7 @@ impl Chunk {
                     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("Chunk Vertex Buffer"),
                         contents: bytemuck::cast_slice(vertices.as_slice()),
-                        usage: wgpu::BufferUsages::VERTEX,
+                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                     }),
                     vertices.len() as u32,
                 ));
@@ -316,5 +316,8 @@ impl World {
         for face in Face::all() {
             self.modified_chunks.insert(position.with_offset(face));
         }
+    }
+    pub fn unload_chunk(&mut self, position: ChunkPosition) {
+        self.chunks.remove(&position);
     }
 }

@@ -16,11 +16,11 @@ impl SocketConnection {
         )
         .unwrap();
         let mut connection = SocketConnection { socket };
-        connection.write_message(&NetworkMessageC2S::ConnectionMode(0));
+        connection.send_message(&NetworkMessageC2S::ConnectionMode(0));
         connection.socket.get_mut().set_nonblocking(true).unwrap();
         connection
     }
-    pub fn write_message(&mut self, message: &NetworkMessageC2S) {
+    pub fn send_message(&mut self, message: &NetworkMessageC2S) {
         self.socket
             .send(Message::Binary(bitcode::serialize(message).unwrap()))
             .unwrap();
