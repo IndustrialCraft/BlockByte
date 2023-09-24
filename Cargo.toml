@@ -3,7 +3,8 @@ resolver = "2"
 members = [
     "client",
     "server",
-    "common"
+    "common",
+    "model_exporter"
 ]
 [profile.release]
 debug = true

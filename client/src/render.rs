@@ -1,7 +1,7 @@
 use crate::game::{ClientPlayer, World};
 use crate::texture;
-use crate::texture::{TexCoords, Texture};
-use block_byte_common::{Face, Position};
+use crate::texture::Texture;
+use block_byte_common::{Face, Position, TexCoords};
 use image::RgbaImage;
 use std::iter;
 use wgpu::util::DeviceExt;

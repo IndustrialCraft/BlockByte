@@ -1,3 +1,4 @@
+use block_byte_common::TexCoords;
 use image::{DynamicImage, Rgba, RgbaImage};
 use rusttype::{GlyphId, Point, Scale};
 use std::collections::HashMap;
@@ -225,13 +226,7 @@ pub fn pack_textures(
         exporter.to_rgba8(),
     )
 }
-#[derive(Copy, Clone)]
-pub struct TexCoords {
-    pub u1: f32,
-    pub v1: f32,
-    pub u2: f32,
-    pub v2: f32,
-}
+
 pub struct TextureAtlas {
     textures: HashMap<String, TexCoords>,
     missing_texture: TexCoords,

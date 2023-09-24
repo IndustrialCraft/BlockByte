@@ -267,3 +267,33 @@ impl ChunkPosition {
         (xd * xd + yd * yd + zd * zd) as u32
     }
 }
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub struct Vec3 {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub struct Vec2 {
+    pub x: f32,
+    pub y: f32,
+}
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub struct TexCoords {
+    pub u1: f32,
+    pub v1: f32,
+    pub u2: f32,
+    pub v2: f32,
+}
+impl TexCoords {
+    pub fn map_sub(&self, sub: &TexCoords) -> TexCoords {
+        let self_w = self.u2 - self.u1;
+        let self_h = self.v2 - self.v1;
+        TexCoords {
+            u1: self.u1 + (sub.u1 * self_w),
+            v1: self.v1 + (sub.v1 * self_h),
+            u2: self.u1 + (sub.u2 * self_w),
+            v2: self.v1 + (sub.v2 * self_h),
+        }
+    }
+}

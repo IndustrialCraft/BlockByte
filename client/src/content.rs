@@ -1,6 +1,9 @@
-use crate::texture::{pack_textures, TexCoords, TextureAtlas};
-use block_byte_common::content::{ClientBlockData, ClientBlockRenderDataType, ClientContent};
-use block_byte_common::Face;
+use crate::model::Model;
+use crate::texture::{pack_textures, TextureAtlas};
+use block_byte_common::content::{
+    ClientBlockData, ClientBlockRenderDataType, ClientContent, ModelData,
+};
+use block_byte_common::{Face, TexCoords};
 use image::RgbaImage;
 use std::collections::HashMap;
 use std::path::Path;
@@ -34,7 +37,10 @@ pub fn load_assets(zip_path: &Path) -> (RgbaImage, BlockRegistry) {
             continue;
         }
         if name.ends_with(".bbm") {
-            models.insert(name.replace(".bbm", ""), data);
+            if let Ok(model_data) = bitcode::deserialize::<ModelData>(data.as_slice()) {
+                models.insert(name.replace(".bbm", ""), model_data);
+            }
+
             continue;
         }
         if name == "content.json" {
@@ -49,12 +55,16 @@ pub fn load_assets(zip_path: &Path) -> (RgbaImage, BlockRegistry) {
             continue;
         }
     }
+    models.insert(
+        "missing".to_string(),
+        bitcode::deserialize::<ModelData>(include_bytes!("assets/missing.bbm").as_slice()).unwrap(),
+    );
     let font = font.unwrap();
     let content = content.unwrap();
     let (texture_atlas, texture_image) = pack_textures(textures_to_pack, &font);
     let mut block_registry = BlockRegistry { blocks: Vec::new() };
     for block in content.blocks {
-        block_registry.add_block(block, &texture_atlas)
+        block_registry.add_block(block, &texture_atlas, &models);
     }
     (texture_image, block_registry)
 }
@@ -65,7 +75,12 @@ impl BlockRegistry {
     pub fn get_block(&self, block: u32) -> &BlockData {
         self.blocks.get(block as usize).unwrap()
     }
-    fn add_block(&mut self, block_data: ClientBlockData, texture_atlas: &TextureAtlas) {
+    fn add_block(
+        &mut self,
+        block_data: ClientBlockData,
+        texture_atlas: &TextureAtlas,
+        models: &HashMap<String, ModelData>,
+    ) {
         self.blocks.push(BlockData {
             block_type: match block_data.block_type {
                 ClientBlockRenderDataType::Air => BlockRenderDataType::Air,
@@ -80,7 +95,15 @@ impl BlockRegistry {
                     })
                 }
                 ClientBlockRenderDataType::Static(static_data) => {
-                    BlockRenderDataType::Static(BlockStaticRenderData {})
+                    BlockRenderDataType::Static(BlockStaticRenderData {
+                        model: Model::new(
+                            models
+                                .get(static_data.model.as_str())
+                                .unwrap_or(models.get("missing").unwrap())
+                                .clone(),
+                            texture_atlas.get(static_data.texture.as_str()),
+                        ),
+                    })
                 }
 
                 ClientBlockRenderDataType::Foliage(foliage) => {
@@ -157,7 +180,7 @@ impl BlockCubeRenderData {
 }
 
 pub struct BlockStaticRenderData {
-    //todo: model
+    pub model: Model,
 }
 pub struct BlockFoliageRenderData {
     pub texture_1: TexCoords,

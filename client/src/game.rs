@@ -2,7 +2,7 @@ use crate::content::BlockRenderDataType::Cube;
 use crate::content::{BlockRegistry, BlockRenderDataType};
 use crate::render::{FaceVerticesExtension, Vertex};
 use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position};
-use cgmath::{ElementWise, InnerSpace, Matrix4, Point3, Vector3};
+use cgmath::{ElementWise, InnerSpace, Matrix4, Point3, SquareMatrix, Vector3};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use wgpu::util::DeviceExt;
@@ -75,8 +75,8 @@ impl ClientPlayer {
             move_vector = move_vector.normalize();
         }
         if self.shifting {
-            move_vector.y -= 1.;
             move_vector /= 2.;
+            move_vector.y -= 1.;
         }
         if keys.contains(&VirtualKeyCode::Space) {
             move_vector.y += 1.;
@@ -196,6 +196,11 @@ impl Chunk {
                 for z in 0..16 {
                     let block = self.blocks[x][y][z];
                     let block = block_registry.get_block(block);
+                    let base_position = Position {
+                        x: ((self.position.x * 16) + x as i32) as f64,
+                        y: ((self.position.y * 16) + y as i32) as f64,
+                        z: ((self.position.z * 16) + z as i32) as f64,
+                    };
                     match &block.block_type {
                         BlockRenderDataType::Air => {}
                         BlockRenderDataType::Cube(cube_data) => {
@@ -223,11 +228,6 @@ impl Chunk {
                                 }
 
                                 let texture = cube_data.by_face(*face);
-                                let base_position = Position {
-                                    x: ((self.position.x * 16) + x as i32) as f64,
-                                    y: ((self.position.y * 16) + y as i32) as f64,
-                                    z: ((self.position.z * 16) + z as i32) as f64,
-                                };
                                 face.add_vertices(texture, &mut |position, coords| {
                                     vertices.push(Vertex {
                                         position: [
@@ -240,7 +240,21 @@ impl Chunk {
                                 });
                             }
                         }
-                        BlockRenderDataType::Static(_) => {}
+                        BlockRenderDataType::Static(model) => {
+                            model.model.add_vertices(
+                                Matrix4::identity(),
+                                &mut |position, coords| {
+                                    vertices.push(Vertex {
+                                        position: [
+                                            (base_position.x + position.x) as f32 + 0.5,
+                                            (base_position.y + position.y) as f32,
+                                            (base_position.z + position.z) as f32 + 0.5,
+                                        ],
+                                        tex_coords: [coords.0, coords.1],
+                                    })
+                                },
+                            );
+                        }
                         BlockRenderDataType::Foliage(_) => {}
                     }
                 }

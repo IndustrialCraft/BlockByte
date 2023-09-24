@@ -3,6 +3,7 @@
 
 mod content;
 mod game;
+mod model;
 mod net;
 mod render;
 mod texture;
