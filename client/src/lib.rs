@@ -2,9 +2,12 @@
 
 mod content;
 mod game;
+mod net;
 mod render;
 mod texture;
 
+use array_init::array_init;
+use block_byte_common::messages::NetworkMessageS2C;
 use block_byte_common::{ChunkPosition, Position};
 use std::collections::HashSet;
 use std::path::Path;
@@ -18,6 +21,7 @@ use winit::{
 };
 
 use crate::game::{ClientPlayer, World};
+use crate::net::SocketConnection;
 use crate::render::RenderState;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -63,8 +67,9 @@ pub async fn run() {
     });
     let mut keys = HashSet::new();
     let mut world = World::new(block_registry.clone());
-    world.load_chunk(ChunkPosition { x: 0, y: 0, z: 0 }, [[[0u32; 16]; 16]; 16]);
-    world.load_chunk(ChunkPosition { x: 0, y: 1, z: 0 }, [[[0u32; 16]; 16]; 16]);
+
+    let mut connection = SocketConnection::new("localhost:4321");
+
     let mut last_render_time = Instant::now();
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -131,6 +136,41 @@ pub async fn run() {
                 camera.position.z,
                 1. / dt
             ));
+            for message in connection.read_messages() {
+                match message {
+                    NetworkMessageS2C::SetBlock(_, _, _, _) => {}
+                    NetworkMessageS2C::LoadChunk(x, y, z, palette, blocks) => {
+                        let position = ChunkPosition { x, y, z };
+                        let mut decoder = flate2::read::GzDecoder::new(blocks.as_slice());
+                        let mut blocks_data = Vec::new();
+                        std::io::copy(&mut decoder, &mut blocks_data).unwrap();
+                        let blocks: [[[u16; 16]; 16]; 16] =
+                            bitcode::deserialize(blocks_data.as_slice()).unwrap();
+                        let blocks = array_init(|x| {
+                            array_init(|y| {
+                                array_init(|z| *palette.get(blocks[x][y][z] as usize).unwrap())
+                            })
+                        });
+                        world.load_chunk(position, blocks)
+                    }
+                    NetworkMessageS2C::UnloadChunk(_, _, _) => {}
+                    NetworkMessageS2C::AddEntity(_, _, _, _, _, _, _, _) => {}
+                    NetworkMessageS2C::MoveEntity(_, _, _, _, _) => {}
+                    NetworkMessageS2C::DeleteEntity(_) => {}
+                    NetworkMessageS2C::GuiData(_) => {}
+                    NetworkMessageS2C::BlockBreakTimeResponse(_, _) => {}
+                    NetworkMessageS2C::EntityItem(_, _, _) => {}
+                    NetworkMessageS2C::BlockItem(_, _, _, _, _) => {}
+                    NetworkMessageS2C::Knockback(_, _, _, _) => {}
+                    NetworkMessageS2C::FluidSelectable(_) => {}
+                    NetworkMessageS2C::PlaySound(_, _, _, _, _, _, _) => {}
+                    NetworkMessageS2C::EntityAnimation(_, _) => {}
+                    NetworkMessageS2C::ChatMessage(_) => {}
+                    NetworkMessageS2C::PlayerAbilities(_, _) => {}
+                    NetworkMessageS2C::TeleportPlayer(_, _, _, _) => {}
+                    NetworkMessageS2C::BlockAnimation(_, _, _, _) => {}
+                }
+            }
             match render_state.render(&camera, &mut world) {
                 Ok(_) => {}
                 Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {

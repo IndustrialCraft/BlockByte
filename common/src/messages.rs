@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub enum NetworkMessageS2C {
     SetBlock(i32, i32, i32, u32) = 0,
-    LoadChunk(i32, i32, i32, Vec<u32>, Vec<u16>) = 1,
+    LoadChunk(i32, i32, i32, Vec<u32>, Vec<u8>) = 1,
     UnloadChunk(i32, i32, i32) = 2,
     AddEntity(u32, u32, f32, f32, f32, f32, u32, f32) = 3,
     MoveEntity(u32, f32, f32, f32, f32) = 4,

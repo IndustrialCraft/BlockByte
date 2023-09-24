@@ -1,7 +1,7 @@
-use crate::content::BlockRegistry;
 use crate::content::BlockRenderDataType::Cube;
+use crate::content::{BlockRegistry, BlockRenderDataType};
 use crate::render::{FaceVerticesExtension, Vertex};
-use block_byte_common::{ChunkPosition, Face, Position};
+use block_byte_common::{BlockPosition, ChunkPosition, Face, Position};
 use cgmath::{ElementWise, InnerSpace, Matrix4, Point3, Vector3};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -197,32 +197,50 @@ impl Chunk {
                 for z in 0..16 {
                     let block = self.blocks[x][y][z];
                     let block = block_registry.get_block(block);
+                    match &block.block_type {
+                        BlockRenderDataType::Air => {}
+                        BlockRenderDataType::Cube(cube_data) => {
+                            for face in Face::all() {
+                                let neighbor_position = BlockPosition {
+                                    x: x as i32,
+                                    y: y as i32,
+                                    z: z as i32,
+                                }
+                                .offset_by_face(*face);
+                                if neighbor_position.offset_from_origin_chunk().is_none() {
+                                    //todo: neighboring chunks
+                                    let neighbor_block = block_registry.get_block(
+                                        self.blocks[neighbor_position.x as usize]
+                                            [neighbor_position.y as usize]
+                                            [neighbor_position.z as usize],
+                                    );
+                                    if neighbor_block.block_type.is_face_full(face.opposite()) {
+                                        continue;
+                                    }
+                                }
+                                let texture = cube_data.by_face(*face);
+                                let base_position = Position {
+                                    x: ((self.position.x * 16) + x as i32) as f64,
+                                    y: ((self.position.y * 16) + y as i32) as f64,
+                                    z: ((self.position.z * 16) + z as i32) as f64,
+                                };
+                                face.add_vertices(texture, &mut |position, coords| {
+                                    vertices.push(Vertex {
+                                        position: [
+                                            (base_position.x + position.x) as f32,
+                                            (base_position.y + position.y) as f32,
+                                            (base_position.z + position.z) as f32,
+                                        ],
+                                        tex_coords: [coords.0, coords.1],
+                                    })
+                                });
+                            }
+                        }
+                        BlockRenderDataType::Static(_) => {}
+                        BlockRenderDataType::Foliage(_) => {}
+                    }
                 }
             }
-        }
-        let block = block_registry.get_block(3);
-        match &block.block_type {
-            Cube(data) => {
-                for face in Face::all() {
-                    let texture = data.by_face(*face);
-                    let base_position = Position {
-                        x: (self.position.x * 16) as f64,
-                        y: (self.position.y * 16) as f64,
-                        z: (self.position.z * 16) as f64,
-                    };
-                    face.add_vertices(texture, &mut |position, coords| {
-                        vertices.push(Vertex {
-                            position: [
-                                (base_position.x + position.x) as f32,
-                                (base_position.y + position.y) as f32,
-                                (base_position.z + position.z) as f32,
-                            ],
-                            tex_coords: [coords.0, coords.1],
-                        })
-                    });
-                }
-            }
-            _ => unimplemented!(),
         }
         if vertices.len() == 0 {
             self.buffer = None;

@@ -1,3 +1,4 @@
+pub mod block_palette;
 pub mod content;
 pub mod messages;
 

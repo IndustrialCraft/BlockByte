@@ -17,6 +17,7 @@ use block_byte_common::messages::{
     MouseButton, MovementType, NetworkMessageC2S, NetworkMessageS2C,
 };
 use block_byte_common::{BlockPosition, ChunkPosition, Position};
+use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{array, object, JsonValue};
 use parking_lot::Mutex;
@@ -335,7 +336,7 @@ impl Chunk {
                 .loading_stage
                 .store(2, std::sync::atomic::Ordering::SeqCst);
             let mut palette = Vec::new();
-            let mut block_data = Vec::with_capacity(16 * 16 * 16);
+            let mut block_data = [[[0; 16]; 16]; 16];
             let blocks = gen_chunk.blocks.lock();
             for x in 0..16 {
                 for y in 0..16 {
@@ -349,12 +350,22 @@ impl Chunk {
                                     palette.len() - 1
                                 }
                             };
-                        block_data[x + (y * 16) + (z * 16 * 16)] = palette_entry as u16;
+                        block_data[x][y][z] = palette_entry as u16;
                     }
                 }
             }
+            let mut encoder = flate2::write::GzEncoder::new(Vec::new(), Compression::default());
+            std::io::copy(
+                &mut bitcode::serialize(&block_data).unwrap().as_slice(),
+                &mut encoder,
+            )
+            .unwrap();
             let load_message = NetworkMessageS2C::LoadChunk(
-                position.x, position.y, position.z, palette, block_data,
+                position.x,
+                position.y,
+                position.z,
+                palette,
+                encoder.finish().unwrap(),
             );
             for viewer in gen_chunk.viewers.lock().iter() {
                 viewer.player.try_send_message(&load_message).ok();
@@ -455,7 +466,7 @@ impl Chunk {
             let chunk = self.ptr();
             self.world.server.thread_pool.execute(Box::new(move || {
                 let mut palette = Vec::new();
-                let mut block_data = Vec::with_capacity(16 * 16 * 16);
+                let mut block_data = [[[0; 16]; 16]; 16];
                 let blocks = chunk.blocks.lock();
                 for x in 0..16 {
                     for y in 0..16 {
@@ -469,12 +480,22 @@ impl Chunk {
                                         palette.len() - 1
                                     }
                                 };
-                            block_data[x + (y * 16) + (z * 16 * 16)] = palette_entry as u16;
+                            block_data[x][y][z] = palette_entry as u16;
                         }
                     }
                 }
+                let mut encoder = flate2::write::GzEncoder::new(Vec::new(), Compression::default());
+                std::io::copy(
+                    &mut bitcode::serialize(&block_data).unwrap().as_slice(),
+                    &mut encoder,
+                )
+                .unwrap();
                 let load_message = NetworkMessageS2C::LoadChunk(
-                    position.x, position.y, position.z, palette, block_data,
+                    position.x,
+                    position.y,
+                    position.z,
+                    palette,
+                    encoder.finish().unwrap(),
                 );
             }));
         }

@@ -124,6 +124,16 @@ pub enum BlockRenderDataType {
     Static(BlockStaticRenderData),
     Foliage(BlockFoliageRenderData),
 }
+impl BlockRenderDataType {
+    pub fn is_face_full(&self, face: Face) -> bool {
+        match self {
+            BlockRenderDataType::Air => false,
+            BlockRenderDataType::Cube(_) => true,
+            BlockRenderDataType::Static(_) => false, //todo
+            BlockRenderDataType::Foliage(_) => false,
+        }
+    }
+}
 
 pub struct BlockCubeRenderData {
     pub front: TexCoords,
