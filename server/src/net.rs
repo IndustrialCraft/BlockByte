@@ -32,23 +32,21 @@ impl PlayerConnection {
     }
     pub fn send_json(&mut self, json: JsonValue) {
         self.socket
-            .write(tungstenite::Message::Text(json.dump()))
+            .send(tungstenite::Message::Text(json.dump()))
             .ok();
-        self.socket.flush().ok();
     }
     pub fn send_binary(&mut self, data: &Vec<u8>) {
         self.socket
-            .write(tungstenite::Message::Binary(data.clone()))
+            .send(tungstenite::Message::Binary(data.clone()))
             .ok();
     }
     pub fn send(&mut self, message: &NetworkMessageS2C) {
-        if let Err(error) = self.socket.write(tungstenite::Message::Binary(
+        if let Err(error) = self.socket.send(tungstenite::Message::Binary(
             bitcode::serialize(message).unwrap(),
         )) {
             //panic!("socket error: {}", error);
             self.closed = true;
         }
-        self.socket.flush().ok();
     }
     pub fn receive_messages(&mut self) -> Vec<NetworkMessageC2S> {
         let mut messages = Vec::new();

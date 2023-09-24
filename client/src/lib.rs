@@ -1,4 +1,5 @@
 #![feature(fn_traits)]
+#![feature(map_many_mut)]
 
 mod content;
 mod game;

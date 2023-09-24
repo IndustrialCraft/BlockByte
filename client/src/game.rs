@@ -1,9 +1,9 @@
 use crate::content::BlockRenderDataType::Cube;
 use crate::content::{BlockRegistry, BlockRenderDataType};
 use crate::render::{FaceVerticesExtension, Vertex};
-use block_byte_common::{BlockPosition, ChunkPosition, Face, Position};
+use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position};
 use cgmath::{ElementWise, InnerSpace, Matrix4, Point3, Vector3};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use wgpu::util::DeviceExt;
 use wgpu::{Buffer, BufferSlice, Device, Queue};
@@ -173,7 +173,6 @@ impl ClientPlayer {
 pub struct Chunk {
     position: ChunkPosition,
     blocks: [[[u32; 16]; 16]; 16],
-    modified: bool,
     buffer: Option<(Buffer, u32)>,
 }
 impl Chunk {
@@ -181,7 +180,6 @@ impl Chunk {
         Chunk {
             position,
             blocks,
-            modified: true,
             buffer: None,
         }
     }
@@ -190,6 +188,7 @@ impl Chunk {
         block_registry: &BlockRegistry,
         device: &Device,
         queue: &Queue,
+        neighbor_chunks: FaceStorage<&Chunk>,
     ) {
         let mut vertices: Vec<Vertex> = Vec::new();
         for x in 0..16 {
@@ -207,17 +206,22 @@ impl Chunk {
                                     z: z as i32,
                                 }
                                 .offset_by_face(*face);
-                                if neighbor_position.offset_from_origin_chunk().is_none() {
-                                    //todo: neighboring chunks
-                                    let neighbor_block = block_registry.get_block(
-                                        self.blocks[neighbor_position.x as usize]
-                                            [neighbor_position.y as usize]
-                                            [neighbor_position.z as usize],
-                                    );
-                                    if neighbor_block.block_type.is_face_full(face.opposite()) {
-                                        continue;
-                                    }
+                                let neighbor_offset = neighbor_position.chunk_offset();
+                                let neighbor_chunk =
+                                    match neighbor_position.offset_from_origin_chunk() {
+                                        Some(face) => *neighbor_chunks.by_face(face),
+                                        None => self,
+                                    };
+
+                                let neighbor_block = block_registry.get_block(
+                                    neighbor_chunk.blocks[neighbor_offset.0 as usize]
+                                        [neighbor_offset.1 as usize]
+                                        [neighbor_offset.2 as usize],
+                                );
+                                if neighbor_block.block_type.is_face_full(face.opposite()) {
+                                    continue;
                                 }
+
                                 let texture = cube_data.by_face(*face);
                                 let base_position = Position {
                                     x: ((self.position.x * 16) + x as i32) as f64,
@@ -260,16 +264,7 @@ impl Chunk {
             }
         }
     }
-    pub fn get_vertices(
-        &mut self,
-        block_registry: &BlockRegistry,
-        device: &Device,
-        queue: &Queue,
-    ) -> Option<(BufferSlice, u32)> {
-        if self.modified {
-            self.rebuild_chunk_mesh(block_registry, device, queue);
-            self.modified = false;
-        }
+    pub fn get_vertices(&mut self) -> Option<(BufferSlice, u32)> {
         self.buffer
             .as_ref()
             .map(|buffer| (buffer.0.slice(..), buffer.1))
@@ -278,15 +273,48 @@ impl Chunk {
 pub struct World {
     pub chunks: HashMap<ChunkPosition, Chunk>,
     pub block_registry: Rc<BlockRegistry>,
+    pub modified_chunks: HashSet<ChunkPosition>,
 }
 impl World {
     pub fn new(block_registry: Rc<BlockRegistry>) -> Self {
         World {
             chunks: HashMap::new(),
             block_registry,
+            modified_chunks: HashSet::new(),
+        }
+    }
+    pub fn tick(&mut self, device: &Device, queue: &Queue) {
+        for chunk_position in self.modified_chunks.drain() {
+            if let Some([chunk, front, back, left, right, up, down]) = self.chunks.get_many_mut([
+                &chunk_position,
+                &chunk_position.with_offset(&Face::Front),
+                &chunk_position.with_offset(&Face::Back),
+                &chunk_position.with_offset(&Face::Left),
+                &chunk_position.with_offset(&Face::Right),
+                &chunk_position.with_offset(&Face::Up),
+                &chunk_position.with_offset(&Face::Down),
+            ]) {
+                chunk.rebuild_chunk_mesh(
+                    &self.block_registry,
+                    device,
+                    queue,
+                    FaceStorage {
+                        front,
+                        back,
+                        left,
+                        right,
+                        up,
+                        down,
+                    },
+                );
+            }
         }
     }
     pub fn load_chunk(&mut self, position: ChunkPosition, blocks: [[[u32; 16]; 16]; 16]) {
         self.chunks.insert(position, Chunk::new(position, blocks));
+        self.modified_chunks.insert(position);
+        for face in Face::all() {
+            self.modified_chunks.insert(position.with_offset(face));
+        }
     }
 }

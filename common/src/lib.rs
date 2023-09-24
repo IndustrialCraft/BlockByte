@@ -50,7 +50,36 @@ impl Face {
         }
     }
 }
-
+pub struct FaceStorage<T> {
+    pub front: T,
+    pub back: T,
+    pub left: T,
+    pub right: T,
+    pub up: T,
+    pub down: T,
+}
+impl<T> FaceStorage<T> {
+    pub fn by_face(&self, face: Face) -> &T {
+        match face {
+            Face::Front => &self.front,
+            Face::Back => &self.back,
+            Face::Left => &self.left,
+            Face::Right => &self.right,
+            Face::Up => &self.up,
+            Face::Down => &self.down,
+        }
+    }
+    pub fn by_face_mut(&mut self, face: Face) -> &mut T {
+        match face {
+            Face::Front => &mut self.front,
+            Face::Back => &mut self.back,
+            Face::Left => &mut self.left,
+            Face::Right => &mut self.right,
+            Face::Up => &mut self.up,
+            Face::Down => &mut self.down,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Position {
     pub x: f64,

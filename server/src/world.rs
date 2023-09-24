@@ -464,6 +464,7 @@ impl Chunk {
             let thread_viewer = viewer.clone();
             let position = self.position.clone();
             let chunk = self.ptr();
+            let send_viewer = viewer.clone();
             self.world.server.thread_pool.execute(Box::new(move || {
                 let mut palette = Vec::new();
                 let mut block_data = [[[0; 16]; 16]; 16];
@@ -497,6 +498,7 @@ impl Chunk {
                     palette,
                     encoder.finish().unwrap(),
                 );
+                send_viewer.try_send_message(&load_message).unwrap();
             }));
         }
         for entity in self.entities.lock().iter() {
