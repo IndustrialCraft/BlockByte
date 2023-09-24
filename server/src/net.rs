@@ -41,7 +41,7 @@ impl PlayerConnection {
             .ok();
     }
     pub fn send(&mut self, message: &NetworkMessageS2C) {
-        if let Err(error) = self.socket.send(tungstenite::Message::Binary(
+        if let Err(_) = self.socket.send(tungstenite::Message::Binary(
             bitcode::serialize(message).unwrap(),
         )) {
             //panic!("socket error: {}", error);

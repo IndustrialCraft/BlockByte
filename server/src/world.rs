@@ -140,7 +140,6 @@ impl World {
         let chunks = self.get_chunks_with_center_radius(position.to_chunk_pos(), 1);
         for chunk in chunks {
             for entity in &*chunk.entities.lock() {
-                let collider = entity.get_collider().iter_blocks();
                 if entity
                     .get_collider()
                     .iter_blocks()
@@ -401,7 +400,7 @@ impl Chunk {
                             z: (self.position.z * 16) + z as i32,
                         },
                     );
-                    if let BlockData::Data(block) = &block_data {
+                    if let BlockData::Data(_block) = &block_data {
                         /*let mut length: u32 = data.read_be().unwrap_or(0);
                         let mut block_data: Vec<u8> = Vec::with_capacity(length as usize);
                         for _ in 0..length {
@@ -464,7 +463,6 @@ impl Chunk {
             let thread_viewer = viewer.clone();
             let position = self.position.clone();
             let chunk = self.ptr();
-            let send_viewer = viewer.clone();
             self.world.server.thread_pool.execute(Box::new(move || {
                 let mut palette = Vec::new();
                 let mut block_data = [[[0; 16]; 16]; 16];
@@ -498,7 +496,7 @@ impl Chunk {
                     palette,
                     encoder.finish().unwrap(),
                 );
-                send_viewer.try_send_message(&load_message).unwrap();
+                thread_viewer.try_send_message(&load_message).unwrap();
             }));
         }
         for entity in self.entities.lock().iter() {
@@ -614,7 +612,7 @@ impl Chunk {
                         for y in 0..16 {
                             for z in 0..16 {
                                 let block = &blocks[x][y][z];
-                                let (block_state_ref, serialized_block) = match block {
+                                let (block_state_ref, _serialized_block) = match block {
                                     BlockData::Simple(id) => {
                                         (BlockStateRef::from_state_id(*id), None)
                                     }
@@ -1171,7 +1169,7 @@ impl Entity {
             let messages = self.connection.lock().as_mut().unwrap().receive_messages();
             for message in messages {
                 match message {
-                    NetworkMessageC2S::Keyboard(key, key_mod, pressed, repeat) => match key {
+                    NetworkMessageC2S::Keyboard(key, key_mod, pressed, _repeat) => match key {
                         113 => {
                             if pressed {
                                 let slot = { self.entity_data.lock().slot };
@@ -1537,13 +1535,14 @@ impl Entity {
                             })
                             .unwrap();
                     }
-                    NetworkMessageC2S::RightClick(shifting) => {
+                    NetworkMessageC2S::RightClick(_shifting) => {
                         let hand_slot = self.entity_data.lock().get_hand_slot();
                         let mut right_click_result = InteractionResult::Ignored;
                         self.inventory
                             .get_full_view()
                             .modify_item(hand_slot, |stack| {
                                 if let Some(stack) = stack {
+                                    //todo: send shifting state
                                     right_click_result = stack
                                         .item_type
                                         .clone()
@@ -1588,7 +1587,7 @@ impl Entity {
                             }
                         }
                     }
-                    NetworkMessageC2S::MouseScroll(scroll_x, scroll_y) => {
+                    NetworkMessageC2S::MouseScroll(_scroll_x, scroll_y) => {
                         let mut player_data = self.entity_data.lock();
                         let new_slot = player_data.get_hand_slot() as i32 - scroll_y;
                         player_data.set_hand_slot(new_slot as u32);
@@ -1611,7 +1610,7 @@ impl Entity {
             }
         }
     }
-    pub fn on_attack(&self, player: &Entity) {}
+    pub fn on_attack(&self, _player: &Entity) {}
     pub fn on_right_click(&self, player: &Entity) {
         if self.entity_type.client_data.model == "bb:item" {
             let inventory_view = self.inventory.get_full_view();

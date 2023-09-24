@@ -83,14 +83,13 @@ impl Mod {
             //todo
         }
     }
-    pub fn call_event<T>(&self, event: &str, param: T) {}
     pub fn read_resource(&self, id: Arc<Identifier>) -> Result<Vec<u8>> {
         if id.get_namespace() == &self.namespace {
             let mut full_path = self.path.clone();
             for path_part in id.get_key().split("/") {
                 full_path.push(path_part);
             }
-            std::fs::read(full_path).with_context(|| format!("resource {} not found", id))
+            fs::read(full_path).with_context(|| format!("resource {} not found", id))
         } else {
             bail!(
                 "identifier {} doesn't have same namespace as mod {} it was requested from",
@@ -536,12 +535,6 @@ impl ModManager {
             .register_fn("creative", PlayerAbilitiesWrapper::set_creative);
         engine.register_static_module("MovementType", exported_module!(MovementTypeModule).into());
     }
-    /*pub fn call_event<T>(&self, event: &str, param: T) {
-        //todo
-        for loaded_mod in &self.mods {
-            loaded_mod.1.call_event(event, param.clone());
-        }
-    }*/
 }
 
 #[derive(Clone)]

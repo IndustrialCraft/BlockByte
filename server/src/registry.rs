@@ -156,7 +156,7 @@ impl BlockState {
             state_id: self.get_full_id(),
         }
     }
-    pub fn on_break(&self, position: ChunkBlockLocation, player: &Entity) {
+    pub fn on_break(&self, _position: ChunkBlockLocation, player: &Entity) {
         if let Some(loottable) = &self.loottable {
             let loottable = player.server.loot_tables.get(loottable).unwrap();
             loottable.generate_items(|item| {
@@ -254,13 +254,15 @@ impl Item {
             return InteractionResult::Consumed;
         }
         if let Some(right_click) = &self.on_right_click {
+            //todo: supply itemstack parameter
             right_click.call(&player.server.clone().engine, (player, block_position));
             return InteractionResult::Consumed;
         }
         InteractionResult::Ignored
     }
-    pub fn on_right_click(&self, item: &mut ItemStack, player: Arc<Entity>) -> InteractionResult {
+    pub fn on_right_click(&self, _item: &mut ItemStack, player: Arc<Entity>) -> InteractionResult {
         if let Some(right_click) = &self.on_right_click {
+            //todo: supply itemstack parameter
             right_click.call(&player.server.clone().engine, (player, Dynamic::UNIT));
             return InteractionResult::Consumed;
         }

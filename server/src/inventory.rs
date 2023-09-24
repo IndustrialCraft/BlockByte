@@ -575,7 +575,6 @@ impl LootTable {
     where
         T: Fn(ItemStack),
     {
-        let rng = rand::thread_rng();
         for table in &self.tables {
             consumer.call((ItemStack::new(
                 &table.0,
