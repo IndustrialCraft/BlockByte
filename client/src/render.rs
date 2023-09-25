@@ -1,11 +1,12 @@
 use crate::game::{ClientPlayer, World};
+use crate::gui::GUIRenderer;
 use crate::texture;
 use crate::texture::Texture;
 use block_byte_common::{Face, Position, TexCoords};
 use image::RgbaImage;
 use std::iter;
 use wgpu::util::DeviceExt;
-use wgpu::{Buffer, Sampler, TextureView};
+use wgpu::{Buffer, Device, Queue, Sampler, TextureView};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
@@ -16,8 +17,8 @@ pub struct RenderState {
     config: wgpu::SurfaceConfiguration,
     size: PhysicalSize<u32>,
     window: Window,
-    render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: Buffer,
+    chunk_render_pipeline: wgpu::RenderPipeline,
+    gui_render_pipeline: wgpu::RenderPipeline,
     texture: Texture,
     camera_uniform: CameraUniform,
     camera_buffer: Buffer,
@@ -75,9 +76,13 @@ impl RenderState {
         };
         surface.configure(&device, &config);
         let texture = Texture::from_image(&device, &queue, &texture_image, Some("main texture"));
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        let chunk_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Chunk Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("chunk_shader.wgsl").into()),
+        });
+        let gui_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("GUI Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("gui_shader.wgsl").into()),
         });
         let camera_uniform = CameraUniform::new();
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -108,9 +113,9 @@ impl RenderState {
             label: Some("camera_bind_group"),
         });
 
-        let render_pipeline_layout =
+        let chunk_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
+                label: Some("Chunk Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &texture.texture_bind_group_layout,
                     &camera_bind_group_layout,
@@ -118,16 +123,63 @@ impl RenderState {
                 push_constant_ranges: &[],
             });
         let depth_texture = texture::create_depth_texture(&device, &config, "depth_texture");
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
+        let chunk_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Chunk Render Pipeline"),
+                layout: Some(&chunk_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &chunk_shader,
+                    entry_point: "vs_main",
+                    buffers: &[Vertex::desc()],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &chunk_shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+            });
+        let gui_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("GUI Render Pipeline Layout"),
+                bind_group_layouts: &[&texture.texture_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+        let gui_render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("GUI Render Pipeline"),
+            layout: Some(&gui_render_pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &shader,
+                module: &gui_shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[GUIVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
-                module: &shader,
+                module: &gui_shader,
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
@@ -144,13 +196,7 @@ impl RenderState {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
+            depth_stencil: None,
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -158,12 +204,6 @@ impl RenderState {
             },
             multiview: None,
         });
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
         Self {
             window,
             surface,
@@ -171,8 +211,8 @@ impl RenderState {
             queue,
             config,
             size,
-            render_pipeline,
-            vertex_buffer,
+            chunk_render_pipeline,
+            gui_render_pipeline,
             texture,
             camera_uniform,
             camera_buffer,
@@ -183,6 +223,9 @@ impl RenderState {
 
     pub fn window(&self) -> &Window {
         &self.window
+    }
+    pub fn device(&self) -> &Device {
+        &self.device
     }
     pub fn size(&self) -> PhysicalSize<u32> {
         self.size
@@ -203,6 +246,7 @@ impl RenderState {
         &mut self,
         camera: &ClientPlayer,
         world: &mut World,
+        gui: &mut GUIRenderer,
     ) -> Result<(), wgpu::SurfaceError> {
         self.camera_uniform
             .update_view_proj(camera, self.size.width as f32 / self.size.height as f32);
@@ -225,7 +269,7 @@ impl RenderState {
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
+                label: Some("Chunk Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
@@ -248,7 +292,7 @@ impl RenderState {
                     stencil_ops: None,
                 }),
             });
-            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_pipeline(&self.chunk_render_pipeline);
             render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             world.tick(&self.device, &self.queue);
@@ -258,6 +302,25 @@ impl RenderState {
                     render_pass.draw(0..vertex_buffer.1, 0..1);
                 }
             }
+        }
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("GUI Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+            render_pass.set_pipeline(&self.gui_render_pipeline);
+            render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
+            let (buffer, vertex_count) = gui.draw(&self.device);
+            render_pass.set_vertex_buffer(0, buffer);
+            render_pass.draw(0..vertex_count, 0..1);
         }
 
         self.queue.submit(iter::once(encoder.finish()));
@@ -288,20 +351,27 @@ impl Vertex {
     }
 }
 
-const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [0.0, 0.5, 1.0],
-        tex_coords: [0.5, 1.],
-    },
-    Vertex {
-        position: [-0.5, -0.5, 1.0],
-        tex_coords: [0., 0.],
-    },
-    Vertex {
-        position: [0.5, -0.5, 1.0],
-        tex_coords: [1., 0.],
-    },
-];
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GUIVertex {
+    pub position: [f32; 2],
+    pub tex_coords: [f32; 2],
+    pub color: u32,
+}
+impl GUIVertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 3] =
+        wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Uint32];
+
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        use std::mem;
+
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBS,
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

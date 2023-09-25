@@ -8,7 +8,7 @@ use image::RgbaImage;
 use std::collections::HashMap;
 use std::path::Path;
 
-pub fn load_assets(zip_path: &Path) -> (RgbaImage, BlockRegistry) {
+pub fn load_assets(zip_path: &Path) -> (RgbaImage, TextureAtlas, BlockRegistry) {
     let mut zip =
         zip::ZipArchive::new(std::fs::File::open(zip_path).expect("asset archive not found"))
             .expect("asset archive invalid");
@@ -66,7 +66,7 @@ pub fn load_assets(zip_path: &Path) -> (RgbaImage, BlockRegistry) {
     for block in content.blocks {
         block_registry.add_block(block, &texture_atlas, &models);
     }
-    (texture_image, block_registry)
+    (texture_image, texture_atlas, block_registry)
 }
 pub struct BlockRegistry {
     blocks: Vec<BlockData>,

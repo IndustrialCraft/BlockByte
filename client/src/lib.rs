@@ -1,16 +1,19 @@
 #![feature(fn_traits)]
 #![feature(map_many_mut)]
+#![feature(hash_extract_if)]
 
 mod content;
 mod game;
+mod gui;
 mod model;
 mod net;
 mod render;
 mod texture;
 
 use array_init::array_init;
+use block_byte_common::gui::{GUIComponent, GUIElement, PositionAnchor};
 use block_byte_common::messages::{NetworkMessageC2S, NetworkMessageS2C};
-use block_byte_common::{ChunkPosition, Position};
+use block_byte_common::{ChunkPosition, Color, Position, Vec2};
 use cgmath::Point3;
 use std::collections::HashSet;
 use std::path::Path;
@@ -24,6 +27,7 @@ use winit::{
 };
 
 use crate::game::{ClientPlayer, World};
+use crate::gui::GUIRenderer;
 use crate::net::SocketConnection;
 use crate::render::RenderState;
 #[cfg(target_arch = "wasm32")]
@@ -39,7 +43,7 @@ pub async fn run() {
             env_logger::init();
         }
     }
-    let (texture_image, block_registry) =
+    let (texture_image, texture_atlas, block_registry) =
         content::load_assets(&Path::new("../server/save/content.zip"));
     let block_registry = Rc::new(block_registry);
 
@@ -70,6 +74,23 @@ pub async fn run() {
     });
     let mut keys = HashSet::new();
     let mut world = World::new(block_registry.clone());
+    let mut gui = GUIRenderer::new(texture_atlas, render_state.device());
+    gui.set_element(
+        "aaa".to_string(),
+        GUIElement {
+            position: Position {
+                x: 50.,
+                y: -50.,
+                z: 0.,
+            },
+            anchor: PositionAnchor::Center,
+            base_color: Color::WHITE,
+            component_type: GUIComponent::ImageComponent {
+                texture: "example:grass".to_string(),
+                size: Vec2 { x: 50., y: 50. },
+            },
+        },
+    );
 
     let mut connection = SocketConnection::new("localhost:4321");
     let mut first_teleport = false;
@@ -191,7 +212,7 @@ pub async fn run() {
                     NetworkMessageS2C::BlockAnimation(_, _, _, _) => {}
                 }
             }
-            match render_state.render(&camera, &mut world) {
+            match render_state.render(&camera, &mut world, &mut gui) {
                 Ok(_) => {}
                 Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                     render_state.resize(render_state.size())

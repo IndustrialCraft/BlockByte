@@ -1,9 +1,11 @@
 pub mod block_palette;
 pub mod content;
+pub mod gui;
 pub mod messages;
 
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
+use std::ops;
 use std::ops::Neg;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -294,6 +296,33 @@ impl TexCoords {
             v1: self.v1 + (sub.v1 * self_h),
             u2: self.u1 + (sub.u2 * self_w),
             v2: self.v1 + (sub.v2 * self_h),
+        }
+    }
+}
+#[derive(Copy, Clone, Serialize, Deserialize)]
+pub struct Color {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+impl Color {
+    pub const WHITE: Color = Color {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+}
+impl ops::Mul for Color {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self::Output {
+        //todo: copied from https://stackoverflow.com/questions/45041273/how-to-correctly-multiply-two-colors-with-byte-components, check if works
+        Color {
+            r: ((self.r as u16 * rhs.r as u16 + 0xFF) >> 8) as u8,
+            g: ((self.g as u16 * rhs.g as u16 + 0xFF) >> 8) as u8,
+            b: ((self.b as u16 * rhs.b as u16 + 0xFF) >> 8) as u8,
+            a: ((self.a as u16 * rhs.a as u16 + 0xFF) >> 8) as u8,
         }
     }
 }
