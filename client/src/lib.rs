@@ -43,7 +43,7 @@ pub async fn run() {
             env_logger::init();
         }
     }
-    let (texture_image, texture_atlas, block_registry) =
+    let (texture_image, texture_atlas, block_registry, item_registry) =
         content::load_assets(&Path::new("../server/save/content.zip"));
     let block_registry = Rc::new(block_registry);
 
@@ -85,9 +85,10 @@ pub async fn run() {
             },
             anchor: PositionAnchor::Center,
             base_color: Color::WHITE,
-            component_type: GUIComponent::ImageComponent {
-                texture: "example:grass".to_string(),
+            component_type: GUIComponent::SlotComponent {
                 size: Vec2 { x: 50., y: 50. },
+                background: "bb_slot".to_string(),
+                item_id: 4,
             },
         },
     );
@@ -212,7 +213,7 @@ pub async fn run() {
                     NetworkMessageS2C::BlockAnimation(_, _, _, _) => {}
                 }
             }
-            match render_state.render(&camera, &mut world, &mut gui) {
+            match render_state.render(&camera, &mut world, &mut gui, &item_registry) {
                 Ok(_) => {}
                 Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                     render_state.resize(render_state.size())

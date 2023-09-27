@@ -1,5 +1,7 @@
+use crate::content::ItemRegistry;
 use crate::render::GUIVertex;
 use crate::texture::TextureAtlas;
+use block_byte_common::content::ClientItemModel;
 use block_byte_common::gui::{GUIComponent, GUIElement};
 use block_byte_common::{Color, TexCoords, Vec2};
 use std::collections::HashMap;
@@ -33,7 +35,7 @@ impl GUIRenderer {
             .extract_if(|element_id, _| element_id.starts_with(id))
             .count();
     }
-    pub fn draw(&mut self, device: &Device) -> (BufferSlice, u32) {
+    pub fn draw(&mut self, device: &Device, item_registry: &ItemRegistry) -> (BufferSlice, u32) {
         let mut vertices: Vec<GUIVertex> = Vec::new();
         //todo: sort by z position
         for element in self.elements.values() {
@@ -55,6 +57,40 @@ impl GUIRenderer {
                         self.texture_atlas.get(uv.as_str()),
                         element.base_color,
                     );
+                }
+                GUIComponent::SlotComponent {
+                    background,
+                    size,
+                    item_id,
+                } => {
+                    if !background.is_empty() {
+                        Self::add_rect_vertices(
+                            &mut vertices,
+                            center_position,
+                            Vec2 {
+                                x: size.x * self.gui_scale,
+                                y: size.y * self.gui_scale,
+                            },
+                            self.texture_atlas.get(background.as_str()),
+                            element.base_color,
+                        );
+                    }
+                    let item = item_registry.get_item(*item_id);
+                    match &item.model {
+                        ClientItemModel::Texture(texture) => {
+                            Self::add_rect_vertices(
+                                &mut vertices,
+                                center_position,
+                                Vec2 {
+                                    x: size.x * self.gui_scale,
+                                    y: size.y * self.gui_scale,
+                                },
+                                self.texture_atlas.get(texture.as_str()),
+                                element.base_color,
+                            );
+                        }
+                        ClientItemModel::Block(_) => {}
+                    }
                 }
                 _ => {}
             }
@@ -79,7 +115,7 @@ impl GUIRenderer {
         };
         let vertex_4 = GUIVertex {
             position: [position.x, position.y],
-            tex_coords: [uv.u1, uv.v1],
+            tex_coords: [uv.u1, uv.v2],
             color: (color.r as u32)
                 + ((color.g as u32) << 8)
                 + ((color.b as u32) << 16)
@@ -87,7 +123,7 @@ impl GUIRenderer {
         };
         let vertex_3 = GUIVertex {
             position: [position.x + size.x, position.y],
-            tex_coords: [uv.u2, uv.v1],
+            tex_coords: [uv.u2, uv.v2],
             color: (color.r as u32)
                 + ((color.g as u32) << 8)
                 + ((color.b as u32) << 16)
@@ -95,7 +131,7 @@ impl GUIRenderer {
         };
         let vertex_2 = GUIVertex {
             position: [position.x + size.x, position.y + size.y],
-            tex_coords: [uv.u2, uv.v2],
+            tex_coords: [uv.u2, uv.v1],
             color: (color.r as u32)
                 + ((color.g as u32) << 8)
                 + ((color.b as u32) << 16)
@@ -103,7 +139,7 @@ impl GUIRenderer {
         };
         let vertex_1 = GUIVertex {
             position: [position.x, position.y + size.y],
-            tex_coords: [uv.u1, uv.v2],
+            tex_coords: [uv.u1, uv.v1],
             color: (color.r as u32)
                 + ((color.g as u32) << 8)
                 + ((color.b as u32) << 16)

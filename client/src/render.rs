@@ -1,3 +1,4 @@
+use crate::content::ItemRegistry;
 use crate::game::{ClientPlayer, World};
 use crate::gui::GUIRenderer;
 use crate::texture;
@@ -183,7 +184,7 @@ impl RenderState {
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -247,6 +248,7 @@ impl RenderState {
         camera: &ClientPlayer,
         world: &mut World,
         gui: &mut GUIRenderer,
+        item_registry: &ItemRegistry,
     ) -> Result<(), wgpu::SurfaceError> {
         self.camera_uniform
             .update_view_proj(camera, self.size.width as f32 / self.size.height as f32);
@@ -318,7 +320,7 @@ impl RenderState {
             });
             render_pass.set_pipeline(&self.gui_render_pipeline);
             render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
-            let (buffer, vertex_count) = gui.draw(&self.device);
+            let (buffer, vertex_count) = gui.draw(&self.device, item_registry);
             render_pass.set_vertex_buffer(0, buffer);
             render_pass.draw(0..vertex_count, 0..1);
         }

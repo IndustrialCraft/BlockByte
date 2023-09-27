@@ -1,14 +1,14 @@
 use crate::model::Model;
 use crate::texture::{pack_textures, TextureAtlas};
 use block_byte_common::content::{
-    ClientBlockData, ClientBlockRenderDataType, ClientContent, ModelData,
+    ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientItemData, ModelData,
 };
 use block_byte_common::{Face, TexCoords};
 use image::RgbaImage;
 use std::collections::HashMap;
 use std::path::Path;
 
-pub fn load_assets(zip_path: &Path) -> (RgbaImage, TextureAtlas, BlockRegistry) {
+pub fn load_assets(zip_path: &Path) -> (RgbaImage, TextureAtlas, BlockRegistry, ItemRegistry) {
     let mut zip =
         zip::ZipArchive::new(std::fs::File::open(zip_path).expect("asset archive not found"))
             .expect("asset archive invalid");
@@ -66,7 +66,11 @@ pub fn load_assets(zip_path: &Path) -> (RgbaImage, TextureAtlas, BlockRegistry) 
     for block in content.blocks {
         block_registry.add_block(block, &texture_atlas, &models);
     }
-    (texture_image, texture_atlas, block_registry)
+    let mut item_registry = ItemRegistry { items: Vec::new() };
+    for item in content.items {
+        item_registry.add_block(item);
+    }
+    (texture_image, texture_atlas, block_registry, item_registry)
 }
 pub struct BlockRegistry {
     blocks: Vec<BlockData>,
@@ -187,4 +191,16 @@ pub struct BlockFoliageRenderData {
     pub texture_2: TexCoords,
     pub texture_3: TexCoords,
     pub texture_4: TexCoords,
+}
+
+pub struct ItemRegistry {
+    items: Vec<ClientItemData>,
+}
+impl ItemRegistry {
+    pub fn get_item(&self, item: u32) -> &ClientItemData {
+        self.items.get(item as usize).unwrap()
+    }
+    fn add_block(&mut self, item_data: ClientItemData) {
+        self.items.push(item_data);
+    }
 }
