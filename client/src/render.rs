@@ -320,7 +320,11 @@ impl RenderState {
             });
             render_pass.set_pipeline(&self.gui_render_pipeline);
             render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
-            let (buffer, vertex_count) = gui.draw(&self.device, item_registry);
+            let (buffer, vertex_count) = gui.draw(
+                &self.device,
+                item_registry,
+                self.size.width as f32 / self.size.height as f32,
+            );
             render_pass.set_vertex_buffer(0, buffer);
             render_pass.draw(0..vertex_count, 0..1);
         }

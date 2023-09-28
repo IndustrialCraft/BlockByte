@@ -3,7 +3,11 @@ use std::{
     sync::{Arc, Weak},
 };
 
+use block_byte_common::gui::{
+    GUIComponent, GUIComponentEdit, GUIElement, GUIElementEdit, PositionAnchor,
+};
 use block_byte_common::messages::{MouseButton, NetworkMessageS2C};
+use block_byte_common::{Color, Position, Vec2};
 use fxhash::FxHashMap;
 use json::{object, JsonValue};
 use parking_lot::{Mutex, MutexGuard};
@@ -71,7 +75,7 @@ pub struct Inventory {
     items: Mutex<Box<[Option<ItemStack>]>>,
     viewers: Mutex<FxHashMap<Uuid, Weak<Entity>>>,
     client_id: String,
-    slots: Vec<(f32, f32)>,
+    slots: Vec<(PositionAnchor, f32, f32)>,
     pub user_data: Mutex<UserData>,
     click_handler: Option<InventoryClickHandler>,
     scroll_handler: Option<InventoryScrollHandler>,
@@ -86,7 +90,7 @@ impl Inventory {
         set_item_handler: Option<InventorySetItemHandler>,
     ) -> Arc<Self>
     where
-        F: FnOnce() -> Vec<(f32, f32)>,
+        F: FnOnce() -> Vec<(PositionAnchor, f32, f32)>,
     {
         let inventory = Arc::new_cyclic(|this| Inventory {
             items: Mutex::new(vec![None; size as usize].into_boxed_slice()),
@@ -110,7 +114,7 @@ impl Inventory {
         set_item_handler: Option<InventorySetItemHandler>,
     ) -> Self
     where
-        F: FnOnce() -> Vec<(f32, f32)>,
+        F: FnOnce() -> Vec<(PositionAnchor, f32, f32)>,
         T: Into<WeakInventoryWrapper>,
     {
         Inventory {
@@ -143,11 +147,21 @@ impl Inventory {
     fn sync_slot(&self, index: u32) {
         let item = &self.items.lock()[index as usize];
         for viewer in self.viewers.lock().values() {
-            viewer.upgrade().unwrap()
-            .try_send_message(&NetworkMessageS2C::GuiData(
-                object! {id:self.get_slot_id(index),type:"editElement",data_type:"item", item: Self::item_to_json(item)}.to_string(),
-            ))
-            .unwrap();
+            viewer
+                .upgrade()
+                .unwrap()
+                .try_send_message(&NetworkMessageS2C::GuiEditElement(
+                    self.get_slot_id(index),
+                    GUIElementEdit {
+                        component_type: GUIComponentEdit::SlotComponent {
+                            item_id: Some(item.as_ref().map(|item| item.item_type.client_id)),
+                            size: None,
+                            background: None,
+                        },
+                        ..Default::default()
+                    },
+                ))
+                .unwrap();
         }
         match &self.owner.upgrade().unwrap() {
             InventoryWrapper::Entity(entity) => {
@@ -175,16 +189,24 @@ impl Inventory {
         }
         for item in self.items.lock().iter().enumerate() {
             let slot = self.slots.get(item.0).unwrap();
-            let json = object! {
-                id: self.get_slot_id(item.0 as u32),
-                type: "setElement",
-                element_type: "slot",
-                x: slot.0,
-                y: slot.1,
-                item: Self::item_to_json(item.1)
-            };
             viewer
-                .try_send_message(&NetworkMessageS2C::GuiData(json.to_string()))
+                .try_send_message(&NetworkMessageS2C::GuiSetElement(
+                    self.get_slot_id(item.0 as u32),
+                    GUIElement {
+                        component_type: GUIComponent::SlotComponent {
+                            background: "bb:slot".to_string(),
+                            size: Vec2 { x: 100., y: 100. },
+                            item_id: item.1.as_ref().map(|item| item.item_type.client_id),
+                        },
+                        position: Position {
+                            x: slot.1 as f64,
+                            y: slot.2 as f64,
+                            z: 0.,
+                        },
+                        anchor: slot.0,
+                        base_color: Color::WHITE,
+                    },
+                ))
                 .unwrap();
         }
         self.viewers
@@ -195,9 +217,8 @@ impl Inventory {
         if let Some(viewer) = self.viewers.lock().remove(viewer.get_id()) {
             if let Some(entity) = viewer.upgrade() {
                 entity
-                    .try_send_message(&NetworkMessageS2C::GuiData(
-                        object! {type:"removeContainer","container":self.client_id.clone()}
-                            .to_string(),
+                    .try_send_message(&NetworkMessageS2C::GuiRemoveElements(
+                        self.client_id.clone(),
                     ))
                     .unwrap();
             }
@@ -214,9 +235,33 @@ impl Inventory {
         let item = entity_data.get_inventory_hand();
         let player = entity_data.player.upgrade().unwrap();
         if item.is_some() {
-            player.try_send_message(&&NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"slot",background:false,item: Self::item_to_json(item)}.to_string())).ok();
+            player
+                .try_send_message(&NetworkMessageS2C::GuiSetElement(
+                    "item_cursor".to_string(),
+                    GUIElement {
+                        component_type: GUIComponent::SlotComponent {
+                            item_id: Some(item.as_ref().unwrap().item_type.client_id),
+                            size: Vec2 { x: 100., y: 100. },
+                            background: "".to_string(),
+                        },
+                        anchor: PositionAnchor::Cursor,
+                        position: Position {
+                            x: 0.,
+                            y: 0.,
+                            z: 0.,
+                        },
+                        base_color: Color::WHITE,
+                    },
+                ))
+                .unwrap();
+            //player.try_send_message(&&NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"slot",background:false,item: Self::item_to_json(item)}.to_string())).ok();
         } else {
-            player.try_send_message(&&NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"image",texture:"cursor",w:0.05,h:0.05}.to_string())).ok();
+            player
+                .try_send_message(&NetworkMessageS2C::GuiRemoveElements(
+                    "item_cursor".to_string(),
+                ))
+                .unwrap();
+            //player.try_send_message(&&NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"image",texture:"cursor",w:0.05,h:0.05}.to_string())).ok();
         }
     }
     pub fn resolve_slot(&self, id: &str) -> Option<u32> {

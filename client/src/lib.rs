@@ -75,24 +75,6 @@ pub async fn run() {
     let mut keys = HashSet::new();
     let mut world = World::new(block_registry.clone());
     let mut gui = GUIRenderer::new(texture_atlas, render_state.device());
-    gui.set_element(
-        "aaa".to_string(),
-        GUIElement {
-            position: Position {
-                x: 50.,
-                y: -50.,
-                z: 0.,
-            },
-            anchor: PositionAnchor::Center,
-            base_color: Color::WHITE,
-            component_type: GUIComponent::SlotComponent {
-                size: Vec2 { x: 50., y: 50. },
-                background: "bb_slot".to_string(),
-                item_id: 4,
-            },
-        },
-    );
-
     let mut connection = SocketConnection::new("localhost:4321");
     let mut first_teleport = false;
     let mut last_render_time = Instant::now();
@@ -192,10 +174,21 @@ pub async fn run() {
                     NetworkMessageS2C::UnloadChunk(x, y, z) => {
                         world.unload_chunk(ChunkPosition { x, y, z });
                     }
+                    NetworkMessageS2C::GuiSetElement(id, element) => {
+                        gui.set_element(id, element);
+                    }
+                    NetworkMessageS2C::GuiRemoveElements(id) => {
+                        gui.remove_elements(id.as_str());
+                    }
+                    NetworkMessageS2C::GuiEditElement(id, edit) => {
+                        if let Some(element) = gui.get_element(id) {
+                            element.edit(edit);
+                        }
+                    }
+                    NetworkMessageS2C::SetCursorLock(_) => {}
                     NetworkMessageS2C::AddEntity(_, _, _, _, _, _, _, _) => {}
                     NetworkMessageS2C::MoveEntity(_, _, _, _, _) => {}
                     NetworkMessageS2C::DeleteEntity(_) => {}
-                    NetworkMessageS2C::GuiData(_) => {}
                     NetworkMessageS2C::BlockBreakTimeResponse(_, _) => {}
                     NetworkMessageS2C::EntityItem(_, _, _) => {}
                     NetworkMessageS2C::BlockItem(_, _, _, _, _) => {}

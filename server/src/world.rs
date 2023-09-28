@@ -13,13 +13,14 @@ use std::{
 use array_init::array_init;
 use atomic_counter::{AtomicCounter, RelaxedCounter};
 use bitcode::__private::Serialize;
+use block_byte_common::gui::{GUIElementEdit, PositionAnchor};
 use block_byte_common::messages::{
     MouseButton, MovementType, NetworkMessageC2S, NetworkMessageS2C,
 };
-use block_byte_common::{BlockPosition, ChunkPosition, Position};
+use block_byte_common::{BlockPosition, ChunkPosition, Color, Position};
 use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
-use json::{array, object, JsonValue};
+use json::{object, JsonValue};
 use parking_lot::Mutex;
 use rhai::{Array, Dynamic};
 use serde::Deserialize;
@@ -783,13 +784,30 @@ impl EntityData {
         } else {
             slot % player.inventory.get_size()
         };
-        player.try_send_message(&NetworkMessageS2C::GuiData(
-            object! {id: player.inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 1, 1, 1]}.to_string(),
-        )).ok();
+        player
+            .try_send_message(&NetworkMessageS2C::GuiEditElement(
+                player.inventory.get_slot_id(self.slot),
+                GUIElementEdit {
+                    base_color: Some(Color::WHITE),
+                    ..Default::default()
+                },
+            ))
+            .ok();
         self.slot = slot;
-        player.try_send_message(&NetworkMessageS2C::GuiData(
-            object! {id: player.inventory.get_slot_id(self.slot), type: "editElement", data_type: "color", color: array![1, 0, 0, 1]}.to_string(),
-        )).ok();
+        player
+            .try_send_message(&NetworkMessageS2C::GuiEditElement(
+                player.inventory.get_slot_id(self.slot),
+                GUIElementEdit {
+                    base_color: Some(Color {
+                        r: 255,
+                        g: 0,
+                        b: 0,
+                        a: 255,
+                    }),
+                    ..Default::default()
+                },
+            ))
+            .ok();
     }
     pub fn get_hand_slot(&self) -> u32 {
         self.slot
@@ -844,7 +862,11 @@ impl Entity {
                 || {
                     let mut slots = Vec::with_capacity(9);
                     for i in 0..9 {
-                        slots.push(((i as f32 * 0.13) - (4.5 * 0.13), -0.5));
+                        slots.push((
+                            PositionAnchor::Bottom,
+                            (i as f32 * 130.) - (4.5 * 130.),
+                            100.,
+                        ));
                     }
                     slots
                 },
@@ -929,10 +951,8 @@ impl Entity {
             player_data.set_inventory_hand(None);
             Inventory::set_cursor(&mut *player_data);
         }
-        self.try_send_message(&NetworkMessageS2C::GuiData(
-            object! {"type":"setCursorLock",lock:new_inventory.is_none()}.to_string(),
-        ))
-        .unwrap();
+        self.try_send_message(&NetworkMessageS2C::SetCursorLock(new_inventory.is_none()))
+            .unwrap();
         *current_inventory = new_inventory;
     }
     pub fn get_id(&self) -> &Uuid {
@@ -1232,9 +1252,9 @@ impl Entity {
                                                 let mut slots = Vec::with_capacity(27);
                                                 for y in 0..3 {
                                                     for x in 0..9 {
-                                                        slots.push((
-                                                            (x as f32 * 0.13) - (4.5 * 0.13),
-                                                            y as f32 * 0.15,
+                                                        slots.push((PositionAnchor::Center,
+                                                            (x as f32 * 130.) - (4.5 * 130.),
+                                                            y as f32 * 150.,
                                                         ));
                                                     }
                                                 }
@@ -1296,7 +1316,8 @@ impl Entity {
                                                     let mut slots = Vec::with_capacity(9);
                                                     for i in 0..9 {
                                                         slots.push((
-                                                            (i as f32 * 0.13) - (4.5 * 0.13),
+                                                            PositionAnchor::Center,
+                                                            (i as f32 * 130.) - (4.5 * 130.),
                                                             0.,
                                                         ));
                                                     }
@@ -1322,9 +1343,9 @@ impl Entity {
                                             let mut slots = Vec::with_capacity(27);
                                             for y in 0..3 {
                                                 for x in 0..9 {
-                                                    slots.push((
-                                                        (x as f32 * 0.13) - (4.5 * 0.13),
-                                                        y as f32 * 0.15,
+                                                    slots.push((PositionAnchor::Center,
+                                                        (x as f32 * 130.) - (4.5 * 130.),
+                                                        y as f32 * 150.,
                                                     ));
                                                 }
                                             }
@@ -1932,7 +1953,7 @@ impl WorldBlock {
                 || {
                     let mut slots = Vec::with_capacity(9);
                     for i in 0..9 {
-                        slots.push(((i as f32 * 0.13) - (4.5 * 0.13), 0.));
+                        slots.push((PositionAnchor::Center, (i as f32 * 130.) - (4.5 * 130.), 0.));
                     }
                     slots
                 },

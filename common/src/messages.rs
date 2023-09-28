@@ -1,27 +1,31 @@
+use crate::gui::{GUIElement, GUIElementEdit};
 use crate::{BlockPosition, Face};
 use serde::{Deserialize, Serialize};
 
 #[repr(u8)]
 #[derive(Serialize, Deserialize)]
 pub enum NetworkMessageS2C {
-    SetBlock(i32, i32, i32, u32) = 0,
-    LoadChunk(i32, i32, i32, Vec<u32>, Vec<u8>) = 1,
-    UnloadChunk(i32, i32, i32) = 2,
-    AddEntity(u32, u32, f32, f32, f32, f32, u32, f32) = 3,
-    MoveEntity(u32, f32, f32, f32, f32) = 4,
-    DeleteEntity(u32) = 5,
-    GuiData(String) = 6,
-    BlockBreakTimeResponse(u32, f32) = 7,
-    EntityItem(u32, u32, u32) = 8,
-    BlockItem(i32, i32, i32, u32, u32) = 9,
-    Knockback(f32, f32, f32, bool) = 12,
-    FluidSelectable(bool) = 13,
-    PlaySound(String, f32, f32, f32, f32, f32, bool) = 14,
-    EntityAnimation(u32, u32) = 15,
-    ChatMessage(String) = 16,
-    PlayerAbilities(f32, MovementType) = 17,
-    TeleportPlayer(f32, f32, f32, f32) = 18,
-    BlockAnimation(i32, i32, i32, u32) = 19,
+    SetBlock(i32, i32, i32, u32),
+    LoadChunk(i32, i32, i32, Vec<u32>, Vec<u8>),
+    UnloadChunk(i32, i32, i32),
+    AddEntity(u32, u32, f32, f32, f32, f32, u32, f32),
+    MoveEntity(u32, f32, f32, f32, f32),
+    DeleteEntity(u32),
+    GuiSetElement(String, GUIElement),
+    GuiRemoveElements(String),
+    GuiEditElement(String, GUIElementEdit),
+    SetCursorLock(bool),
+    BlockBreakTimeResponse(u32, f32),
+    EntityItem(u32, u32, u32),
+    BlockItem(i32, i32, i32, u32, u32),
+    Knockback(f32, f32, f32, bool),
+    FluidSelectable(bool),
+    PlaySound(String, f32, f32, f32, f32, f32, bool),
+    EntityAnimation(u32, u32),
+    ChatMessage(String),
+    PlayerAbilities(f32, MovementType),
+    TeleportPlayer(f32, f32, f32, f32),
+    BlockAnimation(i32, i32, i32, u32),
 }
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MovementType {
