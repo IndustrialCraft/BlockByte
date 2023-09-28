@@ -1,5 +1,5 @@
 use crate::gui::{GUIElement, GUIElementEdit};
-use crate::{BlockPosition, Face};
+use crate::{BlockPosition, Face, KeyboardKey};
 use serde::{Deserialize, Serialize};
 
 #[repr(u8)]
@@ -39,9 +39,8 @@ pub enum NetworkMessageC2S {
     RightClickBlock(i32, i32, i32, Face, bool),
     PlayerPosition(f32, f32, f32, bool, f32, bool),
     MouseScroll(i32, i32),
-    Keyboard(i32, u16, bool, bool),
+    Keyboard(KeyboardKey, u16, bool, bool),
     GuiClick(String, MouseButton, bool),
-    GuiClose,
     RequestBlockBreakTime(u32, BlockPosition),
     LeftClickEntity(u32),
     RightClickEntity(u32),

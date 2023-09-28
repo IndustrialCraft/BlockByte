@@ -68,7 +68,7 @@ pub fn load_assets(zip_path: &Path) -> (RgbaImage, TextureAtlas, BlockRegistry, 
     }
     let mut item_registry = ItemRegistry { items: Vec::new() };
     for item in content.items {
-        item_registry.add_block(item);
+        item_registry.add_item(item);
     }
     (texture_image, texture_atlas, block_registry, item_registry)
 }
@@ -200,7 +200,7 @@ impl ItemRegistry {
     pub fn get_item(&self, item: u32) -> &ClientItemData {
         self.items.get(item as usize).unwrap()
     }
-    fn add_block(&mut self, item_data: ClientItemData) {
+    fn add_item(&mut self, item_data: ClientItemData) {
         self.items.push(item_data);
     }
 }

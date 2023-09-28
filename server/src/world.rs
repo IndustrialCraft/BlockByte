@@ -17,7 +17,7 @@ use block_byte_common::gui::{GUIElementEdit, PositionAnchor};
 use block_byte_common::messages::{
     MouseButton, MovementType, NetworkMessageC2S, NetworkMessageS2C,
 };
-use block_byte_common::{BlockPosition, ChunkPosition, Color, Position};
+use block_byte_common::{BlockPosition, ChunkPosition, Color, KeyboardKey, Position};
 use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{object, JsonValue};
@@ -1189,61 +1189,62 @@ impl Entity {
             let messages = self.connection.lock().as_mut().unwrap().receive_messages();
             for message in messages {
                 match message {
-                    NetworkMessageC2S::Keyboard(key, key_mod, pressed, _repeat) => match key {
-                        113 => {
-                            if pressed {
-                                let slot = { self.entity_data.lock().slot };
-                                self.inventory
-                                    .get_full_view()
-                                    .modify_item(slot, |item| {
-                                        let item = item.as_mut();
-                                        if let Some(item) = item {
-                                            let mut location = self.get_location();
-                                            location.position.y += 1.7;
-                                            let item_entity = Entity::new(
-                                                location,
-                                                self.server
-                                                    .entity_registry
-                                                    .entity_by_identifier(&Identifier::new(
-                                                        "bb", "item",
-                                                    ))
-                                                    .unwrap(),
-                                                None,
-                                            );
-                                            let count = if key_mod & 0x0040 != 0 {
-                                                item.get_count()
-                                            } else {
-                                                1
-                                            };
-                                            item_entity
-                                                .inventory
-                                                .get_full_view()
-                                                .set_item(0, Some(item.copy(count)))
-                                                .unwrap();
+                    NetworkMessageC2S::Keyboard(key, key_mod, pressed, _repeat) => {
+                        match key {
+                            KeyboardKey::Q => {
+                                if pressed {
+                                    let slot = { self.entity_data.lock().slot };
+                                    self.inventory
+                                        .get_full_view()
+                                        .modify_item(slot, |item| {
+                                            let item = item.as_mut();
+                                            if let Some(item) = item {
+                                                let mut location = self.get_location();
+                                                location.position.y += 1.7;
+                                                let item_entity = Entity::new(
+                                                    location,
+                                                    self.server
+                                                        .entity_registry
+                                                        .entity_by_identifier(&Identifier::new(
+                                                            "bb", "item",
+                                                        ))
+                                                        .unwrap(),
+                                                    None,
+                                                );
+                                                let count = if key_mod & 0x0040 != 0 {
+                                                    item.get_count()
+                                                } else {
+                                                    1
+                                                };
+                                                item_entity
+                                                    .inventory
+                                                    .get_full_view()
+                                                    .set_item(0, Some(item.copy(count)))
+                                                    .unwrap();
 
-                                            item.add_count(-(count as i32));
+                                                item.add_count(-(count as i32));
 
-                                            let rotation = { *self.rotation_shifting.lock() };
-                                            let rotation_radians = rotation.0.to_radians();
-                                            item_entity.apply_knockback(
-                                                rotation_radians.sin() as f64,
-                                                0.,
-                                                rotation_radians.cos() as f64,
-                                            );
-                                            *item_entity.rotation_shifting.lock() =
-                                                ((-rotation.0) + 180., false);
-                                        }
-                                    })
-                                    .unwrap();
+                                                let rotation = { *self.rotation_shifting.lock() };
+                                                let rotation_radians = rotation.0.to_radians();
+                                                item_entity.apply_knockback(
+                                                    rotation_radians.sin() as f64,
+                                                    0.,
+                                                    rotation_radians.cos() as f64,
+                                                );
+                                                *item_entity.rotation_shifting.lock() =
+                                                    ((-rotation.0) + 180., false);
+                                            }
+                                        })
+                                        .unwrap();
+                                }
                             }
-                        }
-                        9 => {
-                            if pressed {
-                                if self.open_inventory.lock().is_some() {
-                                    self.set_open_inventory(None);
-                                } else {
-                                    if self.entity_data.lock().creative {
-                                        self.set_open_inventory(Some(InventoryWrapper::Own(Arc::new(
+                            KeyboardKey::Tab => {
+                                if pressed {
+                                    if self.open_inventory.lock().is_some() {
+                                        self.set_open_inventory(None);
+                                    } else {
+                                        if self.entity_data.lock().creative {
+                                            self.set_open_inventory(Some(InventoryWrapper::Own(Arc::new(
                                     {
                                         let inventory = Inventory::new(
                                             self,
@@ -1307,37 +1308,37 @@ impl Entity {
                                         inventory
                                     }),
                                 )));
-                                    } else {
-                                        self.set_open_inventory(Some(InventoryWrapper::Own(
-                                            Arc::new(Inventory::new(
-                                                self,
-                                                9,
-                                                || {
-                                                    let mut slots = Vec::with_capacity(9);
-                                                    for i in 0..9 {
-                                                        slots.push((
-                                                            PositionAnchor::Center,
-                                                            (i as f32 * 130.) - (4.5 * 130.),
-                                                            0.,
-                                                        ));
-                                                    }
-                                                    slots
-                                                },
-                                                None,
-                                                None,
-                                                None,
-                                            )),
-                                        )));
+                                        } else {
+                                            self.set_open_inventory(Some(InventoryWrapper::Own(
+                                                Arc::new(Inventory::new(
+                                                    self,
+                                                    9,
+                                                    || {
+                                                        let mut slots = Vec::with_capacity(9);
+                                                        for i in 0..9 {
+                                                            slots.push((
+                                                                PositionAnchor::Center,
+                                                                (i as f32 * 130.) - (4.5 * 130.),
+                                                                0.,
+                                                            ));
+                                                        }
+                                                        slots
+                                                    },
+                                                    None,
+                                                    None,
+                                                    None,
+                                                )),
+                                            )));
+                                        }
                                     }
                                 }
                             }
-                        }
-                        99 => {
-                            if pressed {
-                                if self.open_inventory.lock().is_some() {
-                                    self.set_open_inventory(None);
-                                } else {
-                                    let inventory = Inventory::new_owned(
+                            KeyboardKey::C => {
+                                if pressed {
+                                    if self.open_inventory.lock().is_some() {
+                                        self.set_open_inventory(None);
+                                    } else {
+                                        let inventory = Inventory::new_owned(
                                         27,
                                         || {
                                             let mut slots = Vec::with_capacity(27);
@@ -1382,42 +1383,48 @@ impl Entity {
                                         })),
                                         None,
                                     );
-                                    let mut recipes_user_map = Vec::new();
-                                    for (i, recipe) in self
-                                        .server
-                                        .recipes
-                                        .by_type(&Identifier::new("bb", "crafting"))
-                                        .iter()
-                                        .enumerate()
-                                    {
-                                        recipes_user_map.push(Dynamic::from(recipe.id.clone()));
-                                        inventory
-                                            .get_full_view()
-                                            .set_item(i as u32, Some(recipe.get_icon()))
-                                            .unwrap();
+                                        let mut recipes_user_map = Vec::new();
+                                        for (i, recipe) in self
+                                            .server
+                                            .recipes
+                                            .by_type(&Identifier::new("bb", "crafting"))
+                                            .iter()
+                                            .enumerate()
+                                        {
+                                            recipes_user_map.push(Dynamic::from(recipe.id.clone()));
+                                            inventory
+                                                .get_full_view()
+                                                .set_item(i as u32, Some(recipe.get_icon()))
+                                                .unwrap();
+                                            println!("here");
+                                        }
+                                        inventory.get_user_data().put_data_point(
+                                            &Identifier::new("bb", "recipes"),
+                                            Dynamic::from_array(recipes_user_map),
+                                        );
+                                        self.set_open_inventory(Some(InventoryWrapper::Own(
+                                            inventory,
+                                        )));
                                     }
-                                    inventory.get_user_data().put_data_point(
-                                        &Identifier::new("bb", "recipes"),
-                                        Dynamic::from_array(recipes_user_map),
-                                    );
-                                    self.set_open_inventory(Some(InventoryWrapper::Own(inventory)));
                                 }
+                                /*let mut inventory = self.inventory.lock().unwrap();
+                                let recipe = self
+                                    .server
+                                    .recipes
+                                    .by_id(&Identifier::new("example", "planks"))
+                                    .unwrap();
+                                */
                             }
-                            /*let mut inventory = self.inventory.lock().unwrap();
-                            let recipe = self
-                                .server
-                                .recipes
-                                .by_id(&Identifier::new("example", "planks"))
-                                .unwrap();
-                            */
+                            KeyboardKey::Escape => {
+                                self.set_open_inventory(None);
+                            }
+                            _ => {}
                         }
-                        49..=57 => {
-                            self.entity_data.lock().set_hand_slot((key - 49) as u32);
+                        if let Some(slot) = key.get_slot() {
+                            if pressed {
+                                self.entity_data.lock().set_hand_slot(slot as u32);
+                            }
                         }
-                        _ => {}
-                    },
-                    NetworkMessageC2S::GuiClose => {
-                        self.set_open_inventory(None);
                     }
                     NetworkMessageC2S::GuiClick(element, button, shifting) => {
                         {

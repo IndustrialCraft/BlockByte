@@ -175,7 +175,7 @@ impl ItemRegistry {
     pub fn new() -> Self {
         ItemRegistry {
             items: Default::default(),
-            id_generator: 1,
+            id_generator: 0,
         }
     }
     pub fn list(&self) -> Keys<Identifier, Arc<Item>> {
