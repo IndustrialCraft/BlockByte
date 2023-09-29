@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use block_byte_common::content::{
     ClientBlockCubeRenderData, ClientBlockData, ClientBlockDynamicData,
     ClientBlockFoliageRenderData, ClientBlockRenderDataType, ClientBlockStaticRenderData,
-    ClientEntityData, ClientItemData, ClientItemModel,
+    ClientEntityData,
 };
 use block_byte_common::messages::MovementType;
 use block_byte_common::{BlockPosition, Position};
@@ -765,19 +765,31 @@ impl BlockBuilder {
 #[derive(Clone)]
 pub struct ItemBuilder {
     pub id: Identifier,
-    pub client: ClientItemData,
+    pub client: ClientModItemData,
     pub place: Option<Identifier>,
     pub on_right_click: Option<FnPtr>,
     pub stack_size: u32,
     pub tool: Option<ToolData>,
 }
 
+#[derive(Clone, Debug)]
+pub struct ClientModItemData {
+    pub name: String,
+    pub model: ClientModItemModel,
+}
+
+#[derive(Clone, Debug)]
+pub enum ClientModItemModel {
+    Texture(String),
+    Block(String),
+}
+
 impl ItemBuilder {
     pub fn new(id: &str) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(ItemBuilder {
-            client: ClientItemData {
+            client: ClientModItemData {
                 name: id.to_string(),
-                model: ClientItemModel::Texture(String::new()),
+                model: ClientModItemModel::Texture(String::new()),
             },
             place: None,
             id: Identifier::parse(id).unwrap(),
@@ -813,11 +825,11 @@ impl ItemBuilder {
         this.clone()
     }
     pub fn client_model_texture(this: &mut Arc<Mutex<Self>>, texture: &str) -> Arc<Mutex<Self>> {
-        this.lock().client.model = ClientItemModel::Texture(texture.to_string());
+        this.lock().client.model = ClientModItemModel::Texture(texture.to_string());
         this.clone()
     }
     pub fn client_model_block(this: &mut Arc<Mutex<Self>>, block: &str) -> Arc<Mutex<Self>> {
-        this.lock().client.model = ClientItemModel::Block(block.to_string());
+        this.lock().client.model = ClientModItemModel::Block(block.to_string());
         this.clone()
     }
     pub fn place(this: &mut Arc<Mutex<Self>>, place: &str) -> Arc<Mutex<Self>> {

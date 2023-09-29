@@ -67,7 +67,7 @@ pub struct ClientItemData {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ClientItemModel {
     Texture(String),
-    Block(String),
+    Block(u32),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

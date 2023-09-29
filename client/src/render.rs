@@ -8,7 +8,7 @@ use image::RgbaImage;
 use std::iter;
 use wgpu::util::DeviceExt;
 use wgpu::{Buffer, Device, Queue, Sampler, TextureView};
-use winit::dpi::PhysicalSize;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::window::Window;
 
 pub struct RenderState {
@@ -25,6 +25,7 @@ pub struct RenderState {
     camera_buffer: Buffer,
     camera_bind_group: wgpu::BindGroup,
     depth_texture: (wgpu::Texture, Sampler, TextureView),
+    pub(crate) mouse: PhysicalPosition<f64>,
 }
 
 impl RenderState {
@@ -219,6 +220,7 @@ impl RenderState {
             camera_buffer,
             camera_bind_group,
             depth_texture,
+            mouse: PhysicalPosition::new(0., 0.),
         }
     }
 
@@ -323,7 +325,9 @@ impl RenderState {
             let (buffer, vertex_count) = gui.draw(
                 &self.device,
                 item_registry,
-                self.size.width as f32 / self.size.height as f32,
+                &world.block_registry,
+                self.mouse,
+                self.size,
             );
             render_pass.set_vertex_buffer(0, buffer);
             render_pass.draw(0..vertex_count, 0..1);

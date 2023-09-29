@@ -20,6 +20,7 @@ use std::io::repeat;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::Instant;
+use winit::dpi::{LogicalPosition, PhysicalPosition};
 use winit::window::CursorGrabMode;
 use winit::{
     event::*,
@@ -111,11 +112,60 @@ pub async fn run() {
                     ))
                 }
             }
+            WindowEvent::MouseInput { state, button, .. } => {
+                if *state == ElementState::Pressed && !gui.is_cursor_locked() {
+                    if let Some(element) = gui.get_selected(render_state.mouse, render_state.size())
+                    {
+                        connection.send_message(&NetworkMessageC2S::GuiClick(
+                            element,
+                            match button {
+                                MouseButton::Left => block_byte_common::messages::MouseButton::Left,
+                                MouseButton::Right => {
+                                    block_byte_common::messages::MouseButton::Right
+                                }
+
+                                MouseButton::Middle => {
+                                    block_byte_common::messages::MouseButton::Middle
+                                }
+
+                                MouseButton::Other(n) => {
+                                    block_byte_common::messages::MouseButton::Other(*n)
+                                }
+                            },
+                            keys.contains(&VirtualKeyCode::LShift),
+                        ));
+                    }
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => match delta {
+                MouseScrollDelta::LineDelta(x, y) => {
+                    let x = *x as i32;
+                    let y = *y as i32;
+                    if gui.is_cursor_locked() {
+                        connection.send_message(&NetworkMessageC2S::MouseScroll(x, y));
+                    } else {
+                        if let Some(element) =
+                            gui.get_selected(render_state.mouse, render_state.size())
+                        {
+                            connection.send_message(&NetworkMessageC2S::GuiScroll(
+                                element,
+                                x,
+                                y,
+                                keys.contains(&VirtualKeyCode::LShift),
+                            ));
+                        }
+                    }
+                }
+                MouseScrollDelta::PixelDelta(_) => {}
+            },
             WindowEvent::Resized(physical_size) => {
                 render_state.resize(*physical_size);
             }
             WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                 render_state.resize(**new_inner_size);
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                render_state.mouse = *position;
             }
             _ => {}
         },
@@ -124,7 +174,9 @@ pub async fn run() {
             device_id: _,
         } => match event {
             DeviceEvent::MouseMotion { delta: (x, y) } => {
-                camera.update_orientation(-*y as f32, -*x as f32);
+                if gui.is_cursor_locked() {
+                    camera.update_orientation(-*y as f32, -*x as f32);
+                }
             }
             _ => {}
         },
@@ -183,7 +235,25 @@ pub async fn run() {
                             element.edit(edit);
                         }
                     }
-                    NetworkMessageS2C::SetCursorLock(_) => {}
+                    NetworkMessageS2C::SetCursorLock(locked) => {
+                        gui.set_cursor_locked(locked);
+                        render_state
+                            .window()
+                            .set_cursor_grab(if locked {
+                                CursorGrabMode::Confined
+                            } else {
+                                CursorGrabMode::None
+                            })
+                            .unwrap();
+                        render_state.window().set_cursor_visible(!locked);
+                        render_state
+                            .window()
+                            .set_cursor_position(PhysicalPosition {
+                                x: render_state.size().width as f32 / 2.,
+                                y: render_state.size().height as f32 / 2.,
+                            })
+                            .unwrap();
+                    }
                     NetworkMessageS2C::AddEntity(_, _, _, _, _, _, _, _) => {}
                     NetworkMessageS2C::MoveEntity(_, _, _, _, _) => {}
                     NetworkMessageS2C::DeleteEntity(_) => {}

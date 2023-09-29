@@ -279,7 +279,7 @@ impl Inventory {
             .unwrap_or(InteractionResult::Ignored);
         if let InteractionResult::Ignored = result {
             let mut player_data = player.entity_data.lock();
-            if button == MouseButton::LEFT {
+            if button == MouseButton::Left {
                 let mut hand = player_data.get_inventory_hand().clone();
                 let mut slot = self.get_full_view().get_item(id).unwrap().clone();
                 match (hand.as_mut(), slot.as_mut()) {

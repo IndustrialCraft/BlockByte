@@ -29,8 +29,9 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+use crate::mods::ClientModItemModel;
 use crate::registry::RecipeManager;
-use block_byte_common::content::ClientEntityData;
+use block_byte_common::content::{ClientEntityData, ClientItemData, ClientItemModel};
 use block_byte_common::Position;
 use crossbeam_channel::Receiver;
 use fxhash::FxHashMap;
@@ -156,7 +157,23 @@ impl Server {
                     Arc::new(Item {
                         id: item_data.id,
                         client_id: id,
-                        client_data: item_data.client,
+                        client_data: ClientItemData {
+                            name: item_data.client.name,
+                            model: match item_data.client.model {
+                                ClientModItemModel::Texture(texture) => {
+                                    ClientItemModel::Texture(texture)
+                                }
+                                ClientModItemModel::Block(block) => ClientItemModel::Block(
+                                    block_registry
+                                        .borrow()
+                                        .block_by_identifier(
+                                            &Identifier::parse(block.as_str()).unwrap(),
+                                        )
+                                        .unwrap()
+                                        .default_state,
+                                ),
+                            },
+                        },
                         place_block: item_data.place.map(|place| {
                             block_registry
                                 .borrow()
