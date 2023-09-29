@@ -154,7 +154,10 @@ impl Inventory {
                     self.get_slot_id(index),
                     GUIElementEdit {
                         component_type: GUIComponentEdit::SlotComponent {
-                            item_id: Some(item.as_ref().map(|item| item.item_type.client_id)),
+                            item_id: Some(
+                                item.as_ref()
+                                    .map(|item| (item.item_type.client_id, item.item_count)),
+                            ),
                             size: None,
                             background: None,
                         },
@@ -196,7 +199,10 @@ impl Inventory {
                         component_type: GUIComponent::SlotComponent {
                             background: "bb:slot".to_string(),
                             size: Vec2 { x: 100., y: 100. },
-                            item_id: item.1.as_ref().map(|item| item.item_type.client_id),
+                            item_id: item
+                                .1
+                                .as_ref()
+                                .map(|item| (item.item_type.client_id, item.item_count)),
                         },
                         position: Position {
                             x: slot.1 as f64,
@@ -240,7 +246,10 @@ impl Inventory {
                     "item_cursor".to_string(),
                     GUIElement {
                         component_type: GUIComponent::SlotComponent {
-                            item_id: Some(item.as_ref().unwrap().item_type.client_id),
+                            item_id: {
+                                let item = item.as_ref().unwrap();
+                                Some((item.item_type.client_id, item.item_count))
+                            },
                             size: Vec2 { x: 100., y: 100. },
                             background: "".to_string(),
                         },

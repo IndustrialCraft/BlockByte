@@ -984,7 +984,7 @@ impl Entity {
         let animation_controller = self.animation_controller.lock();
         let mut messages = Vec::new();
         messages.push(NetworkMessageS2C::AddEntity(
-            self.entity_type.id,
+            self.entity_type.client_id,
             self.client_id,
             position.x as f32,
             position.y as f32,

@@ -45,7 +45,7 @@ pub async fn run() {
             env_logger::init();
         }
     }
-    let (texture_image, texture_atlas, block_registry, item_registry) =
+    let (texture_image, texture_atlas, block_registry, item_registry, text_renderer) =
         content::load_assets(&Path::new("../server/save/content.zip"));
     let block_registry = Rc::new(block_registry);
 
@@ -76,7 +76,7 @@ pub async fn run() {
     });
     let mut keys = HashSet::new();
     let mut world = World::new(block_registry.clone());
-    let mut gui = GUIRenderer::new(texture_atlas, render_state.device());
+    let mut gui = GUIRenderer::new(texture_atlas, render_state.device(), text_renderer);
     let mut connection = SocketConnection::new("localhost:4321");
     let mut first_teleport = false;
     let mut last_render_time = Instant::now();
@@ -117,7 +117,7 @@ pub async fn run() {
                     if let Some(element) = gui.get_selected(render_state.mouse, render_state.size())
                     {
                         connection.send_message(&NetworkMessageC2S::GuiClick(
-                            element,
+                            element.0.to_string(),
                             match button {
                                 MouseButton::Left => block_byte_common::messages::MouseButton::Left,
                                 MouseButton::Right => {
@@ -148,7 +148,7 @@ pub async fn run() {
                             gui.get_selected(render_state.mouse, render_state.size())
                         {
                             connection.send_message(&NetworkMessageC2S::GuiScroll(
-                                element,
+                                element.0.to_string(),
                                 x,
                                 y,
                                 keys.contains(&VirtualKeyCode::LShift),

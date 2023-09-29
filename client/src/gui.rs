@@ -4,20 +4,26 @@ use crate::texture::TextureAtlas;
 use block_byte_common::content::ClientItemModel;
 use block_byte_common::gui::{GUIComponent, GUIElement, PositionAnchor};
 use block_byte_common::{Color, TexCoords, Vec2};
+use rusttype::Scale;
 use std::collections::HashMap;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{Buffer, BufferAddress, BufferDescriptor, BufferSlice, BufferUsages, Device, Queue};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 
-pub struct GUIRenderer {
+pub struct GUIRenderer<'a> {
     elements: HashMap<String, GUIElement>,
     buffer: Buffer,
     gui_scale: f32,
     texture_atlas: TextureAtlas,
     cursor_locked: bool,
+    text_renderer: TextRenderer<'a>,
 }
-impl GUIRenderer {
-    pub fn new(texture_atlas: TextureAtlas, device: &Device) -> Self {
+impl<'a> GUIRenderer<'a> {
+    pub fn new(
+        texture_atlas: TextureAtlas,
+        device: &Device,
+        text_renderer: TextRenderer<'a>,
+    ) -> Self {
         GUIRenderer {
             texture_atlas,
             elements: HashMap::new(),
@@ -28,6 +34,7 @@ impl GUIRenderer {
             }),
             gui_scale: 1. / 1000.,
             cursor_locked: true,
+            text_renderer,
         }
     }
     pub fn set_element(&mut self, id: String, element: GUIElement) {
@@ -63,7 +70,7 @@ impl GUIRenderer {
         &self,
         mouse: PhysicalPosition<f64>,
         size: PhysicalSize<u32>,
-    ) -> Option<String> {
+    ) -> Option<(&str, &GUIElement)> {
         let mouse = self.get_mouse_position(mouse, size);
         let aspect_ratio = size.width as f32 / size.height as f32;
         for (id, element) in &self.elements {
@@ -83,7 +90,7 @@ impl GUIRenderer {
                 self.gui_scale,
                 aspect_ratio,
             ) {
-                return Some(id.clone());
+                return Some((id.as_str(), element));
             }
         }
         None
@@ -93,15 +100,14 @@ impl GUIRenderer {
         device: &Device,
         item_registry: &ItemRegistry,
         block_registry: &BlockRegistry,
-        mouse: PhysicalPosition<f64>,
+        mouse_physical: PhysicalPosition<f64>,
         size: PhysicalSize<u32>,
     ) -> (BufferSlice, u32) {
         let aspect_ratio = size.width as f32 / size.height as f32;
-        let mouse = self.get_mouse_position(mouse, size);
+        let mouse = self.get_mouse_position(mouse_physical, size);
         let mut vertices: Vec<GUIVertex> = Vec::new();
         //todo: sort by z position
         for element in self.elements.values() {
-            //todo: mouse
             match &element.component_type {
                 GUIComponent::ImageComponent { texture: uv, size } => {
                     Self::add_rect_vertices(
@@ -141,7 +147,7 @@ impl GUIRenderer {
                         );
                     }
                     if let Some(item_id) = item_id.as_ref() {
-                        let item = item_registry.get_item(*item_id);
+                        let item = item_registry.get_item(item_id.0);
                         match &item.model {
                             ClientItemModel::Texture(texture) => {
                                 Self::add_rect_vertices(
@@ -183,6 +189,43 @@ impl GUIRenderer {
                                 }
                             }
                         }
+                        self.text_renderer.render(
+                            &mut vertices,
+                            element.anchor,
+                            Vec2 {
+                                x: element.position.x as f32,
+                                y: element.position.y as f32,
+                            },
+                            50.,
+                            &item_id.1.to_string(),
+                            element.base_color,
+                            &self.texture_atlas,
+                            aspect_ratio,
+                            self.gui_scale,
+                            mouse,
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some((_, element)) = self.get_selected(mouse_physical, size) {
+            match &element.component_type {
+                GUIComponent::SlotComponent { item_id, .. } => {
+                    if let Some((item_id, _)) = item_id.as_ref() {
+                        let item = item_registry.get_item(*item_id);
+                        self.text_renderer.render(
+                            &mut vertices,
+                            PositionAnchor::Cursor,
+                            Vec2 { x: 0., y: 0. },
+                            50.,
+                            &item.name,
+                            element.base_color,
+                            &self.texture_atlas,
+                            aspect_ratio,
+                            self.gui_scale,
+                            mouse,
+                        );
                     }
                 }
                 _ => {}
@@ -279,5 +322,51 @@ impl GUIRenderer {
         vertices.push(vertex_3);
         vertices.push(vertex_2);
         vertices.push(vertex_1);
+    }
+}
+pub struct TextRenderer<'a> {
+    pub font: rusttype::Font<'a>,
+}
+impl<'a> TextRenderer<'a> {
+    pub fn render(
+        &self,
+        vertices: &mut Vec<GUIVertex>,
+        anchor: PositionAnchor,
+        center: Vec2,
+        size: f32,
+        text: &String,
+        color: Color,
+        texture_atlas: &TextureAtlas,
+        aspect_ratio: f32,
+        gui_scale: f32,
+        mouse: Vec2,
+    ) {
+        let layout = self
+            .font
+            .layout(text, Scale::uniform(size), rusttype::Point { x: 0., y: 0. });
+        let glyphs: Vec<_> = layout.collect();
+        for glyph in glyphs {
+            if let Some(bb) = glyph.unpositioned().exact_bounding_box() {
+                let texture = texture_atlas
+                    .get(("font_".to_string() + glyph.id().0.to_string().as_str()).as_str());
+                GUIRenderer::add_rect_vertices(
+                    vertices,
+                    anchor,
+                    Vec2 {
+                        x: glyph.position().x + center.x,
+                        y: glyph.position().y - bb.max.y + center.y,
+                    },
+                    Vec2 {
+                        x: glyph.unpositioned().h_metrics().advance_width,
+                        y: -bb.min.y + bb.max.y,
+                    },
+                    texture,
+                    color,
+                    aspect_ratio,
+                    gui_scale,
+                    mouse,
+                );
+            }
+        }
     }
 }

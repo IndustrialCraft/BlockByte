@@ -62,7 +62,7 @@ pub enum GUIComponent {
         text: String,
     },
     SlotComponent {
-        item_id: Option<u32>,
+        item_id: Option<(u32, u32)>,
         background: String,
         size: Vec2,
     },
@@ -145,7 +145,7 @@ pub enum GUIComponentEdit {
         text: Option<String>,
     },
     SlotComponent {
-        item_id: Option<Option<u32>>,
+        item_id: Option<Option<(u32, u32)>>,
         background: Option<String>,
         size: Option<Vec2>,
     },

@@ -310,7 +310,7 @@ pub struct ItemModelMapping {
 }
 
 pub struct EntityType {
-    pub id: u32,
+    pub client_id: u32,
     pub client_data: ClientEntityData,
     pub ticker: Mutex<Option<ScriptCallback>>,
     pub item_model_mapping: ItemModelMapping,
@@ -374,16 +374,24 @@ impl ClientContentGenerator {
                 .iter()
                 .map(|state| state.client_data.clone())
                 .collect(),
-            items: item_registry
-                .items
-                .iter()
-                .map(|item| item.1.client_data.clone())
-                .collect(),
-            entities: entity_registry
-                .entities
-                .iter()
-                .map(|entity| entity.1.client_data.clone())
-                .collect(),
+            items: {
+                let mut items: Vec<_> = item_registry
+                    .items
+                    .iter()
+                    .map(|item| (item.1.client_id, item.1.client_data.clone()))
+                    .collect();
+                items.sort_by(|a, b| a.0.cmp(&b.0));
+                items.iter().map(|item| item.1.clone()).collect()
+            },
+            entities: {
+                let mut entities: Vec<_> = entity_registry
+                    .entities
+                    .iter()
+                    .map(|entity| (entity.1.client_id, entity.1.client_data.clone()))
+                    .collect();
+                entities.sort_by(|a, b| a.0.cmp(&b.0));
+                entities.iter().map(|item| item.1.clone()).collect()
+            },
         })
         .unwrap()
     }

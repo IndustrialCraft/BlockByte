@@ -195,7 +195,7 @@ impl Server {
                 .borrow_mut()
                 .register(entity_data.id, |id| {
                     Arc::new(EntityType {
-                        id,
+                        client_id: id,
                         client_data: entity_data.client,
                         ticker: Mutex::new(
                             entity_data.ticker.map(|ticker| ScriptCallback::new(ticker)),
@@ -211,7 +211,7 @@ impl Server {
             .borrow_mut()
             .register(Identifier::new("bb", "item"), |client_id| {
                 Arc::new(EntityType {
-                    id: client_id,
+                    client_id: client_id,
                     client_data: ClientEntityData {
                         model: "bb:item".to_string(),
                         texture: "".to_string(),

@@ -1,3 +1,4 @@
+use crate::gui::TextRenderer;
 use crate::model::Model;
 use crate::texture::{pack_textures, TextureAtlas};
 use block_byte_common::content::{
@@ -8,7 +9,15 @@ use image::RgbaImage;
 use std::collections::HashMap;
 use std::path::Path;
 
-pub fn load_assets(zip_path: &Path) -> (RgbaImage, TextureAtlas, BlockRegistry, ItemRegistry) {
+pub fn load_assets(
+    zip_path: &Path,
+) -> (
+    RgbaImage,
+    TextureAtlas,
+    BlockRegistry,
+    ItemRegistry,
+    TextRenderer,
+) {
     let mut zip =
         zip::ZipArchive::new(std::fs::File::open(zip_path).expect("asset archive not found"))
             .expect("asset archive invalid");
@@ -51,7 +60,9 @@ pub fn load_assets(zip_path: &Path) -> (RgbaImage, TextureAtlas, BlockRegistry, 
             continue;
         }
         if name == "font.ttf" {
-            font = Some(rusttype::Font::try_from_vec(data).unwrap());
+            font = Some(TextRenderer {
+                font: rusttype::Font::try_from_vec(data).unwrap(),
+            });
             continue;
         }
     }
@@ -61,7 +72,7 @@ pub fn load_assets(zip_path: &Path) -> (RgbaImage, TextureAtlas, BlockRegistry, 
     );
     let font = font.unwrap();
     let content = content.unwrap();
-    let (texture_atlas, texture_image) = pack_textures(textures_to_pack, &font);
+    let (texture_atlas, texture_image) = pack_textures(textures_to_pack, &font.font);
     let mut block_registry = BlockRegistry { blocks: Vec::new() };
     for block in content.blocks {
         block_registry.add_block(block, &texture_atlas, &models);
@@ -70,7 +81,13 @@ pub fn load_assets(zip_path: &Path) -> (RgbaImage, TextureAtlas, BlockRegistry, 
     for item in content.items {
         item_registry.add_item(item);
     }
-    (texture_image, texture_atlas, block_registry, item_registry)
+    (
+        texture_image,
+        texture_atlas,
+        block_registry,
+        item_registry,
+        font,
+    )
 }
 pub struct BlockRegistry {
     blocks: Vec<BlockData>,
