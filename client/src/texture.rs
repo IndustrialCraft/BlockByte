@@ -190,7 +190,7 @@ pub fn pack_textures(
                     _ => panic!(),
                 };
                 g.1.draw(|x, y, v| {
-                    font_buffer.put_pixel(x, y, Rgba([0, 0, 0, (v * 255f32) as u8]));
+                    font_buffer.put_pixel(x, y, Rgba([255, 255, 255, (v * 255f32) as u8]));
                 });
                 packer
                     .pack_own("font_".to_string() + g.0.to_string().as_str(), font_texture)
