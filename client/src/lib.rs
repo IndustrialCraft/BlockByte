@@ -1,7 +1,6 @@
 #![feature(fn_traits)]
 #![feature(map_many_mut)]
 #![feature(hash_extract_if)]
-
 mod content;
 mod game;
 mod gui;
@@ -11,16 +10,14 @@ mod render;
 mod texture;
 
 use array_init::array_init;
-use block_byte_common::gui::{GUIComponent, GUIElement, PositionAnchor};
 use block_byte_common::messages::{NetworkMessageC2S, NetworkMessageS2C};
-use block_byte_common::{ChunkPosition, Color, KeyboardKey, Position, Vec2};
+use block_byte_common::{ChunkPosition, KeyboardKey, Position};
 use cgmath::Point3;
 use std::collections::HashSet;
-use std::io::repeat;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::Instant;
-use winit::dpi::{LogicalPosition, PhysicalPosition};
+use winit::dpi::PhysicalPosition;
 use winit::window::CursorGrabMode;
 use winit::{
     event::*,
@@ -46,7 +43,7 @@ pub async fn run() {
         }
     }
     let (texture_image, texture_atlas, block_registry, item_registry, text_renderer) =
-        content::load_assets(&Path::new("../server/save/content.zip"));
+        content::load_assets(&Path::new("../server/save/content.zip"), false);
     let block_registry = Rc::new(block_registry);
 
     let event_loop = EventLoop::new();
@@ -260,7 +257,9 @@ pub async fn run() {
                     NetworkMessageS2C::BlockBreakTimeResponse(_, _) => {}
                     NetworkMessageS2C::EntityItem(_, _, _) => {}
                     NetworkMessageS2C::BlockItem(_, _, _, _, _) => {}
-                    NetworkMessageS2C::Knockback(_, _, _, _) => {}
+                    NetworkMessageS2C::Knockback(x, y, z, set) => {
+                        camera.knockback(x, y, z, set);
+                    }
                     NetworkMessageS2C::FluidSelectable(_) => {}
                     NetworkMessageS2C::PlaySound(_, _, _, _, _, _, _) => {}
                     NetworkMessageS2C::EntityAnimation(_, _) => {}

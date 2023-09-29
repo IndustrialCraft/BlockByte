@@ -7,7 +7,7 @@ use block_byte_common::{Color, TexCoords, Vec2};
 use rusttype::Scale;
 use std::collections::HashMap;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::{Buffer, BufferAddress, BufferDescriptor, BufferSlice, BufferUsages, Device, Queue};
+use wgpu::{Buffer, BufferSlice, BufferUsages, Device};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 
 pub struct GUIRenderer<'a> {

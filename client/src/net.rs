@@ -9,7 +9,7 @@ pub struct SocketConnection {
 impl SocketConnection {
     pub fn new(address: &str) -> Self {
         let tcp_stream = std::net::TcpStream::connect(address).unwrap();
-        let (mut socket, _response) = tungstenite::client::client_with_config(
+        let (socket, _response) = tungstenite::client::client_with_config(
             Url::parse("ws://aaa123").unwrap(),
             tcp_stream,
             None,

@@ -7,7 +7,7 @@ use block_byte_common::{Face, Position, TexCoords};
 use image::RgbaImage;
 use std::iter;
 use wgpu::util::DeviceExt;
-use wgpu::{Buffer, Device, Queue, Sampler, TextureView};
+use wgpu::{Buffer, Device, Sampler, TextureView};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::window::Window;
 

@@ -1,4 +1,3 @@
-use crate::content::BlockRenderDataType::Cube;
 use crate::content::{BlockRegistry, BlockRenderDataType};
 use crate::render::{FaceVerticesExtension, Vertex};
 use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position};
@@ -125,14 +124,6 @@ impl ClientPlayer {
     fn eye_height_diff(&self) -> f32 {
         1.75 - self.shifting_animation
     }
-    pub fn get_eye(&self) -> Position {
-        Position {
-            x: self.position.x as f64,
-            y: self.position.y as f64,
-            z: self.position.z as f64,
-        }
-        .add(0., self.eye_height_diff() as f64, 0.)
-    }
     pub fn create_view_matrix(&self) -> Matrix4<f32> {
         Matrix4::look_at_rh(
             self.position
@@ -148,21 +139,6 @@ impl ClientPlayer {
                     z: 0.,
                 }
                 + self.make_front(),
-            Self::UP,
-        )
-    }
-    pub fn create_view_matrix_no_pos(&self) -> Matrix4<f32> {
-        Matrix4::look_at_rh(
-            Point3 {
-                x: 0.,
-                y: 0.,
-                z: 0.,
-            },
-            Point3 {
-                x: 0.,
-                y: 0.,
-                z: 0.,
-            } + self.make_front(),
             Self::UP,
         )
     }

@@ -11,6 +11,7 @@ use std::path::Path;
 
 pub fn load_assets(
     zip_path: &Path,
+    dump_atlas: bool,
 ) -> (
     RgbaImage,
     TextureAtlas,
@@ -72,7 +73,7 @@ pub fn load_assets(
     );
     let font = font.unwrap();
     let content = content.unwrap();
-    let (texture_atlas, texture_image) = pack_textures(textures_to_pack, &font.font);
+    let (texture_atlas, texture_image) = pack_textures(textures_to_pack, &font.font, dump_atlas);
     let mut block_registry = BlockRegistry { blocks: Vec::new() };
     for block in content.blocks {
         block_registry.add_block(block, &texture_atlas, &models);
@@ -169,7 +170,7 @@ pub enum BlockRenderDataType {
     Foliage(BlockFoliageRenderData),
 }
 impl BlockRenderDataType {
-    pub fn is_face_full(&self, face: Face) -> bool {
+    pub fn is_face_full(&self, _face: Face) -> bool {
         match self {
             BlockRenderDataType::Air => false,
             BlockRenderDataType::Cube(_) => true,

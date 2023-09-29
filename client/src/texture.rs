@@ -155,6 +155,7 @@ pub fn create_depth_texture(
 pub fn pack_textures(
     textures: Vec<(String, Vec<u8>)>,
     font: &rusttype::Font,
+    dump_atlas: bool,
 ) -> (TextureAtlas, RgbaImage) {
     let mut texture_map = HashMap::new();
     let mut packer =
@@ -217,7 +218,9 @@ pub fn pack_textures(
         texture_map.insert(name.to_string(), texture);
     }
     let exporter = ImageExporter::export(&packer).unwrap();
-    exporter.save(Path::new("textureatlasdump.png")).unwrap();
+    if dump_atlas {
+        exporter.save(Path::new("textureatlasdump.png")).unwrap();
+    }
     (
         TextureAtlas {
             missing_texture: texture_map.get("missing").unwrap().clone(),
