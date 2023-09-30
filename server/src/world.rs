@@ -360,13 +360,8 @@ impl Chunk {
                 &mut encoder,
             )
             .unwrap();
-            let load_message = NetworkMessageS2C::LoadChunk(
-                position.x,
-                position.y,
-                position.z,
-                palette,
-                encoder.finish().unwrap(),
-            );
+            let load_message =
+                NetworkMessageS2C::LoadChunk(position, palette, encoder.finish().unwrap());
             for viewer in gen_chunk.viewers.lock().iter() {
                 viewer.player.try_send_message(&load_message).ok();
             }
@@ -445,9 +440,7 @@ impl Chunk {
         let block = block.create_block_data(&self.this.upgrade().unwrap(), block_position);
         if self.loading_stage.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
             self.announce_to_viewers(NetworkMessageS2C::SetBlock(
-                block_position.x,
-                block_position.y,
-                block_position.z,
+                block_position,
                 block.get_client_id(),
             ));
         }
@@ -490,13 +483,8 @@ impl Chunk {
                     &mut encoder,
                 )
                 .unwrap();
-                let load_message = NetworkMessageS2C::LoadChunk(
-                    position.x,
-                    position.y,
-                    position.z,
-                    palette,
-                    encoder.finish().unwrap(),
-                );
+                let load_message =
+                    NetworkMessageS2C::LoadChunk(position, palette, encoder.finish().unwrap());
                 thread_viewer.try_send_message(&load_message).unwrap();
             }));
         }
@@ -512,11 +500,7 @@ impl Chunk {
     }
     fn remove_viewer(&self, viewer: &Entity) {
         viewer
-            .try_send_message(&NetworkMessageS2C::UnloadChunk(
-                self.position.x,
-                self.position.y,
-                self.position.z,
-            ))
+            .try_send_message(&NetworkMessageS2C::UnloadChunk(self.position))
             .unwrap();
         for entity in self.entities.lock().iter() {
             if entity.as_ref() == viewer {
@@ -876,12 +860,7 @@ impl Entity {
             user_data: Mutex::new(UserData::new()),
         });
         entity
-            .try_send_message(&NetworkMessageS2C::TeleportPlayer(
-                position.x as f32,
-                position.y as f32,
-                position.z as f32,
-                0.,
-            ))
+            .try_send_message(&NetworkMessageS2C::TeleportPlayer(position, 0.))
             .ok();
 
         if entity.is_player() {
@@ -982,9 +961,7 @@ impl Entity {
         messages.push(NetworkMessageS2C::AddEntity(
             self.entity_type.client_id,
             self.client_id,
-            position.x as f32,
-            position.y as f32,
-            position.z as f32,
+            position,
             self.rotation_shifting.lock().0,
             animation_controller.animation,
             animation_controller.animation_start_time,
@@ -1013,9 +990,7 @@ impl Entity {
         let position = location.position.clone();
         self.move_to(location, rotation_shifting);
         self.try_send_message(&NetworkMessageS2C::TeleportPlayer(
-            position.x as f32,
-            position.y as f32,
-            position.z as f32,
+            position,
             rotation_shifting
                 .map(|rotation_shifting| rotation_shifting.0)
                 .unwrap_or(f32::NAN),
@@ -1167,9 +1142,7 @@ impl Entity {
             new_location.chunk.announce_to_viewers_except(
                 NetworkMessageS2C::MoveEntity(
                     self.client_id,
-                    new_location.position.x as f32,
-                    new_location.position.y as f32,
-                    new_location.position.z as f32,
+                    new_location.position,
                     self.rotation_shifting.lock().0,
                 ),
                 self,
@@ -1460,19 +1433,9 @@ impl Entity {
                             }
                         }
                     }
-                    NetworkMessageC2S::PlayerPosition(x, y, z, shift, rotation, moved) => {
+                    NetworkMessageC2S::PlayerPosition(position, shift, rotation, moved) => {
                         let world = { self.location.lock().chunk.world.clone() };
-                        self.move_to(
-                            &Location {
-                                position: Position {
-                                    x: x as f64,
-                                    y: y as f64,
-                                    z: z as f64,
-                                },
-                                world,
-                            },
-                            Some((rotation, shift)),
-                        );
+                        self.move_to(&Location { position, world }, Some((rotation, shift)));
                         self.animation_controller
                             .lock()
                             .set_animation(Some(if moved { 2 } else { 1 }));
@@ -1521,13 +1484,11 @@ impl Entity {
                         }
                         //todo: check time
                     }
-                    NetworkMessageC2S::BreakBlock(x, y, z) => {
-                        let block_position = BlockPosition { x, y, z };
+                    NetworkMessageC2S::BreakBlock(block_position) => {
                         let world = &self.get_location().chunk.world;
                         world.break_block(block_position, self);
                     }
-                    NetworkMessageC2S::RightClickBlock(x, y, z, face, shifting) => {
-                        let block_position = BlockPosition { x, y, z };
+                    NetworkMessageC2S::RightClickBlock(block_position, face, shifting) => {
                         let hand_slot = self.entity_data.lock().get_hand_slot();
                         let block = self
                             .get_location()

@@ -11,7 +11,7 @@ mod texture;
 
 use array_init::array_init;
 use block_byte_common::messages::{NetworkMessageC2S, NetworkMessageS2C};
-use block_byte_common::{BlockPosition, ChunkPosition, KeyboardKey, Position};
+use block_byte_common::{KeyboardKey, Position};
 use cgmath::Point3;
 use std::collections::HashSet;
 use std::path::Path;
@@ -141,16 +141,11 @@ pub async fn run() {
                             world.raycast(5., camera.get_eye(), camera.make_front())
                         {
                             match button {
-                                MouseButton::Left => {
-                                    connection.send_message(&NetworkMessageC2S::BreakBlock(
-                                        position.x, position.y, position.z,
-                                    ))
-                                }
+                                MouseButton::Left => connection
+                                    .send_message(&NetworkMessageC2S::BreakBlock(position)),
                                 MouseButton::Right => {
                                     connection.send_message(&NetworkMessageC2S::RightClickBlock(
-                                        position.x,
-                                        position.y,
-                                        position.z,
+                                        position,
                                         face,
                                         camera.is_shifting(),
                                     ))
@@ -220,9 +215,11 @@ pub async fn run() {
             //todo: send less frequently
             if first_teleport {
                 connection.send_message(&NetworkMessageC2S::PlayerPosition(
-                    camera.position.x,
-                    camera.position.y,
-                    camera.position.z,
+                    Position {
+                        x: camera.position.x as f64,
+                        y: camera.position.y as f64,
+                        z: camera.position.z as f64,
+                    },
                     camera.is_shifting(),
                     camera.pitch_deg,
                     camera.last_moved,
@@ -230,11 +227,10 @@ pub async fn run() {
             }
             for message in connection.read_messages() {
                 match message {
-                    NetworkMessageS2C::SetBlock(x, y, z, id) => {
-                        world.set_block(BlockPosition { x, y, z }, id);
+                    NetworkMessageS2C::SetBlock(block_position, id) => {
+                        world.set_block(block_position, id);
                     }
-                    NetworkMessageS2C::LoadChunk(x, y, z, palette, blocks) => {
-                        let position = ChunkPosition { x, y, z };
+                    NetworkMessageS2C::LoadChunk(position, palette, blocks) => {
                         let mut decoder = flate2::read::GzDecoder::new(blocks.as_slice());
                         let mut blocks_data = Vec::new();
                         std::io::copy(&mut decoder, &mut blocks_data).unwrap();
@@ -247,8 +243,8 @@ pub async fn run() {
                         });
                         world.load_chunk(position, blocks)
                     }
-                    NetworkMessageS2C::UnloadChunk(x, y, z) => {
-                        world.unload_chunk(ChunkPosition { x, y, z });
+                    NetworkMessageS2C::UnloadChunk(position) => {
+                        world.unload_chunk(position);
                     }
                     NetworkMessageS2C::GuiSetElement(id, element) => {
                         gui.set_element(id, element);
@@ -280,26 +276,27 @@ pub async fn run() {
                             })
                             .unwrap();
                     }
-                    NetworkMessageS2C::AddEntity(_, _, _, _, _, _, _, _) => {}
-                    NetworkMessageS2C::MoveEntity(_, _, _, _, _) => {}
+                    NetworkMessageS2C::AddEntity(_, _, _, _, _, _) => {}
+                    NetworkMessageS2C::MoveEntity(_, _, _) => {}
                     NetworkMessageS2C::DeleteEntity(_) => {}
                     NetworkMessageS2C::BlockBreakTimeResponse(_, _) => {}
                     NetworkMessageS2C::EntityItem(_, _, _) => {}
-                    NetworkMessageS2C::BlockItem(_, _, _, _, _) => {}
+                    NetworkMessageS2C::BlockItem(_, _, _) => {}
                     NetworkMessageS2C::Knockback(x, y, z, set) => {
                         camera.knockback(x, y, z, set);
                     }
                     NetworkMessageS2C::FluidSelectable(_) => {}
-                    NetworkMessageS2C::PlaySound(_, _, _, _, _, _, _) => {}
+                    NetworkMessageS2C::PlaySound(_, _, _, _, _) => {}
                     NetworkMessageS2C::EntityAnimation(_, _) => {}
                     NetworkMessageS2C::ChatMessage(_) => {}
                     NetworkMessageS2C::PlayerAbilities(_, _) => {}
-                    NetworkMessageS2C::TeleportPlayer(x, y, z, rotation) => {
-                        camera.position = Point3::new(x, y, z);
+                    NetworkMessageS2C::TeleportPlayer(position, rotation) => {
+                        camera.position =
+                            Point3::new(position.x as f32, position.y as f32, position.z as f32);
                         camera.pitch_deg = rotation;
                         first_teleport = true;
                     }
-                    NetworkMessageS2C::BlockAnimation(_, _, _, _) => {}
+                    NetworkMessageS2C::BlockAnimation(_, _) => {}
                 }
             }
             match render_state.render(&camera, &mut world, &mut gui, &item_registry) {

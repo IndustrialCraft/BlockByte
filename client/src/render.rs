@@ -299,7 +299,7 @@ impl RenderState {
             render_pass.set_pipeline(&self.chunk_render_pipeline);
             render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            world.tick(&self.device, &self.queue);
+            world.tick(&self.device);
             for chunk in &mut world.chunks {
                 if let Some(vertex_buffer) = chunk.1.get_vertices() {
                     render_pass.set_vertex_buffer(0, vertex_buffer.0);

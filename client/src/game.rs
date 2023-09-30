@@ -1,12 +1,12 @@
 use crate::content::{BlockRegistry, BlockRenderDataType};
 use crate::render::{FaceVerticesExtension, Vertex};
-use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position, Vec3};
+use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position};
 use cgmath::{ElementWise, InnerSpace, Matrix4, Point3, SquareMatrix, Vector3};
 use log::warn;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use wgpu::util::DeviceExt;
-use wgpu::{Buffer, BufferSlice, Device, Queue};
+use wgpu::{Buffer, BufferSlice, Device};
 use winit::event::VirtualKeyCode;
 
 pub struct ClientPlayer {
@@ -172,7 +172,6 @@ impl Chunk {
         &mut self,
         block_registry: &BlockRegistry,
         device: &Device,
-        queue: &Queue,
         neighbor_chunks: FaceStorage<&Chunk>,
     ) {
         let mut vertices: Vec<Vertex> = Vec::new();
@@ -277,7 +276,7 @@ impl World {
             modified_chunks: HashSet::new(),
         }
     }
-    pub fn tick(&mut self, device: &Device, queue: &Queue) {
+    pub fn tick(&mut self, device: &Device) {
         for chunk_position in self.modified_chunks.drain() {
             if let Some([chunk, front, back, left, right, up, down]) = self.chunks.get_many_mut([
                 &chunk_position,
@@ -291,7 +290,6 @@ impl World {
                 chunk.rebuild_chunk_mesh(
                     &self.block_registry,
                     device,
-                    queue,
                     FaceStorage {
                         front,
                         back,
@@ -348,7 +346,7 @@ impl World {
             nalgebra::Vector3::new(start_position.x, start_position.y, start_position.z),
             nalgebra::Vector3::new(direction.x as f64, direction.y as f64, direction.z as f64),
             max_distance,
-            |index, hit_pos, hit_normal| {
+            |index, _hit_pos, hit_normal| {
                 let block_position = BlockPosition {
                     x: index.x,
                     y: index.y,

@@ -234,9 +234,7 @@ impl Item {
             });
             let target_chunk = world.get_chunk(block_position.to_chunk_pos()).unwrap();
             target_chunk.announce_to_viewers(NetworkMessageS2C::BlockItem(
-                block_position.x,
-                block_position.y,
-                block_position.z,
+                block_position,
                 0,
                 world
                     .server
