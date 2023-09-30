@@ -11,7 +11,7 @@ mod texture;
 
 use array_init::array_init;
 use block_byte_common::messages::{NetworkMessageC2S, NetworkMessageS2C};
-use block_byte_common::{ChunkPosition, KeyboardKey, Position};
+use block_byte_common::{BlockPosition, ChunkPosition, KeyboardKey, Position};
 use cgmath::Point3;
 use std::collections::HashSet;
 use std::path::Path;
@@ -110,27 +110,54 @@ pub async fn run() {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                if *state == ElementState::Pressed && !gui.is_cursor_locked() {
-                    if let Some(element) = gui.get_selected(render_state.mouse, render_state.size())
-                    {
-                        connection.send_message(&NetworkMessageC2S::GuiClick(
-                            element.0.to_string(),
+                if *state == ElementState::Pressed {
+                    if !gui.is_cursor_locked() {
+                        if let Some(element) =
+                            gui.get_selected(render_state.mouse, render_state.size())
+                        {
+                            connection.send_message(&NetworkMessageC2S::GuiClick(
+                                element.0.to_string(),
+                                match button {
+                                    MouseButton::Left => {
+                                        block_byte_common::messages::MouseButton::Left
+                                    }
+                                    MouseButton::Right => {
+                                        block_byte_common::messages::MouseButton::Right
+                                    }
+
+                                    MouseButton::Middle => {
+                                        block_byte_common::messages::MouseButton::Middle
+                                    }
+
+                                    MouseButton::Other(n) => {
+                                        block_byte_common::messages::MouseButton::Other(*n)
+                                    }
+                                },
+                                keys.contains(&VirtualKeyCode::LShift),
+                            ));
+                        }
+                    } else {
+                        if let Some((position, face)) =
+                            world.raycast(5., camera.get_eye(), camera.make_front())
+                        {
                             match button {
-                                MouseButton::Left => block_byte_common::messages::MouseButton::Left,
+                                MouseButton::Left => {
+                                    connection.send_message(&NetworkMessageC2S::BreakBlock(
+                                        position.x, position.y, position.z,
+                                    ))
+                                }
                                 MouseButton::Right => {
-                                    block_byte_common::messages::MouseButton::Right
+                                    connection.send_message(&NetworkMessageC2S::RightClickBlock(
+                                        position.x,
+                                        position.y,
+                                        position.z,
+                                        face,
+                                        camera.is_shifting(),
+                                    ))
                                 }
-
-                                MouseButton::Middle => {
-                                    block_byte_common::messages::MouseButton::Middle
-                                }
-
-                                MouseButton::Other(n) => {
-                                    block_byte_common::messages::MouseButton::Other(*n)
-                                }
-                            },
-                            keys.contains(&VirtualKeyCode::LShift),
-                        ));
+                                _ => {}
+                            }
+                        }
                     }
                 }
             }
@@ -203,7 +230,9 @@ pub async fn run() {
             }
             for message in connection.read_messages() {
                 match message {
-                    NetworkMessageS2C::SetBlock(_, _, _, _) => {}
+                    NetworkMessageS2C::SetBlock(x, y, z, id) => {
+                        world.set_block(BlockPosition { x, y, z }, id);
+                    }
                     NetworkMessageS2C::LoadChunk(x, y, z, palette, blocks) => {
                         let position = ChunkPosition { x, y, z };
                         let mut decoder = flate2::read::GzDecoder::new(blocks.as_slice());

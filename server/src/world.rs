@@ -1983,7 +1983,7 @@ impl WorldBlock {
             )
             .unwrap();
     }
-    pub fn arc(&self) -> Arc<WorldBlock> {
+    pub fn ptr(&self) -> Arc<WorldBlock> {
         self.this.upgrade().unwrap()
     }
 }

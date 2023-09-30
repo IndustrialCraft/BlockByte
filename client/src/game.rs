@@ -1,7 +1,8 @@
 use crate::content::{BlockRegistry, BlockRenderDataType};
 use crate::render::{FaceVerticesExtension, Vertex};
-use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position};
+use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position, Vec3};
 use cgmath::{ElementWise, InnerSpace, Matrix4, Point3, SquareMatrix, Vector3};
+use log::warn;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use wgpu::util::DeviceExt;
@@ -45,6 +46,14 @@ impl ClientPlayer {
             self.velocity = Vector3::new(0., 0., 0.);
         }
         self.velocity += Vector3::new(x, y, z);
+    }
+    pub fn get_eye(&self) -> Position {
+        Position {
+            x: self.position.x as f64,
+            y: self.position.y as f64,
+            z: self.position.z as f64,
+        }
+        .add(0., self.eye_height_diff() as f64, 0.)
     }
     pub fn update_position(
         &mut self,
@@ -239,19 +248,14 @@ impl Chunk {
         if vertices.len() == 0 {
             self.buffer = None;
         } else {
-            if let Some((buffer, vertex_count)) = &mut self.buffer {
-                queue.write_buffer(buffer, 0, bytemuck::cast_slice(vertices.as_slice()));
-                *vertex_count = vertices.len() as u32;
-            } else {
-                self.buffer = Some((
-                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Chunk Vertex Buffer"),
-                        contents: bytemuck::cast_slice(vertices.as_slice()),
-                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    }),
-                    vertices.len() as u32,
-                ));
-            }
+            self.buffer = Some((
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Chunk Vertex Buffer"),
+                    contents: bytemuck::cast_slice(vertices.as_slice()),
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                }),
+                vertices.len() as u32,
+            ));
         }
     }
     pub fn get_vertices(&mut self) -> Option<(BufferSlice, u32)> {
@@ -309,5 +313,68 @@ impl World {
     }
     pub fn unload_chunk(&mut self, position: ChunkPosition) {
         self.chunks.remove(&position);
+    }
+    pub fn set_block(&mut self, position: BlockPosition, id: u32) {
+        let chunk_position = position.to_chunk_pos();
+        let offset = position.chunk_offset();
+        if let Some(chunk) = self.chunks.get_mut(&chunk_position) {
+            chunk.blocks[offset.0 as usize][offset.1 as usize][offset.2 as usize] = id;
+            for face in Face::all() {
+                if position.offset_by_face(*face).to_chunk_pos() != chunk_position {
+                    self.modified_chunks
+                        .insert(chunk_position.with_offset(face));
+                }
+            }
+            self.modified_chunks.insert(chunk_position);
+        } else {
+            warn!("setting block in unloaded chunk");
+        }
+    }
+    pub fn get_block(&self, position: BlockPosition) -> Option<u32> {
+        let chunk = position.to_chunk_pos();
+        let offset = position.chunk_offset();
+        self.chunks
+            .get(&chunk)
+            .map(|chunk| chunk.blocks[offset.0 as usize][offset.1 as usize][offset.2 as usize])
+    }
+    pub fn raycast(
+        &self,
+        max_distance: f64,
+        start_position: Position,
+        direction: Vector3<f32>,
+    ) -> Option<(BlockPosition, Face)> {
+        let mut output = None;
+        voxel_tile_raycast::voxel_raycast(
+            nalgebra::Vector3::new(start_position.x, start_position.y, start_position.z),
+            nalgebra::Vector3::new(direction.x as f64, direction.y as f64, direction.z as f64),
+            max_distance,
+            |index, hit_pos, hit_normal| {
+                let block_position = BlockPosition {
+                    x: index.x,
+                    y: index.y,
+                    z: index.z,
+                };
+                let block = self.get_block(block_position);
+                if self.block_registry.get_block(block.unwrap_or(0)).selectable {
+                    output = Some((
+                        block_position,
+                        Face::all()
+                            .iter()
+                            .find(|face| {
+                                let offset = face.get_offset();
+                                offset.x == hit_normal.x
+                                    && offset.y == hit_normal.y
+                                    && offset.z == hit_normal.z
+                            })
+                            .cloned()
+                            .unwrap_or(Face::Up),
+                    ));
+                    true
+                } else {
+                    false
+                }
+            },
+        );
+        output
     }
 }
