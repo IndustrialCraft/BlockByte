@@ -369,7 +369,7 @@ impl Chunk {
         chunk
     }
     pub fn load_from_save(&self, save_path: PathBuf) -> Result<[[[BlockData; 16]; 16]; 16], ()> {
-        let chunk_save_data = bitcode::deserialize::<ChunkSaveData>(
+        let mut chunk_save_data = bitcode::deserialize::<ChunkSaveData>(
             std::fs::read(save_path).map_err(|_| ())?.as_slice(),
         )
         .map_err(|_| ())?;
@@ -396,20 +396,13 @@ impl Chunk {
                             z: (self.position.z * 16) + z as i32,
                         },
                     );
-                    if let BlockData::Data(_block) = &block_data {
-                        /*let mut length: u32 = data.read_be().unwrap_or(0);
-                        let mut block_data: Vec<u8> = Vec::with_capacity(length as usize);
-                        for _ in 0..length {
-                            if let Ok(data) = data.read_be() {
-                                block_data.push(data);
-                            } else {
-                                length = 0;
-                            }
+                    if let BlockData::Data(block) = &block_data {
+                        if let Some(data) = chunk_save_data
+                            .block_data
+                            .remove(&(x as u8, y as u8, z as u8))
+                        {
+                            block.deserialize(data);
                         }
-                        if length > 0 {
-                            block.deserialize(block_data.as_slice());
-                        }*/
-                        //todo
                     }
                     block_data
                 })
@@ -593,11 +586,12 @@ impl Chunk {
                     let mut block_map = FxHashMap::default();
                     let blocks = chunk.blocks.lock();
                     let block_registry = &chunk.world.server.block_registry;
+                    let mut block_data = HashMap::new();
                     for x in 0..16 {
                         for y in 0..16 {
                             for z in 0..16 {
                                 let block = &blocks[x][y][z];
-                                let (block_state_ref, _serialized_block) = match block {
+                                let (block_state_ref, serialized_block) = match block {
                                     BlockData::Simple(id) => {
                                         (BlockStateRef::from_state_id(*id), None)
                                     }
@@ -611,11 +605,10 @@ impl Chunk {
                                 let numeric_id =
                                     *block_map.entry(block_id).or_insert(block_map_len);
                                 blocks_save[x][y][z] = numeric_id as u16;
-                                /*if let Some(mut serialized_block) = serialized_block {
-                                    block_data.write_be(serialized_block.len() as u32).unwrap();
-                                    block_data.append(&mut serialized_block);
-                                }*/
-                                //todo
+                                if let Some(serialized_block) = serialized_block {
+                                    block_data
+                                        .insert((x as u8, y as u8, z as u8), serialized_block);
+                                }
                             }
                         }
                     }
@@ -626,6 +619,7 @@ impl Chunk {
                             block_map.sort_by(|first, second| first.1.cmp(second.1));
                             block_map.iter().map(|e| e.0.to_string()).collect()
                         },
+                        block_data,
                     };
                     std::fs::write(
                         chunk.get_chunk_path(),
@@ -651,6 +645,7 @@ impl Chunk {
 pub struct ChunkSaveData {
     palette: Vec<String>,
     blocks: [[[u16; 16]; 16]; 16],
+    block_data: HashMap<(u8, u8, u8), Vec<u8>>,
 }
 
 struct ChunkViewer {
@@ -1936,10 +1931,10 @@ impl WorldBlock {
     pub fn serialize(&self) -> Vec<u8> {
         self.inventory.serialize()
     }
-    pub fn deserialize(&self, data: &[u8]) {
+    pub fn deserialize(&self, data: Vec<u8>) {
         self.inventory
             .deserialize(
-                data,
+                data.as_slice(),
                 &self.chunk.upgrade().unwrap().world.server.item_registry,
             )
             .unwrap();
