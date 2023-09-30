@@ -7,7 +7,7 @@ use block_byte_common::{Face, Position, TexCoords};
 use image::RgbaImage;
 use std::iter;
 use wgpu::util::DeviceExt;
-use wgpu::{Buffer, Device, Sampler, TextureView};
+use wgpu::{BlendState, Buffer, Device, LoadOp, Sampler, TextureView};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::window::Window;
 
@@ -19,6 +19,8 @@ pub struct RenderState {
     size: PhysicalSize<u32>,
     window: Window,
     chunk_render_pipeline: wgpu::RenderPipeline,
+    chunk_transparent_render_pipeline: wgpu::RenderPipeline,
+    chunk_foliage_render_pipeline: wgpu::RenderPipeline,
     gui_render_pipeline: wgpu::RenderPipeline,
     texture: Texture,
     camera_uniform: CameraUniform,
@@ -115,6 +117,7 @@ impl RenderState {
             label: Some("camera_bind_group"),
         });
 
+        let depth_texture = texture::create_depth_texture(&device, &config, "depth_texture");
         let chunk_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Chunk Render Pipeline Layout"),
@@ -124,7 +127,6 @@ impl RenderState {
                 ],
                 push_constant_ranges: &[],
             });
-        let depth_texture = texture::create_depth_texture(&device, &config, "depth_texture");
         let chunk_render_pipeline =
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Chunk Render Pipeline"),
@@ -148,6 +150,88 @@ impl RenderState {
                     strip_index_format: None,
                     front_face: wgpu::FrontFace::Ccw,
                     cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+            });
+        let chunk_transparent_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Chunk Transparent Render Pipeline"),
+                layout: Some(&chunk_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &chunk_shader,
+                    entry_point: "vs_main",
+                    buffers: &[Vertex::desc()],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &chunk_shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: config.format,
+                        blend: Some(BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+            });
+        let chunk_foliage_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Chunk Foliage Render Pipeline"),
+                layout: Some(&chunk_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &chunk_shader,
+                    entry_point: "vs_main",
+                    buffers: &[Vertex::desc()],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &chunk_shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: config.format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
                     polygon_mode: wgpu::PolygonMode::Fill,
                     unclipped_depth: false,
                     conservative: false,
@@ -214,6 +298,8 @@ impl RenderState {
             config,
             size,
             chunk_render_pipeline,
+            chunk_transparent_render_pipeline,
+            chunk_foliage_render_pipeline,
             gui_render_pipeline,
             texture,
             camera_uniform,
@@ -301,7 +387,69 @@ impl RenderState {
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             world.tick(&self.device);
             for chunk in &mut world.chunks {
-                if let Some(vertex_buffer) = chunk.1.get_vertices() {
+                if let Some(vertex_buffer) = chunk.1.get_vertices().0 {
+                    render_pass.set_vertex_buffer(0, vertex_buffer.0);
+                    render_pass.draw(0..vertex_buffer.1, 0..1);
+                }
+            }
+        }
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Foliage Chunk Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: LoadOp::Load,
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.2,
+                    depth_ops: Some(wgpu::Operations {
+                        load: LoadOp::Load,
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
+            });
+            render_pass.set_pipeline(&self.chunk_foliage_render_pipeline);
+            render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            world.tick(&self.device);
+            for chunk in &mut world.chunks {
+                if let Some(vertex_buffer) = chunk.1.get_vertices().2 {
+                    render_pass.set_vertex_buffer(0, vertex_buffer.0);
+                    render_pass.draw(0..vertex_buffer.1, 0..1);
+                }
+            }
+        }
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Transparent Chunk Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: LoadOp::Load,
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.2,
+                    depth_ops: Some(wgpu::Operations {
+                        load: LoadOp::Load,
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
+            });
+            render_pass.set_pipeline(&self.chunk_transparent_render_pipeline);
+            render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            world.tick(&self.device);
+            for chunk in &mut world.chunks {
+                if let Some(vertex_buffer) = chunk.1.get_vertices().1 {
                     render_pass.set_vertex_buffer(0, vertex_buffer.0);
                     render_pass.draw(0..vertex_buffer.1, 0..1);
                 }

@@ -156,6 +156,19 @@ pub struct BlockData {
     pub transparent: bool,
     pub selectable: bool,
 }
+impl BlockData {
+    pub fn is_face_full(&self, _face: Face) -> bool {
+        if self.transparent {
+            return false;
+        }
+        match self.block_type {
+            BlockRenderDataType::Air => false,
+            BlockRenderDataType::Cube(_) => true,
+            BlockRenderDataType::Static(_) => false, //todo
+            BlockRenderDataType::Foliage(_) => false,
+        }
+    }
+}
 
 pub struct BlockDynamicData {
     //todo: model
@@ -168,16 +181,6 @@ pub enum BlockRenderDataType {
     Cube(BlockCubeRenderData),
     Static(BlockStaticRenderData),
     Foliage(BlockFoliageRenderData),
-}
-impl BlockRenderDataType {
-    pub fn is_face_full(&self, _face: Face) -> bool {
-        match self {
-            BlockRenderDataType::Air => false,
-            BlockRenderDataType::Cube(_) => true,
-            BlockRenderDataType::Static(_) => false, //todo
-            BlockRenderDataType::Foliage(_) => false,
-        }
-    }
 }
 
 pub struct BlockCubeRenderData {

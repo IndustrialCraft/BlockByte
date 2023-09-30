@@ -159,6 +159,8 @@ pub struct Chunk {
     position: ChunkPosition,
     blocks: [[[u32; 16]; 16]; 16],
     buffer: Option<(Buffer, u32)>,
+    transparent_buffer: Option<(Buffer, u32)>,
+    foliage_buffer: Option<(Buffer, u32)>,
 }
 impl Chunk {
     pub fn new(position: ChunkPosition, blocks: [[[u32; 16]; 16]; 16]) -> Self {
@@ -166,6 +168,8 @@ impl Chunk {
             position,
             blocks,
             buffer: None,
+            transparent_buffer: None,
+            foliage_buffer: None,
         }
     }
     pub fn rebuild_chunk_mesh(
@@ -175,6 +179,8 @@ impl Chunk {
         neighbor_chunks: FaceStorage<&Chunk>,
     ) {
         let mut vertices: Vec<Vertex> = Vec::new();
+        let mut transparent_vertices: Vec<Vertex> = Vec::new();
+        let mut foliage_vertices: Vec<Vertex> = Vec::new();
         for x in 0..16 {
             for y in 0..16 {
                 for z in 0..16 {
@@ -207,13 +213,20 @@ impl Chunk {
                                         [neighbor_offset.1 as usize]
                                         [neighbor_offset.2 as usize],
                                 );
-                                if neighbor_block.block_type.is_face_full(face.opposite()) {
+                                if neighbor_block.is_face_full(face.opposite())
+                                    || (neighbor_block.transparent && block.transparent)
+                                {
                                     continue;
                                 }
 
                                 let texture = cube_data.by_face(*face);
                                 face.add_vertices(texture, &mut |position, coords| {
-                                    vertices.push(Vertex {
+                                    (if block.transparent {
+                                        &mut transparent_vertices
+                                    } else {
+                                        &mut vertices
+                                    })
+                                    .push(Vertex {
                                         position: [
                                             (base_position.x + position.x) as f32,
                                             (base_position.y + position.y) as f32,
@@ -239,7 +252,32 @@ impl Chunk {
                                 },
                             );
                         }
-                        BlockRenderDataType::Foliage(_) => {}
+                        BlockRenderDataType::Foliage(foliage) => {
+                            for face in &[Face::Front, Face::Back, Face::Left, Face::Right] {
+                                face.add_vertices(
+                                    match face {
+                                        Face::Front => foliage.texture_1,
+                                        Face::Back => foliage.texture_2,
+                                        Face::Left => foliage.texture_3,
+                                        Face::Right => foliage.texture_4,
+                                        _ => unreachable!(),
+                                    },
+                                    &mut |position, coords| {
+                                        let shift = face.opposite().get_offset();
+                                        foliage_vertices.push(Vertex {
+                                            position: [
+                                                (base_position.x + position.x) as f32
+                                                    + (shift.x as f32 * 0.3),
+                                                (base_position.y + position.y) as f32,
+                                                (base_position.z + position.z) as f32
+                                                    + (shift.z as f32 * 0.3),
+                                            ],
+                                            tex_coords: [coords.0, coords.1],
+                                        });
+                                    },
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -256,11 +294,49 @@ impl Chunk {
                 vertices.len() as u32,
             ));
         }
+        if transparent_vertices.len() == 0 {
+            self.transparent_buffer = None;
+        } else {
+            self.transparent_buffer = Some((
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Chunk Transparent Vertex Buffer"),
+                    contents: bytemuck::cast_slice(transparent_vertices.as_slice()),
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                }),
+                transparent_vertices.len() as u32,
+            ));
+        }
+        if foliage_vertices.len() == 0 {
+            self.foliage_buffer = None;
+        } else {
+            self.foliage_buffer = Some((
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Chunk Transparent Vertex Buffer"),
+                    contents: bytemuck::cast_slice(foliage_vertices.as_slice()),
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                }),
+                foliage_vertices.len() as u32,
+            ));
+        }
     }
-    pub fn get_vertices(&mut self) -> Option<(BufferSlice, u32)> {
-        self.buffer
-            .as_ref()
-            .map(|buffer| (buffer.0.slice(..), buffer.1))
+    pub fn get_vertices(
+        &mut self,
+    ) -> (
+        Option<(BufferSlice, u32)>,
+        Option<(BufferSlice, u32)>,
+        Option<(BufferSlice, u32)>,
+    ) {
+        (
+            self.buffer
+                .as_ref()
+                .map(|buffer| (buffer.0.slice(..), buffer.1)),
+            self.transparent_buffer
+                .as_ref()
+                .map(|buffer| (buffer.0.slice(..), buffer.1)),
+            self.foliage_buffer
+                .as_ref()
+                .map(|buffer| (buffer.0.slice(..), buffer.1)),
+        )
     }
 }
 pub struct World {
