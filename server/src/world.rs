@@ -862,11 +862,7 @@ impl Entity {
                 || {
                     let mut slots = Vec::with_capacity(9);
                     for i in 0..9 {
-                        slots.push((
-                            PositionAnchor::Bottom,
-                            (i as f32 * 130.) - (4.5 * 130.),
-                            100.,
-                        ));
+                        slots.push((PositionAnchor::Bottom, ((i - 4) as f32 * 130.), 100.));
                     }
                     slots
                 },
@@ -1254,8 +1250,8 @@ impl Entity {
                                                 for y in 0..3 {
                                                     for x in 0..9 {
                                                         slots.push((PositionAnchor::Center,
-                                                            (x as f32 * 130.) - (4.5 * 130.),
-                                                            y as f32 * 150.,
+                                                            ((x-4) as f32 * 130.),
+                                                                    (y-1) as f32 * 130.,
                                                         ));
                                                     }
                                                 }
@@ -1318,7 +1314,7 @@ impl Entity {
                                                         for i in 0..9 {
                                                             slots.push((
                                                                 PositionAnchor::Center,
-                                                                (i as f32 * 130.) - (4.5 * 130.),
+                                                                ((i - 4) as f32 * 130.),
                                                                 0.,
                                                             ));
                                                         }
@@ -1345,8 +1341,8 @@ impl Entity {
                                             for y in 0..3 {
                                                 for x in 0..9 {
                                                     slots.push((PositionAnchor::Center,
-                                                        (x as f32 * 130.) - (4.5 * 130.),
-                                                        y as f32 * 150.,
+                                                        ((x-4) as f32 * 130.),
+                                                                (y-1) as f32 * 130.,
                                                     ));
                                                 }
                                             }
@@ -1960,7 +1956,7 @@ impl WorldBlock {
                 || {
                     let mut slots = Vec::with_capacity(9);
                     for i in 0..9 {
-                        slots.push((PositionAnchor::Center, (i as f32 * 130.) - (4.5 * 130.), 0.));
+                        slots.push((PositionAnchor::Center, ((i - 4) as f32 * 130.), 0.));
                     }
                     slots
                 },

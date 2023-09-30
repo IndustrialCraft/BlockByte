@@ -32,7 +32,7 @@ impl<'a> GUIRenderer<'a> {
                 contents: &[],
                 usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
             }),
-            gui_scale: 1. / 1000.,
+            gui_scale: 1. / 700.,
             cursor_locked: true,
             text_renderer,
         }
