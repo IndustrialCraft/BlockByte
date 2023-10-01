@@ -53,6 +53,7 @@ impl BlockRegistry {
                         render_data: 0,
                         transparent: false,
                         selectable: false,
+                        no_collide: true,
                     },
                     parent: block.clone(),
                     breaking_data: (0., None),

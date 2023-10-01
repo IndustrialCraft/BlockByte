@@ -145,6 +145,7 @@ impl BlockRegistry {
             render_data: block_data.render_data,
             selectable: block_data.selectable,
             transparent: block_data.transparent,
+            no_collide: block_data.no_collide,
         });
     }
 }
@@ -155,6 +156,7 @@ pub struct BlockData {
     pub render_data: u8,
     pub transparent: bool,
     pub selectable: bool,
+    pub no_collide: bool,
 }
 impl BlockData {
     pub fn is_face_full(&self, _face: Face) -> bool {

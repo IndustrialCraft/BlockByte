@@ -326,6 +326,108 @@ impl ops::Mul for Color {
         }
     }
 }
+
+pub struct AABB {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    pub w: f64,
+    pub h: f64,
+    pub d: f64,
+}
+impl AABB {
+    pub fn calc_second_point(&self) -> (f64, f64, f64) {
+        (self.x + self.w, self.y + self.h, self.z + self.d)
+    }
+    pub fn collides(&self, other: &AABB) -> bool {
+        let (x2, y2, z2) = self.calc_second_point();
+        let (other_x2, other_y2, other_z2) = other.calc_second_point();
+
+        x2 > other.x
+            && self.x < other_x2
+            && y2 > other.y
+            && self.y < other_y2
+            && z2 > other.z
+            && self.z < other_z2
+    }
+    pub fn move_by(&self, x: f64, y: f64, z: f64) -> AABB {
+        AABB {
+            x: self.x + x,
+            y: self.y + y,
+            z: self.z + z,
+            w: self.w,
+            h: self.h,
+            d: self.d,
+        }
+    }
+    pub fn set_position(&mut self, position: Position) {
+        self.x = position.x;
+        self.y = position.y;
+        self.z = position.z;
+    }
+    pub fn get_position(&mut self) -> Position {
+        Position {
+            x: self.x,
+            y: self.y,
+            z: self.z,
+        }
+    }
+    pub fn iter_blocks(&self) -> AABBBlockIterator {
+        let second_point = self.calc_second_point();
+        let iterator = AABBBlockIterator {
+            start_x: (self.x + 0.05).floor() as i32,
+            start_y: (self.y + 0.05).floor() as i32,
+            end_x: (second_point.0 - 0.05).ceil() as i32 - 1,
+            end_y: (second_point.1 - 0.05).ceil() as i32 - 1,
+            end_z: (second_point.2 - 0.05).ceil() as i32 - 1,
+            x: (self.x + 0.05).floor() as i32,
+            y: (self.y + 0.05).floor() as i32,
+            z: (self.z + 0.05).floor() as i32,
+            finished: false,
+        };
+        iterator
+    }
+}
+pub struct AABBBlockIterator {
+    start_x: i32,
+    start_y: i32,
+    end_x: i32,
+    end_y: i32,
+    end_z: i32,
+    x: i32,
+    y: i32,
+    z: i32,
+    finished: bool,
+}
+
+impl Iterator for AABBBlockIterator {
+    type Item = BlockPosition;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+        if self.x > self.end_x {
+            self.x = self.start_x;
+            self.y += 1;
+            if self.y > self.end_y {
+                self.y = self.start_y;
+                self.z += 1;
+                if self.z > self.end_z {
+                    self.finished = true;
+                    return None;
+                }
+            }
+        }
+        let return_position = Some(BlockPosition {
+            x: self.x,
+            y: self.y,
+            z: self.z,
+        });
+        self.x += 1;
+        return_position
+    }
+}
+
 //from winit
 #[derive(Serialize, Deserialize)]
 pub enum KeyboardKey {

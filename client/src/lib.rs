@@ -66,11 +66,14 @@ pub async fn run() {
             .expect("Couldn't append canvas to document body.");
     }
     let mut render_state = RenderState::new(window, texture_image).await;
-    let mut camera = ClientPlayer::at_position(Position {
-        x: 0.,
-        y: 0.,
-        z: 0.,
-    });
+    let mut camera = ClientPlayer::at_position(
+        Position {
+            x: 0.,
+            y: 0.,
+            z: 0.,
+        },
+        block_registry.clone(),
+    );
     let mut keys = HashSet::new();
     let mut world = World::new(block_registry.clone());
     let mut gui = GUIRenderer::new(texture_atlas, render_state.device(), text_renderer);
@@ -204,7 +207,7 @@ pub async fn run() {
             let dt = now - last_render_time;
             last_render_time = now;
             let dt = dt.as_secs_f32();
-            camera.update_position(&keys, dt);
+            camera.update_position(&keys, dt, &world);
             render_state.window().set_title(&format!(
                 "BlockByte x: {} y: {} z: {} fps: {}",
                 camera.position.x,
@@ -280,16 +283,15 @@ pub async fn run() {
                     NetworkMessageS2C::MoveEntity(_, _, _) => {}
                     NetworkMessageS2C::DeleteEntity(_) => {}
                     NetworkMessageS2C::BlockBreakTimeResponse(_, _) => {}
-                    NetworkMessageS2C::EntityItem(_, _, _) => {}
-                    NetworkMessageS2C::BlockItem(_, _, _) => {}
                     NetworkMessageS2C::Knockback(x, y, z, set) => {
                         camera.knockback(x, y, z, set);
                     }
                     NetworkMessageS2C::FluidSelectable(_) => {}
                     NetworkMessageS2C::PlaySound(_, _, _, _, _) => {}
-                    NetworkMessageS2C::EntityAnimation(_, _) => {}
                     NetworkMessageS2C::ChatMessage(_) => {}
-                    NetworkMessageS2C::PlayerAbilities(_, _) => {}
+                    NetworkMessageS2C::PlayerAbilities(speed, movement_type) => {
+                        camera.set_abilities(speed, movement_type);
+                    }
                     NetworkMessageS2C::TeleportPlayer(position, rotation) => {
                         camera.position =
                             Point3::new(position.x as f32, position.y as f32, position.z as f32);
@@ -297,6 +299,9 @@ pub async fn run() {
                         first_teleport = true;
                     }
                     NetworkMessageS2C::BlockAnimation(_, _) => {}
+                    NetworkMessageS2C::EntityAnimation(_, _) => {}
+                    NetworkMessageS2C::EntityItem(_, _, _) => {}
+                    NetworkMessageS2C::BlockItem(_, _, _) => {}
                 }
             }
             match render_state.render(&camera, &mut world, &mut gui, &item_registry) {

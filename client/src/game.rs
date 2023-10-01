@@ -1,6 +1,7 @@
 use crate::content::{BlockRegistry, BlockRenderDataType};
 use crate::render::{FaceVerticesExtension, Vertex};
-use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position};
+use block_byte_common::messages::MovementType;
+use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position, AABB};
 use cgmath::{ElementWise, InnerSpace, Matrix4, Point3, SquareMatrix, Vector3};
 use log::warn;
 use std::collections::{HashMap, HashSet};
@@ -17,7 +18,9 @@ pub struct ClientPlayer {
     shifting: bool,
     shifting_animation: f32,
     pub last_moved: bool,
-    pub speed: f32,
+    speed: f32,
+    movement_type: MovementType,
+    block_registry: Rc<BlockRegistry>,
 }
 impl ClientPlayer {
     const UP: Vector3<f32> = Vector3 {
@@ -59,6 +62,7 @@ impl ClientPlayer {
         &mut self,
         keys: &std::collections::HashSet<VirtualKeyCode>,
         delta_time: f32,
+        world: &World,
     ) {
         let mut forward = self.make_front();
         forward.y = 0.;
@@ -84,18 +88,83 @@ impl ClientPlayer {
         }
         if self.shifting {
             move_vector /= 2.;
-            move_vector.y -= 1.;
         }
-        if keys.contains(&VirtualKeyCode::Space) {
-            move_vector.y += 1.;
+        let position = Position {
+            x: self.position.x as f64,
+            y: self.position.y as f64,
+            z: self.position.z as f64,
+        };
+        if self.movement_type == MovementType::Normal {
+            if keys.contains(&VirtualKeyCode::Space) {
+                let block = world.get_block(position.to_block_pos()).unwrap();
+                let block = self.block_registry.get_block(block);
+                if block.fluid {
+                    move_vector.y += 1.;
+                    self.velocity.y = 0.;
+                } else {
+                    if self.collides_at(position.add(0., -0.2, 0.), world) {
+                        self.velocity.y = 5.5;
+                    }
+                }
+            }
+        } else {
+            if keys.contains(&VirtualKeyCode::Space) {
+                move_vector.y += 1.;
+            }
+            if keys.contains(&VirtualKeyCode::LShift) {
+                move_vector.y -= 1.;
+            }
         }
 
         move_vector *= self.speed;
         move_vector *= 5.;
 
-        let total_move = (move_vector + self.velocity) * delta_time;
+        let mut total_move = (move_vector + self.velocity) * delta_time;
 
         self.last_moved = move_vector.magnitude() > 0.;
+
+        if (total_move.x != 0.
+            && self.shifting
+            && self.collides_at(position.add(0., -0.1, 0.), world))
+            && !self.collides_at(position.add(total_move.x as f64, -0.1, 0.), world)
+        {
+            total_move.x = 0.;
+            self.velocity.x = 0.;
+        }
+        if (total_move.z != 0.
+            && self.shifting
+            && self.collides_at(position.add(total_move.x as f64, -0.1, 0.), world))
+            && !self.collides_at(
+                position.add(total_move.x as f64, -0.1, total_move.z as f64),
+                world,
+            )
+        {
+            total_move.z = 0.;
+            self.velocity.z = 0.;
+        }
+
+        if self.collides_at(position.add(total_move.x as f64, 0., 0.), world) {
+            total_move.x = 0.;
+            self.velocity.x = 0.;
+        }
+        if self.collides_at(
+            position.add(total_move.x as f64, total_move.y as f64, 0.),
+            world,
+        ) {
+            total_move.y = 0.;
+            self.velocity.y = 0.;
+        }
+        if self.collides_at(
+            position.add(
+                total_move.x as f64,
+                total_move.y as f64,
+                total_move.z as f64,
+            ),
+            world,
+        ) {
+            total_move.z = 0.;
+            self.velocity.z = 0.;
+        }
 
         let drag_coefficient = 0.025;
         let drag = self
@@ -109,12 +178,34 @@ impl ClientPlayer {
             * drag_coefficient;
         self.velocity -= drag * delta_time;
         self.position += total_move;
-        //self.velocity.y -= delta_time * 15f32;
+        self.velocity.y -= delta_time * 15f32;
 
         self.shifting_animation += (if self.shifting { 1. } else { -1. }) * delta_time * 4.;
         self.shifting_animation = self.shifting_animation.clamp(0., 0.5);
     }
-    pub const fn at_position(position: Position) -> Self {
+    fn collides_at(&self, position: Position, world: &World) -> bool {
+        if self.movement_type == MovementType::NoClip {
+            return false;
+        }
+        let bounding_box = AABB {
+            x: position.x - 0.3,
+            y: position.y,
+            z: position.z - 0.3,
+            w: 0.6,
+            h: self.eye_height_diff() as f64 + 0.2,
+            d: 0.6,
+        };
+        for block_pos in bounding_box.iter_blocks() {
+            if world.get_block(block_pos).map_or(true, |block| {
+                let block = self.block_registry.get_block(block);
+                !block.fluid && !block.no_collide
+            }) {
+                return true;
+            }
+        }
+        return false;
+    }
+    pub const fn at_position(position: Position, block_registry: Rc<BlockRegistry>) -> Self {
         Self {
             position: Point3 {
                 x: position.x as f32,
@@ -128,7 +219,13 @@ impl ClientPlayer {
             shifting_animation: 0f32,
             last_moved: false,
             speed: 1.,
+            movement_type: MovementType::NoClip,
+            block_registry,
         }
+    }
+    pub fn set_abilities(&mut self, speed: f32, movement_type: MovementType) {
+        self.speed = speed;
+        self.movement_type = movement_type;
     }
     fn eye_height_diff(&self) -> f32 {
         1.75 - self.shifting_animation
@@ -152,7 +249,7 @@ impl ClientPlayer {
         )
     }
     pub fn create_projection_matrix(&self, aspect: f32) -> Matrix4<f32> {
-        cgmath::perspective(cgmath::Deg(90.), aspect, 0.1, 100.)
+        cgmath::perspective(cgmath::Deg(90.), aspect, 0.001, 1000.)
     }
 }
 pub struct Chunk {

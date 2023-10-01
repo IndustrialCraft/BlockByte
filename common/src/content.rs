@@ -17,6 +17,7 @@ pub struct ClientBlockData {
     pub render_data: u8,
     pub transparent: bool,
     pub selectable: bool,
+    pub no_collide: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

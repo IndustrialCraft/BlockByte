@@ -631,6 +631,7 @@ impl BlockBuilder {
                 render_data: 0,
                 transparent: false,
                 selectable: true,
+                no_collide: false,
             },
             data_container: false,
             breaking_data: (1., None),
@@ -644,6 +645,7 @@ impl BlockBuilder {
     }
     pub fn no_collide(this: &mut Arc<Mutex<Self>>) -> Arc<Mutex<Self>> {
         this.lock().no_collide = true;
+        this.lock().client.no_collide = true;
         this.clone()
     }
     pub fn loot(this: &mut Arc<Mutex<Self>>, id: &str) -> Arc<Mutex<Self>> {
