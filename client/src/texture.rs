@@ -230,9 +230,10 @@ pub fn pack_textures(
     )
 }
 
+#[derive(Clone)]
 pub struct TextureAtlas {
     textures: HashMap<String, TexCoords>,
-    missing_texture: TexCoords,
+    pub missing_texture: TexCoords,
 }
 impl TextureAtlas {
     pub fn get(&self, texture: &str) -> TexCoords {

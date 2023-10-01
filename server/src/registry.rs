@@ -234,16 +234,18 @@ impl Item {
                 _ => None,
             });
             let target_chunk = world.get_chunk(block_position.to_chunk_pos()).unwrap();
-            /*target_chunk.announce_to_viewers(NetworkMessageS2C::BlockItem(
+            target_chunk.announce_to_viewers(NetworkMessageS2C::BlockItem(
                 block_position,
                 0,
-                world
-                    .server
-                    .item_registry
-                    .item_by_identifier(&Identifier::new("example", "log_block"))
-                    .unwrap()
-                    .client_id,
-            ));*/
+                Some(
+                    world
+                        .server
+                        .item_registry
+                        .item_by_identifier(&Identifier::new("example", "log_block"))
+                        .unwrap()
+                        .client_id,
+                ),
+            ));
             target_chunk.announce_to_viewers(NetworkMessageS2C::BlockAnimation(block_position, 0));
             return InteractionResult::Consumed;
         }

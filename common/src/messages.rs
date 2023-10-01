@@ -17,7 +17,7 @@ pub enum NetworkMessageS2C {
     SetCursorLock(bool),
     BlockBreakTimeResponse(u32, f32),
     EntityItem(u32, u32, u32),
-    BlockItem(BlockPosition, u32, u32),
+    BlockItem(BlockPosition, u32, Option<u32>),
     Knockback(f32, f32, f32, bool),
     FluidSelectable(bool),
     PlaySound(String, Position, f32, f32, bool),

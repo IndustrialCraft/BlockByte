@@ -124,6 +124,8 @@ impl BlockRegistry {
                                 .unwrap_or(models.get("missing").unwrap())
                                 .clone(),
                             texture_atlas.get(static_data.texture.as_str()),
+                            Vec::new(),
+                            Vec::new(),
                         ),
                     })
                 }
@@ -137,16 +139,16 @@ impl BlockRegistry {
                     })
                 }
             },
-            dynamic: block_data.dynamic.map(|dynamic| BlockDynamicData {
-                model: Model::new(
+            dynamic: block_data.dynamic.map(|dynamic| {
+                Model::new(
                     models
                         .get(dynamic.model.as_str())
                         .unwrap_or(models.get("missing").unwrap())
                         .clone(),
                     texture_atlas.get(dynamic.texture.as_str()),
-                ),
-                animations: dynamic.animations,
-                items: dynamic.items,
+                    dynamic.animations,
+                    dynamic.items,
+                )
             }),
             fluid: block_data.fluid,
             render_data: block_data.render_data,
@@ -158,7 +160,7 @@ impl BlockRegistry {
 }
 pub struct BlockData {
     pub block_type: BlockRenderDataType,
-    pub dynamic: Option<BlockDynamicData>,
+    pub dynamic: Option<Model>,
     pub fluid: bool,
     pub render_data: u8,
     pub transparent: bool,
@@ -177,12 +179,6 @@ impl BlockData {
             BlockRenderDataType::Foliage(_) => false,
         }
     }
-}
-
-pub struct BlockDynamicData {
-    pub model: Model,
-    pub animations: Vec<String>,
-    pub items: Vec<String>,
 }
 
 pub enum BlockRenderDataType {

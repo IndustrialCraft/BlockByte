@@ -117,6 +117,7 @@ impl ModelCubeElement {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModelItemElement {
+    pub name: String,
     pub position: Vec3,
     pub rotation: Vec3,
     pub origin: Vec3,

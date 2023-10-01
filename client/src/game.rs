@@ -255,6 +255,7 @@ impl ClientPlayer {
 pub struct DynamicBlockData {
     pub id: u32,
     pub animation: Option<(u32, f32)>,
+    pub items: HashMap<String, u32>,
 }
 pub struct Chunk {
     position: ChunkPosition,
@@ -341,6 +342,7 @@ impl Chunk {
                         BlockRenderDataType::Static(model) => {
                             model.model.add_vertices(
                                 Matrix4::identity(),
+                                None,
                                 None,
                                 &mut |position, coords| {
                                     vertices.push(Vertex {
@@ -514,6 +516,7 @@ impl World {
                 .or_insert_with(|| DynamicBlockData {
                     id: block_id,
                     animation: None,
+                    items: HashMap::new(),
                 }),
         )
     }

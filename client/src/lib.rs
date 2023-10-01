@@ -76,7 +76,7 @@ pub async fn run() {
     );
     let mut keys = HashSet::new();
     let mut world = World::new(block_registry.clone());
-    let mut gui = GUIRenderer::new(texture_atlas, render_state.device(), text_renderer);
+    let mut gui = GUIRenderer::new(texture_atlas.clone(), render_state.device(), text_renderer);
     let mut connection = SocketConnection::new("localhost:4321");
     let mut first_teleport = false;
     let mut last_render_time = Instant::now();
@@ -223,7 +223,6 @@ pub async fn run() {
                         .dynamic
                         .as_ref()
                         .unwrap()
-                        .model
                         .get_animation_length(animation.0)
                         .unwrap();
                 }
@@ -318,10 +317,36 @@ pub async fn run() {
                     }
                     NetworkMessageS2C::EntityAnimation(_, _) => {}
                     NetworkMessageS2C::EntityItem(_, _, _) => {}
-                    NetworkMessageS2C::BlockItem(_, _, _) => {}
+                    NetworkMessageS2C::BlockItem(block_position, slot, item) => {
+                        let id = world
+                            .block_registry
+                            .get_block(world.get_block(block_position).unwrap()) //todo: prevent crash if unloaded
+                            .dynamic
+                            .as_ref()
+                            .unwrap()
+                            .get_item_slot(slot)
+                            .cloned()
+                            .unwrap();
+                        if let Some(dynamic) = world.get_dynamic_block_data(block_position) {
+                            match item {
+                                Some(item) => {
+                                    dynamic.items.insert(id, item);
+                                }
+                                None => {
+                                    dynamic.items.remove(&id);
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            match render_state.render(&camera, &mut world, &mut gui, &item_registry) {
+            match render_state.render(
+                &camera,
+                &mut world,
+                &mut gui,
+                &item_registry,
+                &texture_atlas,
+            ) {
                 Ok(_) => {}
                 Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                     render_state.resize(render_state.size())

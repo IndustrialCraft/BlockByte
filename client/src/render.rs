@@ -1,8 +1,9 @@
 use crate::content::ItemRegistry;
 use crate::game::{ClientPlayer, World};
 use crate::gui::GUIRenderer;
+use crate::model::ItemTextureResolver;
 use crate::texture;
-use crate::texture::Texture;
+use crate::texture::{Texture, TextureAtlas};
 use block_byte_common::{Face, Position, TexCoords};
 use cgmath::{Matrix4, SquareMatrix};
 use image::RgbaImage;
@@ -385,6 +386,7 @@ impl RenderState {
         world: &mut World,
         gui: &mut GUIRenderer,
         item_registry: &ItemRegistry,
+        texture_atlas: &TextureAtlas,
     ) -> Result<(), wgpu::SurfaceError> {
         self.camera_uniform
             .update_view_proj(camera, self.size.width as f32 / self.size.height as f32);
@@ -442,6 +444,11 @@ impl RenderState {
             }
         }
         let (model_buffer, model_vertex_count) = {
+            let item_texture_resolver = ItemTextureResolver {
+                texture_atlas,
+                item_registry,
+                block_registry: &world.block_registry,
+            };
             let mut vertices = Vec::new();
             for (block_position, dynamic_block_data) in &world.dynamic_blocks {
                 let dynamic_data = world
@@ -450,9 +457,10 @@ impl RenderState {
                     .dynamic
                     .as_ref()
                     .unwrap();
-                dynamic_data.model.add_vertices(
+                dynamic_data.add_vertices(
                     Matrix4::identity(),
                     dynamic_block_data.animation,
+                    Some((&dynamic_block_data.items, item_texture_resolver)),
                     &mut |position, coords| {
                         vertices.push(Vertex {
                             position: [

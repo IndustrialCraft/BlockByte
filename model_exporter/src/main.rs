@@ -294,6 +294,7 @@ impl ItemElement {
         let rotation = &json["rotation"];
         (
             ModelItemElement {
+                name,
                 rotation: if rotation.is_null() {
                     Vec3 {
                         x: 0.,
