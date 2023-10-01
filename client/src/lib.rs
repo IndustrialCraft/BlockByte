@@ -215,6 +215,19 @@ pub async fn run() {
                 camera.position.z,
                 1. / dt
             ));
+            for (_, dynamic_block_data) in &mut world.dynamic_blocks {
+                if let Some(animation) = dynamic_block_data.animation.as_mut() {
+                    animation.1 += dt;
+                    animation.1 %= block_registry
+                        .get_block(dynamic_block_data.id)
+                        .dynamic
+                        .as_ref()
+                        .unwrap()
+                        .model
+                        .get_animation_length(animation.0)
+                        .unwrap();
+                }
+            }
             //todo: send less frequently
             if first_teleport {
                 connection.send_message(&NetworkMessageC2S::PlayerPosition(
@@ -298,7 +311,11 @@ pub async fn run() {
                         camera.pitch_deg = rotation;
                         first_teleport = true;
                     }
-                    NetworkMessageS2C::BlockAnimation(_, _) => {}
+                    NetworkMessageS2C::BlockAnimation(position, animation) => {
+                        if let Some(block_data) = world.get_dynamic_block_data(position) {
+                            block_data.animation = Some((animation, 0.));
+                        }
+                    }
                     NetworkMessageS2C::EntityAnimation(_, _) => {}
                     NetworkMessageS2C::EntityItem(_, _, _) => {}
                     NetworkMessageS2C::BlockItem(_, _, _) => {}

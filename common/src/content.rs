@@ -128,6 +128,74 @@ pub struct ModelAnimationData {
     pub rotation: Vec<ModelAnimationKeyframe>,
     pub scale: Vec<ModelAnimationKeyframe>,
 }
+impl ModelAnimationData {
+    pub fn get_for_time(&self, time: f32) -> (Vec3, Vec3, Vec3) {
+        (
+            Self::get_channel_for_time(&self.position, time, 0.),
+            Self::get_channel_for_time(&self.rotation, time, 0.),
+            Self::get_channel_for_time(&self.scale, time, 1.),
+        )
+    }
+    pub fn get_default() -> (Vec3, Vec3, Vec3) {
+        (
+            Vec3 {
+                x: 0.,
+                y: 0.,
+                z: 0.,
+            },
+            Vec3 {
+                x: 0.,
+                y: 0.,
+                z: 0.,
+            },
+            Vec3 {
+                x: 1.,
+                y: 1.,
+                z: 1.,
+            },
+        )
+    }
+    fn get_channel_for_time(
+        keyframes: &Vec<ModelAnimationKeyframe>,
+        time: f32,
+        default_value: f32,
+    ) -> Vec3 {
+        let mut closest_time = f32::MAX;
+        let mut closest = None;
+        for keyframe in keyframes.iter().enumerate() {
+            let time_diff = (keyframe.1.time - time).abs();
+            if time_diff < closest_time {
+                closest_time = time_diff;
+                closest = Some(keyframe);
+            }
+        }
+        if let None = closest {
+            return Vec3 {
+                x: default_value,
+                y: default_value,
+                z: default_value,
+            };
+        }
+        let closest = closest.unwrap();
+        let second = keyframes
+            .get((closest.0 as i32 + (if closest.1.time < time { 1i32 } else { -1i32 })) as usize);
+        let mut first = closest.1;
+        let mut second = if let Some(second) = second {
+            second
+        } else {
+            return first.data;
+        };
+        if second.time < first.time {
+            (first, second) = (second, first);
+        }
+        let lerp_val = (time - first.time) / (second.time - first.time);
+        Vec3 {
+            x: (first.data.x * (1. - lerp_val)) + (second.data.x * lerp_val),
+            y: (first.data.y * (1. - lerp_val)) + (second.data.y * lerp_val),
+            z: (first.data.z * (1. - lerp_val)) + (second.data.z * lerp_val),
+        }
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModelAnimationKeyframe {
     pub data: Vec3,

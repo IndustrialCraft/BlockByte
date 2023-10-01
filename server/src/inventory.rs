@@ -262,14 +262,14 @@ impl Inventory {
                         base_color: Color::WHITE,
                     },
                 ))
-                .unwrap();
+                .ok();
             //player.try_send_message(&&NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"slot",background:false,item: Self::item_to_json(item)}.to_string())).ok();
         } else {
             player
                 .try_send_message(&NetworkMessageS2C::GuiRemoveElements(
                     "item_cursor".to_string(),
                 ))
-                .unwrap();
+                .ok();
             //player.try_send_message(&&NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"image",texture:"cursor",w:0.05,h:0.05}.to_string())).ok();
         }
     }

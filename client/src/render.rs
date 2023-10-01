@@ -4,10 +4,11 @@ use crate::gui::GUIRenderer;
 use crate::texture;
 use crate::texture::Texture;
 use block_byte_common::{Face, Position, TexCoords};
+use cgmath::{Matrix4, SquareMatrix};
 use image::RgbaImage;
 use std::iter;
-use wgpu::util::DeviceExt;
-use wgpu::{BlendState, Buffer, Device, LoadOp, Sampler, TextureView};
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
+use wgpu::{BlendState, Buffer, BufferUsages, Device, LoadOp, Sampler, TextureView};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::window::Window;
 
@@ -22,6 +23,7 @@ pub struct RenderState {
     chunk_transparent_render_pipeline: wgpu::RenderPipeline,
     chunk_foliage_render_pipeline: wgpu::RenderPipeline,
     gui_render_pipeline: wgpu::RenderPipeline,
+    model_render_pipeline: wgpu::RenderPipeline,
     texture: Texture,
     camera_uniform: CameraUniform,
     camera_buffer: Buffer,
@@ -83,6 +85,10 @@ impl RenderState {
         let chunk_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Chunk Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("chunk_shader.wgsl").into()),
+        });
+        let model_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Model Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("model_shader.wgsl").into()),
         });
         let gui_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("GUI Shader"),
@@ -290,6 +296,47 @@ impl RenderState {
             },
             multiview: None,
         });
+        let model_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Model Render Pipeline"),
+                layout: Some(&chunk_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &model_shader,
+                    entry_point: "vs_main",
+                    buffers: &[Vertex::desc()],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &model_shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+            });
         Self {
             window,
             surface,
@@ -301,6 +348,7 @@ impl RenderState {
             chunk_transparent_render_pipeline,
             chunk_foliage_render_pipeline,
             gui_render_pipeline,
+            model_render_pipeline,
             texture,
             camera_uniform,
             camera_buffer,
@@ -393,6 +441,64 @@ impl RenderState {
                 }
             }
         }
+        let (model_buffer, model_vertex_count) = {
+            let mut vertices = Vec::new();
+            for (block_position, dynamic_block_data) in &world.dynamic_blocks {
+                let dynamic_data = world
+                    .block_registry
+                    .get_block(dynamic_block_data.id)
+                    .dynamic
+                    .as_ref()
+                    .unwrap();
+                dynamic_data.model.add_vertices(
+                    Matrix4::identity(),
+                    dynamic_block_data.animation,
+                    &mut |position, coords| {
+                        vertices.push(Vertex {
+                            position: [
+                                (block_position.x as f64 + position.x) as f32 + 0.5,
+                                (block_position.y as f64 + position.y) as f32,
+                                (block_position.z as f64 + position.z) as f32 + 0.5,
+                            ],
+                            tex_coords: [coords.0, coords.1],
+                        })
+                    },
+                );
+            }
+            let buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Model Buffer"),
+                usage: BufferUsages::VERTEX,
+                contents: bytemuck::cast_slice(vertices.as_slice()),
+            });
+            (buffer, vertices.len() as u32)
+        };
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Model Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.2,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
+            });
+            render_pass.set_pipeline(&self.model_render_pipeline);
+            render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+
+            render_pass.set_vertex_buffer(0, model_buffer.slice(..));
+            render_pass.draw(0..model_vertex_count, 0..1);
+        }
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Foliage Chunk Render Pass"),
@@ -416,7 +522,6 @@ impl RenderState {
             render_pass.set_pipeline(&self.chunk_foliage_render_pipeline);
             render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            world.tick(&self.device);
             for chunk in &mut world.chunks {
                 if let Some(vertex_buffer) = chunk.1.get_vertices().2 {
                     render_pass.set_vertex_buffer(0, vertex_buffer.0);
@@ -447,7 +552,6 @@ impl RenderState {
             render_pass.set_pipeline(&self.chunk_transparent_render_pipeline);
             render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            world.tick(&self.device);
             for chunk in &mut world.chunks {
                 if let Some(vertex_buffer) = chunk.1.get_vertices().1 {
                     render_pass.set_vertex_buffer(0, vertex_buffer.0);
@@ -538,7 +642,6 @@ struct CameraUniform {
 }
 impl CameraUniform {
     fn new() -> Self {
-        use cgmath::SquareMatrix;
         Self {
             view_proj: cgmath::Matrix4::identity().into(),
         }

@@ -234,7 +234,7 @@ impl Item {
                 _ => None,
             });
             let target_chunk = world.get_chunk(block_position.to_chunk_pos()).unwrap();
-            target_chunk.announce_to_viewers(NetworkMessageS2C::BlockItem(
+            /*target_chunk.announce_to_viewers(NetworkMessageS2C::BlockItem(
                 block_position,
                 0,
                 world
@@ -243,13 +243,8 @@ impl Item {
                     .item_by_identifier(&Identifier::new("example", "log_block"))
                     .unwrap()
                     .client_id,
-            ));
-            /*target_chunk.announce_to_viewers(crate::net::NetworkMessageS2C::BlockAnimation(
-                block_position.x,
-                block_position.y,
-                block_position.z,
-                0,
             ));*/
+            target_chunk.announce_to_viewers(NetworkMessageS2C::BlockAnimation(block_position, 0));
             return InteractionResult::Consumed;
         }
         if let Some(right_click) = &self.on_right_click {

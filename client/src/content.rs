@@ -138,6 +138,13 @@ impl BlockRegistry {
                 }
             },
             dynamic: block_data.dynamic.map(|dynamic| BlockDynamicData {
+                model: Model::new(
+                    models
+                        .get(dynamic.model.as_str())
+                        .unwrap_or(models.get("missing").unwrap())
+                        .clone(),
+                    texture_atlas.get(dynamic.texture.as_str()),
+                ),
                 animations: dynamic.animations,
                 items: dynamic.items,
             }),
@@ -173,7 +180,7 @@ impl BlockData {
 }
 
 pub struct BlockDynamicData {
-    //todo: model
+    pub model: Model,
     pub animations: Vec<String>,
     pub items: Vec<String>,
 }

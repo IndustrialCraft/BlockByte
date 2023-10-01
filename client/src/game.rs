@@ -252,6 +252,10 @@ impl ClientPlayer {
         cgmath::perspective(cgmath::Deg(90.), aspect, 0.001, 1000.)
     }
 }
+pub struct DynamicBlockData {
+    pub id: u32,
+    pub animation: Option<(u32, f32)>,
+}
 pub struct Chunk {
     position: ChunkPosition,
     blocks: [[[u32; 16]; 16]; 16],
@@ -337,6 +341,7 @@ impl Chunk {
                         BlockRenderDataType::Static(model) => {
                             model.model.add_vertices(
                                 Matrix4::identity(),
+                                None,
                                 &mut |position, coords| {
                                     vertices.push(Vertex {
                                         position: [
@@ -440,6 +445,7 @@ pub struct World {
     pub chunks: HashMap<ChunkPosition, Chunk>,
     pub block_registry: Rc<BlockRegistry>,
     pub modified_chunks: HashSet<ChunkPosition>,
+    pub dynamic_blocks: HashMap<BlockPosition, DynamicBlockData>,
 }
 impl World {
     pub fn new(block_registry: Rc<BlockRegistry>) -> Self {
@@ -447,6 +453,7 @@ impl World {
             chunks: HashMap::new(),
             block_registry,
             modified_chunks: HashSet::new(),
+            dynamic_blocks: HashMap::new(),
         }
     }
     pub fn tick(&mut self, device: &Device) {
@@ -484,6 +491,31 @@ impl World {
     }
     pub fn unload_chunk(&mut self, position: ChunkPosition) {
         self.chunks.remove(&position);
+        self.dynamic_blocks
+            .extract_if(|block_position, _| block_position.to_chunk_pos() == position)
+            .count();
+    }
+    pub fn get_dynamic_block_data(
+        &mut self,
+        block_position: BlockPosition,
+    ) -> Option<&mut DynamicBlockData> {
+        let block_id = {
+            match self.get_block(block_position) {
+                Some(block_id) => block_id,
+                None => return None,
+            }
+        };
+        if self.block_registry.get_block(block_id).dynamic.is_none() {
+            return None;
+        }
+        Some(
+            self.dynamic_blocks
+                .entry(block_position)
+                .or_insert_with(|| DynamicBlockData {
+                    id: block_id,
+                    animation: None,
+                }),
+        )
     }
     pub fn set_block(&mut self, position: BlockPosition, id: u32) {
         let chunk_position = position.to_chunk_pos();
@@ -500,6 +532,7 @@ impl World {
         } else {
             warn!("setting block in unloaded chunk");
         }
+        self.dynamic_blocks.remove(&position);
     }
     pub fn get_block(&self, position: BlockPosition) -> Option<u32> {
         let chunk = position.to_chunk_pos();
