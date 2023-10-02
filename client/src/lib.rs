@@ -197,7 +197,8 @@ pub async fn run() {
         } => match event {
             DeviceEvent::MouseMotion { delta: (x, y) } => {
                 if gui.is_cursor_locked() {
-                    camera.update_orientation(-*y as f32, -*x as f32);
+                    let sensitivity = 0.3;
+                    camera.update_orientation(-*y as f32 * sensitivity, -*x as f32 * sensitivity);
                 }
             }
             _ => {}
@@ -323,11 +324,10 @@ pub async fn run() {
                             .get_block(world.get_block(block_position).unwrap()) //todo: prevent crash if unloaded
                             .dynamic
                             .as_ref()
-                            .unwrap()
-                            .get_item_slot(slot)
-                            .cloned()
-                            .unwrap();
+                            .and_then(|model| model.get_item_slot(slot))
+                            .cloned();
                         if let Some(dynamic) = world.get_dynamic_block_data(block_position) {
+                            let id = id.unwrap();
                             match item {
                                 Some(item) => {
                                     dynamic.items.insert(id, item);

@@ -85,15 +85,15 @@ impl RenderState {
         let texture = Texture::from_image(&device, &queue, &texture_image, Some("main texture"));
         let chunk_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Chunk Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("chunk_shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("assets/chunk_shader.wgsl").into()),
         });
         let model_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Model Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("model_shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("assets/model_shader.wgsl").into()),
         });
         let gui_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("GUI Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("gui_shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("assets/gui_shader.wgsl").into()),
         });
         let camera_uniform = CameraUniform::new();
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

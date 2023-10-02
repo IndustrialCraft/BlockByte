@@ -96,7 +96,7 @@ impl ClientPlayer {
         };
         if self.movement_type == MovementType::Normal {
             if keys.contains(&VirtualKeyCode::Space) {
-                let block = world.get_block(position.to_block_pos()).unwrap();
+                let block = world.get_block(position.to_block_pos()).unwrap_or(0);
                 let block = self.block_registry.get_block(block);
                 if block.fluid {
                     move_vector.y += 1.;

@@ -354,7 +354,7 @@ impl ClientContentGenerator {
         {
             zip_writer.start_file("font.ttf", options).unwrap();
             zip_writer
-                .write_all(std::fs::read("font.ttf").unwrap().as_slice())
+                .write_all(include_bytes!("assets/font.ttf"))
                 .unwrap();
         }
         zip_writer.finish().unwrap().into_inner()
