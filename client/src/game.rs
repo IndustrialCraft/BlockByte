@@ -81,7 +81,18 @@ impl ClientPlayer {
                 _ => vec,
             },
         );
+        let position = Position {
+            x: self.position.x as f64,
+            y: self.position.y as f64,
+            z: self.position.z as f64,
+        };
         self.shifting = keys.contains(&VirtualKeyCode::LShift);
+        if !self.shifting {
+            let collides = self.collides_at(position, world);
+            self.shifting = true;
+            let collides_shifting = self.collides_at(position, world);
+            self.shifting = collides && (!collides_shifting);
+        }
 
         if !(move_vector.x == 0.0 && move_vector.y == 0.0 && move_vector.z == 0.0) {
             move_vector = move_vector.normalize();
@@ -89,11 +100,7 @@ impl ClientPlayer {
         if self.shifting {
             move_vector /= 2.;
         }
-        let position = Position {
-            x: self.position.x as f64,
-            y: self.position.y as f64,
-            z: self.position.z as f64,
-        };
+
         if self.movement_type == MovementType::Normal {
             if keys.contains(&VirtualKeyCode::Space) {
                 let block = world.get_block(position.to_block_pos()).unwrap_or(0);
@@ -192,7 +199,7 @@ impl ClientPlayer {
             y: position.y,
             z: position.z - 0.3,
             w: 0.6,
-            h: self.eye_height_diff() as f64 + 0.2,
+            h: 1.95 - if self.shifting { 0.5 } else { 0. },
             d: 0.6,
         };
         for block_pos in bounding_box.iter_blocks() {
