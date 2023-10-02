@@ -16,7 +16,7 @@ pub enum NetworkMessageS2C {
     GuiEditElement(String, GUIElementEdit),
     SetCursorLock(bool),
     BlockBreakTimeResponse(u32, f32),
-    EntityItem(u32, u32, u32),
+    EntityItem(u32, u32, Option<u32>),
     BlockItem(BlockPosition, u32, Option<u32>),
     Knockback(f32, f32, f32, bool),
     FluidSelectable(bool),

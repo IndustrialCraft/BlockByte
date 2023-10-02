@@ -13,7 +13,7 @@ use array_init::array_init;
 use block_byte_common::messages::{NetworkMessageC2S, NetworkMessageS2C};
 use block_byte_common::{KeyboardKey, Position};
 use cgmath::Point3;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 use std::time::Instant;
@@ -25,7 +25,7 @@ use winit::{
     window::WindowBuilder,
 };
 
-use crate::game::{ClientPlayer, World};
+use crate::game::{ClientPlayer, EntityData, World};
 use crate::gui::GUIRenderer;
 use crate::net::SocketConnection;
 use crate::render::RenderState;
@@ -42,8 +42,14 @@ pub async fn run() {
             env_logger::init();
         }
     }
-    let (texture_image, texture_atlas, block_registry, item_registry, text_renderer) =
-        content::load_assets(&Path::new("../server/save/content.zip"), false);
+    let (
+        texture_image,
+        texture_atlas,
+        block_registry,
+        item_registry,
+        entity_registry,
+        text_renderer,
+    ) = content::load_assets(&Path::new("../server/save/content.zip"), false);
     let block_registry = Rc::new(block_registry);
 
     let event_loop = EventLoop::new();
@@ -237,7 +243,7 @@ pub async fn run() {
                         z: camera.position.z as f64,
                     },
                     camera.is_shifting(),
-                    camera.pitch_deg,
+                    camera.yaw_deg,
                     camera.last_moved,
                 ));
             }
@@ -292,9 +298,27 @@ pub async fn run() {
                             })
                             .unwrap();
                     }
-                    NetworkMessageS2C::AddEntity(_, _, _, _, _, _) => {}
-                    NetworkMessageS2C::MoveEntity(_, _, _) => {}
-                    NetworkMessageS2C::DeleteEntity(_) => {}
+                    NetworkMessageS2C::AddEntity(type_id, id, position, rotation, animation, _) => {
+                        world.entities.insert(
+                            id,
+                            EntityData {
+                                type_id,
+                                position,
+                                rotation,
+                                animation: Some((animation, 0.)),
+                                items: HashMap::new(),
+                            },
+                        );
+                    }
+                    NetworkMessageS2C::MoveEntity(id, position, rotation) => {
+                        if let Some(entity) = world.entities.get_mut(&id) {
+                            entity.position = position;
+                            entity.rotation = rotation;
+                        }
+                    }
+                    NetworkMessageS2C::DeleteEntity(id) => {
+                        world.entities.remove(&id);
+                    }
                     NetworkMessageS2C::BlockBreakTimeResponse(_, _) => {}
                     NetworkMessageS2C::Knockback(x, y, z, set) => {
                         camera.knockback(x, y, z, set);
@@ -316,8 +340,28 @@ pub async fn run() {
                             block_data.animation = Some((animation, 0.));
                         }
                     }
-                    NetworkMessageS2C::EntityAnimation(_, _) => {}
-                    NetworkMessageS2C::EntityItem(_, _, _) => {}
+                    NetworkMessageS2C::EntityAnimation(id, animation) => {
+                        if let Some(entity) = world.entities.get_mut(&id) {
+                            entity.animation = Some((animation, 0.));
+                        }
+                    }
+                    NetworkMessageS2C::EntityItem(id, slot, item) => {
+                        if let Some(entity) = world.entities.get_mut(&id) {
+                            let slot = entity_registry
+                                .get_entity(entity.type_id)
+                                .model
+                                .get_item_slot(slot)
+                                .unwrap();
+                            match item {
+                                Some(item) => {
+                                    entity.items.insert(slot.clone(), item);
+                                }
+                                None => {
+                                    entity.items.remove(slot);
+                                }
+                            }
+                        }
+                    }
                     NetworkMessageS2C::BlockItem(block_position, slot, item) => {
                         let id = world
                             .block_registry
@@ -345,6 +389,7 @@ pub async fn run() {
                 &mut world,
                 &mut gui,
                 &item_registry,
+                &entity_registry,
                 &texture_atlas,
             ) {
                 Ok(_) => {}

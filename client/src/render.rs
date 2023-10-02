@@ -1,10 +1,10 @@
-use crate::content::ItemRegistry;
+use crate::content::{EntityRegistry, ItemRegistry};
 use crate::game::{ClientPlayer, World};
 use crate::gui::GUIRenderer;
-use crate::model::ItemTextureResolver;
+use crate::model::{ItemTextureResolver, Model};
 use crate::texture;
 use crate::texture::{Texture, TextureAtlas};
-use block_byte_common::{Face, Position, TexCoords};
+use block_byte_common::{Face, Position, TexCoords, Vec3};
 use cgmath::{Matrix4, SquareMatrix};
 use image::RgbaImage;
 use std::iter;
@@ -386,6 +386,7 @@ impl RenderState {
         world: &mut World,
         gui: &mut GUIRenderer,
         item_registry: &ItemRegistry,
+        entity_registry: &EntityRegistry,
         texture_atlas: &TextureAtlas,
     ) -> Result<(), wgpu::SurfaceError> {
         self.camera_uniform
@@ -468,6 +469,41 @@ impl RenderState {
                                 (block_position.y as f64 + position.y) as f32,
                                 (block_position.z as f64 + position.z) as f32 + 0.5,
                             ],
+                            tex_coords: [coords.0, coords.1],
+                        })
+                    },
+                );
+            }
+            for (_, entity) in &world.entities {
+                let entity_data = entity_registry.get_entity(entity.type_id);
+                entity_data.model.add_vertices(
+                    Model::create_matrix_trs(
+                        &Vec3 {
+                            x: entity.position.x as f32,
+                            y: entity.position.y as f32,
+                            z: entity.position.z as f32,
+                        },
+                        &Vec3 {
+                            x: 0.,
+                            y: (entity.rotation + 180.).to_radians(),
+                            z: 0.,
+                        },
+                        &Vec3 {
+                            x: 0.,
+                            y: 0.,
+                            z: 0.,
+                        },
+                        &Vec3 {
+                            x: 1.,
+                            y: 1.,
+                            z: 1.,
+                        },
+                    ),
+                    entity.animation,
+                    Some((&entity.items, item_texture_resolver)),
+                    &mut |position, coords| {
+                        vertices.push(Vertex {
+                            position: [position.x as f32, position.y as f32, position.z as f32],
                             tex_coords: [coords.0, coords.1],
                         })
                     },

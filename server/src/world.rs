@@ -970,8 +970,7 @@ impl Entity {
                     .get_item(*inventory_index)
                     .unwrap()
                     .as_ref()
-                    .map(|item| item.item_type.client_id)
-                    .unwrap_or(0),
+                    .map(|item| item.item_type.client_id),
             ));
         }
         messages

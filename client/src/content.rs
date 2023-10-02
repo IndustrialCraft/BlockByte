@@ -2,7 +2,8 @@ use crate::gui::TextRenderer;
 use crate::model::Model;
 use crate::texture::{pack_textures, TextureAtlas};
 use block_byte_common::content::{
-    ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientItemData, ModelData,
+    ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData,
+    ModelData,
 };
 use block_byte_common::{Face, TexCoords};
 use image::RgbaImage;
@@ -17,6 +18,7 @@ pub fn load_assets(
     TextureAtlas,
     BlockRegistry,
     ItemRegistry,
+    EntityRegistry,
     TextRenderer,
 ) {
     let mut zip =
@@ -82,11 +84,18 @@ pub fn load_assets(
     for item in content.items {
         item_registry.add_item(item);
     }
+    let mut entity_registry = EntityRegistry {
+        entities: Vec::new(),
+    };
+    for entity in content.entities {
+        entity_registry.add_entity(entity, &texture_atlas, &models);
+    }
     (
         texture_image,
         texture_atlas,
         block_registry,
         item_registry,
+        entity_registry,
         font,
     )
 }
@@ -229,4 +238,40 @@ impl ItemRegistry {
     fn add_item(&mut self, item_data: ClientItemData) {
         self.items.push(item_data);
     }
+}
+
+pub struct EntityRegistry {
+    entities: Vec<EntityData>,
+}
+impl EntityRegistry {
+    pub fn get_entity(&self, entity: u32) -> &EntityData {
+        self.entities.get(entity as usize).unwrap()
+    }
+    fn add_entity(
+        &mut self,
+        entity_data: ClientEntityData,
+        texture_atlas: &TextureAtlas,
+        models: &HashMap<String, ModelData>,
+    ) {
+        self.entities.push(EntityData {
+            model: Model::new(
+                models
+                    .get(entity_data.model.as_str())
+                    .unwrap_or(models.get("missing").unwrap())
+                    .clone(),
+                texture_atlas.get(entity_data.texture.as_str()),
+                entity_data.animations,
+                entity_data.items,
+            ),
+            hitbox_w: entity_data.hitbox_w,
+            hitbox_h: entity_data.hitbox_h,
+            hitbox_d: entity_data.hitbox_d,
+        });
+    }
+}
+pub struct EntityData {
+    pub model: Model,
+    pub hitbox_w: f64,
+    pub hitbox_h: f64,
+    pub hitbox_d: f64,
 }

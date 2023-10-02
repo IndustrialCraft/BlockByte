@@ -175,9 +175,7 @@ impl Inventory {
                         .announce_to_viewers(NetworkMessageS2C::EntityItem(
                             entity.client_id,
                             *mapping,
-                            item.as_ref()
-                                .map(|item| item.item_type.client_id)
-                                .unwrap_or(0),
+                            item.as_ref().map(|item| item.item_type.client_id),
                         ));
                 }
             }

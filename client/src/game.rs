@@ -448,6 +448,7 @@ pub struct World {
     pub block_registry: Rc<BlockRegistry>,
     pub modified_chunks: HashSet<ChunkPosition>,
     pub dynamic_blocks: HashMap<BlockPosition, DynamicBlockData>,
+    pub entities: HashMap<u32, EntityData>,
 }
 impl World {
     pub fn new(block_registry: Rc<BlockRegistry>) -> Self {
@@ -456,6 +457,7 @@ impl World {
             block_registry,
             modified_chunks: HashSet::new(),
             dynamic_blocks: HashMap::new(),
+            entities: HashMap::new(),
         }
     }
     pub fn tick(&mut self, device: &Device) {
@@ -584,4 +586,11 @@ impl World {
         );
         output
     }
+}
+pub struct EntityData {
+    pub type_id: u32,
+    pub position: Position,
+    pub rotation: f32,
+    pub animation: Option<(u32, f32)>,
+    pub items: HashMap<String, u32>,
 }

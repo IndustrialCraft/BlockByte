@@ -70,9 +70,10 @@ impl Model {
         F: FnMut(Position, (f32, f32)),
     {
         let (translate, rotate, scale) = match animation {
-            Some((animation, time)) => bone
+            Some((animation, time)) => self
                 .animations
-                .get(self.animations.get(animation as usize).unwrap())
+                .get(animation as usize)
+                .and_then(|animation| bone.animations.get(animation))
                 .map(|animation| animation.get_for_time(time))
                 .unwrap_or(ModelAnimationData::get_default()),
             None => ModelAnimationData::get_default(),
@@ -179,7 +180,7 @@ impl Model {
             });
         }
     }
-    fn create_matrix_trs(
+    pub fn create_matrix_trs(
         translation: &Vec3,
         rotation: &Vec3,
         origin: &Vec3,
