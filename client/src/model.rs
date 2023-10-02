@@ -69,15 +69,14 @@ impl Model {
     ) where
         F: FnMut(Position, (f32, f32)),
     {
-        let (translate, rotate, scale) = match animation {
-            Some((animation, time)) => self
-                .animations
-                .get(animation as usize)
-                .and_then(|animation| bone.animations.get(animation))
-                .map(|animation| animation.get_for_time(time))
-                .unwrap_or(ModelAnimationData::get_default()),
-            None => ModelAnimationData::get_default(),
-        };
+        let (translate, rotate, scale) = animation
+            .and_then(|(animation, time)| {
+                self.animations
+                    .get(animation as usize)
+                    .and_then(|animation| bone.animations.get(animation))
+                    .map(|animation| animation.get_for_time(time))
+            })
+            .unwrap_or(ModelAnimationData::get_default());
         let transform =
             parent_transform * Self::create_matrix_trs(&translate, &rotate, &bone.origin, &scale);
         for child_bone in &bone.child_bones {
@@ -106,18 +105,10 @@ impl Model {
                 &mut |position, coords| {
                     let position = (parent_transform
                         * Self::create_matrix_trs(
-                            &Vec3 {
-                                x: 0.,
-                                y: 0.,
-                                z: 0.,
-                            },
+                            &Vec3::ZERO,
                             &cube_element.rotation,
                             &cube_element.origin,
-                            &Vec3 {
-                                x: 1.,
-                                y: 1.,
-                                z: 1.,
-                            },
+                            &Vec3::ONE,
                         ))
                     .transform_point(Point3 {
                         x: cube_element.position.x + (position.x as f32 * cube_element.scale.x),
@@ -149,6 +140,28 @@ impl Model {
         if let Some(item) = items.0.get(&item_element.name) {
             let texture = items.1.resolve(*item);
             Face::Down.add_vertices(texture, &mut |position, coords| {
+                let position = (parent_transform
+                    * Self::create_matrix_trs(
+                        &Vec3::ZERO,
+                        &item_element.rotation,
+                        &item_element.origin,
+                        &Vec3::ONE,
+                    ))
+                .transform_point(Point3 {
+                    x: item_element.position.x + (position.x as f32 * item_element.size.x),
+                    y: item_element.position.y + (position.z as f32 * item_element.size.y),
+                    z: item_element.position.z + (1. / 32.),
+                });
+                vertex_consumer.call_mut((
+                    Position {
+                        x: position.x as f64,
+                        y: position.y as f64,
+                        z: position.z as f64,
+                    },
+                    coords,
+                ));
+            });
+            Face::Up.add_vertices(texture, &mut |position, coords| {
                 let position = (parent_transform
                     * Self::create_matrix_trs(
                         &Vec3 {

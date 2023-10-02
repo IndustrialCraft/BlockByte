@@ -1195,7 +1195,7 @@ impl Entity {
                                                     rotation_radians.cos() as f64,
                                                 );
                                                 *item_entity.rotation_shifting.lock() =
-                                                    ((-rotation.0) + 180., false);
+                                                    (rotation.0, false);
                                             }
                                         })
                                         .unwrap();

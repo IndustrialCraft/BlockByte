@@ -275,6 +275,18 @@ pub struct Vec3 {
     pub y: f32,
     pub z: f32,
 }
+impl Vec3 {
+    pub const ZERO: Vec3 = Vec3 {
+        x: 0.,
+        y: 0.,
+        z: 0.,
+    };
+    pub const ONE: Vec3 = Vec3 {
+        x: 1.,
+        y: 1.,
+        z: 1.,
+    };
+}
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct Vec2 {
     pub x: f32,

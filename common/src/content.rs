@@ -138,23 +138,7 @@ impl ModelAnimationData {
         )
     }
     pub fn get_default() -> (Vec3, Vec3, Vec3) {
-        (
-            Vec3 {
-                x: 0.,
-                y: 0.,
-                z: 0.,
-            },
-            Vec3 {
-                x: 0.,
-                y: 0.,
-                z: 0.,
-            },
-            Vec3 {
-                x: 1.,
-                y: 1.,
-                z: 1.,
-            },
-        )
+        (Vec3::ZERO, Vec3::ZERO, Vec3::ONE)
     }
     fn get_channel_for_time(
         keyframes: &Vec<ModelAnimationKeyframe>,

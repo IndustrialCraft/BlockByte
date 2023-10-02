@@ -479,9 +479,9 @@ impl RenderState {
                 entity_data.model.add_vertices(
                     Model::create_matrix_trs(
                         &Vec3 {
-                            x: entity.position.x as f32,
+                            x: (entity.position.x + (entity_data.hitbox_w / 2.)) as f32,
                             y: entity.position.y as f32,
-                            z: entity.position.z as f32,
+                            z: (entity.position.z + (entity_data.hitbox_h / 2.)) as f32,
                         },
                         &Vec3 {
                             x: 0.,
