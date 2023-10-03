@@ -468,7 +468,12 @@ impl World {
         }
     }
     pub fn tick(&mut self, device: &Device) {
-        for chunk_position in self.modified_chunks.drain() {
+        let max_chunk_meshes_per_frame = 200;
+        for chunk_position in self
+            .modified_chunks
+            .extract_if(|_| true)
+            .take(max_chunk_meshes_per_frame)
+        {
             if let Some([chunk, front, back, left, right, up, down]) = self.chunks.get_many_mut([
                 &chunk_position,
                 &chunk_position.with_offset(&Face::Front),
