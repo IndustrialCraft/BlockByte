@@ -292,6 +292,9 @@ pub struct Vec2 {
     pub x: f32,
     pub y: f32,
 }
+impl Vec2 {
+    pub const ZERO: Vec2 = Vec2 { x: 0., y: 0. };
+}
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct TexCoords {
     pub u1: f32,
@@ -308,6 +311,14 @@ impl TexCoords {
             v1: self.v1 + (sub.v1 * self_h),
             u2: self.u1 + (sub.u2 * self_w),
             v2: self.v1 + (sub.v2 * self_h),
+        }
+    }
+    pub fn flip_horizontally(&self) -> TexCoords {
+        TexCoords {
+            u1: self.u2,
+            v1: self.v1,
+            u2: self.u1,
+            v2: self.v2,
         }
     }
 }

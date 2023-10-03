@@ -1,8 +1,7 @@
-use crate::content::{BlockRegistry, BlockRenderDataType, ItemRegistry};
+use crate::content::{ItemModel, ItemRegistry};
 use crate::render::FaceVerticesExtension;
-use crate::texture::TextureAtlas;
 use block_byte_common::content::{
-    ClientItemModel, ModelAnimationData, ModelBone, ModelCubeElement, ModelData, ModelItemElement,
+    ModelAnimationData, ModelBone, ModelCubeElement, ModelData, ModelItemElement,
 };
 use block_byte_common::{Face, Position, TexCoords, Vec3};
 use cgmath::{Matrix4, Point3, Rad, SquareMatrix, Transform, Vector3};
@@ -46,7 +45,7 @@ impl Model {
         &self,
         base_matrix: Matrix4<f32>,
         animation: Option<(u32, f32)>,
-        items: Option<(&HashMap<String, u32>, ItemTextureResolver)>,
+        items: Option<(&HashMap<String, u32>, &ItemRegistry)>,
         vertex_consumer: &mut F,
     ) where
         F: FnMut(Position, (f32, f32)),
@@ -64,7 +63,7 @@ impl Model {
         bone: &ModelBone,
         parent_transform: Matrix4<f32>,
         animation: Option<(u32, f32)>,
-        items: Option<(&HashMap<String, u32>, ItemTextureResolver)>,
+        items: Option<(&HashMap<String, u32>, &ItemRegistry)>,
         vertex_consumer: &mut F,
     ) where
         F: FnMut(Position, (f32, f32)),
@@ -132,14 +131,62 @@ impl Model {
         &self,
         item_element: &ModelItemElement,
         parent_transform: Matrix4<f32>,
-        items: (&HashMap<String, u32>, ItemTextureResolver),
+        items: (&HashMap<String, u32>, &ItemRegistry),
         vertex_consumer: &mut F,
     ) where
         F: FnMut(Position, (f32, f32)),
     {
         if let Some(item) = items.0.get(&item_element.name) {
-            let texture = items.1.resolve(*item);
-            Face::Down.add_vertices(texture, &mut |position, coords| {
+            let (main_texture, sides) = match &items.1.get_item(*item).model {
+                ItemModel::Texture { texture, sides } => (*texture, Some(sides)),
+                ItemModel::Block { front, .. } => (*front, None),
+            };
+            if let Some(sides) = sides {
+                for side in &sides.0 {
+                    side.1.add_vertices(
+                        TexCoords {
+                            u1: 0.,
+                            v1: 0.,
+                            u2: 0.,
+                            v2: 0.,
+                        },
+                        &mut |position, _coords| {
+                            let position = (parent_transform
+                                * Self::create_matrix_trs(
+                                    &Vec3::ZERO,
+                                    &item_element.rotation,
+                                    &item_element.origin,
+                                    &Vec3::ONE,
+                                ))
+                            .transform_point(Point3 {
+                                x: item_element.position.x
+                                    + (((position.x as f32 + side.0 .0 as f32) / sides.1.x)
+                                        * item_element.size.x),
+                                y: item_element.position.y
+                                    + (((position.z as f32 + side.0 .1 as f32) / sides.1.y)
+                                        * item_element.size.y),
+                                z: item_element.position.z + (position.y as f32 / 32.),
+                            });
+                            vertex_consumer.call_mut((
+                                Position {
+                                    x: position.x as f64,
+                                    y: position.y as f64,
+                                    z: position.z as f64,
+                                },
+                                (
+                                    main_texture.u1
+                                        + (((side.0 .0 as f32 + 0.5) / sides.1.x)
+                                            * (main_texture.u2 - main_texture.u1)),
+                                    main_texture.v1
+                                        + (((side.0 .1 as f32 + 0.5) / sides.1.y)
+                                            * (main_texture.v2 - main_texture.v1)),
+                                ),
+                            ));
+                        },
+                    );
+                }
+            }
+            Face::Down.add_vertices(main_texture.flip_horizontally(), &mut |position, coords| {
                 let position = (parent_transform
                     * Self::create_matrix_trs(
                         &Vec3::ZERO,
@@ -161,21 +208,13 @@ impl Model {
                     coords,
                 ));
             });
-            Face::Up.add_vertices(texture, &mut |position, coords| {
+            Face::Up.add_vertices(main_texture, &mut |position, coords| {
                 let position = (parent_transform
                     * Self::create_matrix_trs(
-                        &Vec3 {
-                            x: 0.,
-                            y: 0.,
-                            z: 0.,
-                        },
+                        &Vec3::ZERO,
                         &item_element.rotation,
                         &item_element.origin,
-                        &Vec3 {
-                            x: 1.,
-                            y: 1.,
-                            z: 1.,
-                        },
+                        &Vec3::ONE,
                     ))
                 .transform_point(Point3 {
                     x: item_element.position.x + (position.x as f32 * item_element.size.x),
@@ -213,26 +252,5 @@ impl Model {
             .animations
             .get(*self.animations.get(animation as usize).unwrap() as usize)
             .map(|animation| animation.1)
-    }
-}
-#[derive(Copy, Clone)]
-pub struct ItemTextureResolver<'a> {
-    pub texture_atlas: &'a TextureAtlas,
-    pub item_registry: &'a ItemRegistry,
-    pub block_registry: &'a BlockRegistry,
-}
-impl<'a> ItemTextureResolver<'a> {
-    pub fn resolve(&self, item_id: u32) -> TexCoords {
-        match &self.item_registry.get_item(item_id).model {
-            ClientItemModel::Texture(texture) => self.texture_atlas.get(texture),
-            ClientItemModel::Block(block_id) => {
-                match &self.block_registry.get_block(*block_id).block_type {
-                    BlockRenderDataType::Air => self.texture_atlas.missing_texture,
-                    BlockRenderDataType::Cube(cube_data) => cube_data.front,
-                    BlockRenderDataType::Static(_) => self.texture_atlas.missing_texture,
-                    BlockRenderDataType::Foliage(_) => self.texture_atlas.missing_texture,
-                }
-            }
-        }
     }
 }

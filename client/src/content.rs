@@ -3,9 +3,9 @@ use crate::model::Model;
 use crate::texture::{pack_textures, TextureAtlas};
 use block_byte_common::content::{
     ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData,
-    ModelData,
+    ClientItemModel, ModelData,
 };
-use block_byte_common::{Face, TexCoords};
+use block_byte_common::{Face, TexCoords, Vec2};
 use image::RgbaImage;
 use std::collections::HashMap;
 use std::path::Path;
@@ -82,7 +82,7 @@ pub fn load_assets(
     }
     let mut item_registry = ItemRegistry { items: Vec::new() };
     for item in content.items {
-        item_registry.add_item(item);
+        item_registry.add_item(item, &block_registry, &texture_atlas, &texture_image);
     }
     let mut entity_registry = EntityRegistry {
         entities: Vec::new(),
@@ -228,15 +228,100 @@ pub struct BlockFoliageRenderData {
     pub texture_4: TexCoords,
 }
 
+pub struct ItemData {
+    pub name: String,
+    pub model: ItemModel,
+}
+pub enum ItemModel {
+    Texture {
+        texture: TexCoords,
+        sides: (Vec<((u32, u32), Face)>, Vec2),
+    },
+    Block {
+        up: TexCoords,
+        front: TexCoords,
+        right: TexCoords,
+    },
+}
+
 pub struct ItemRegistry {
-    items: Vec<ClientItemData>,
+    items: Vec<ItemData>,
 }
 impl ItemRegistry {
-    pub fn get_item(&self, item: u32) -> &ClientItemData {
+    pub fn get_item(&self, item: u32) -> &ItemData {
         self.items.get(item as usize).unwrap()
     }
-    fn add_item(&mut self, item_data: ClientItemData) {
-        self.items.push(item_data);
+    fn is_pixel_full(image: &RgbaImage, texture: TexCoords, coords: (i32, i32)) -> bool {
+        let width = ((texture.u2 - texture.u1) * image.width() as f32) as u32;
+        let height = ((texture.v2 - texture.v1) * image.height() as f32) as u32;
+        let x = (texture.u1 * image.width() as f32) as u32;
+        let y = (texture.v1 * image.width() as f32) as u32;
+        if coords.0 < 0 || coords.1 < 0 || coords.0 >= width as i32 || coords.1 >= height as i32 {
+            return false;
+        }
+        image.get_pixel(x + coords.0 as u32, y + coords.1 as u32).0[3] > 0
+    }
+    fn add_item(
+        &mut self,
+        item_data: ClientItemData,
+        block_registry: &BlockRegistry,
+        texture_atlas: &TextureAtlas,
+        image: &RgbaImage,
+    ) {
+        self.items.push(ItemData {
+            name: item_data.name,
+            model: match item_data.model {
+                ClientItemModel::Texture(texture) => {
+                    let texture = texture_atlas.get(texture.as_str());
+                    let mut sides = Vec::new();
+                    let width = (texture.u2 - texture.u1) * image.width() as f32;
+                    let height = (texture.v2 - texture.v1) * image.height() as f32;
+                    for x in 0..width as u32 {
+                        for y in 0..height as u32 {
+                            let this_full =
+                                Self::is_pixel_full(image, texture, (x as i32, y as i32));
+                            if this_full {
+                                for face in &[Face::Front, Face::Back, Face::Left, Face::Right] {
+                                    let face_offset = face.get_offset();
+                                    let side_full = Self::is_pixel_full(
+                                        image,
+                                        texture,
+                                        (x as i32 + face_offset.x, y as i32 + face_offset.z),
+                                    );
+                                    if !side_full {
+                                        sides.push(((x, y), *face));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ItemModel::Texture {
+                        texture,
+                        sides: (
+                            sides,
+                            Vec2 {
+                                x: width,
+                                y: height,
+                            },
+                        ),
+                    }
+                }
+                ClientItemModel::Block(block) => {
+                    let block = block_registry.get_block(block);
+                    match &block.block_type {
+                        BlockRenderDataType::Cube(cube_data) => ItemModel::Block {
+                            front: cube_data.front,
+                            up: cube_data.up,
+                            right: cube_data.right,
+                        },
+                        _ => ItemModel::Texture {
+                            texture: texture_atlas.missing_texture,
+                            sides: (Vec::new(), Vec2::ZERO),
+                        },
+                    }
+                }
+            },
+        });
     }
 }
 

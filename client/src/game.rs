@@ -185,7 +185,9 @@ impl ClientPlayer {
             * drag_coefficient;
         self.velocity -= drag * delta_time;
         self.position += total_move;
-        self.velocity.y -= delta_time * 15f32;
+        if self.movement_type == MovementType::Normal {
+            self.velocity.y -= delta_time * 15f32;
+        }
 
         self.shifting_animation += (if self.shifting { 1. } else { -1. }) * delta_time * 4.;
         self.shifting_animation = self.shifting_animation.clamp(0., 0.5);

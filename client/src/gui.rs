@@ -1,7 +1,6 @@
-use crate::content::{BlockRegistry, BlockRenderDataType, ItemRegistry};
+use crate::content::{ItemModel, ItemRegistry};
 use crate::render::GUIVertex;
 use crate::texture::TextureAtlas;
-use block_byte_common::content::ClientItemModel;
 use block_byte_common::gui::{GUIComponent, GUIElement, PositionAnchor};
 use block_byte_common::{Color, TexCoords, Vec2};
 use rusttype::Scale;
@@ -99,7 +98,6 @@ impl<'a> GUIRenderer<'a> {
         &mut self,
         device: &Device,
         item_registry: &ItemRegistry,
-        block_registry: &BlockRegistry,
         mouse_physical: PhysicalPosition<f64>,
         size: PhysicalSize<u32>,
     ) -> (BufferSlice, u32) {
@@ -149,7 +147,7 @@ impl<'a> GUIRenderer<'a> {
                     if let Some(item_id) = item_id.as_ref() {
                         let item = item_registry.get_item(item_id.0);
                         match &item.model {
-                            ClientItemModel::Texture(texture) => {
+                            ItemModel::Texture { texture, .. } => {
                                 Self::add_rect_vertices(
                                     &mut vertices,
                                     element.anchor,
@@ -158,35 +156,28 @@ impl<'a> GUIRenderer<'a> {
                                         y: element.position.y as f32,
                                     },
                                     *size,
-                                    self.texture_atlas.get(texture.as_str()),
+                                    *texture,
                                     Color::WHITE,
                                     aspect_ratio,
                                     self.gui_scale,
                                     mouse,
                                 );
                             }
-                            ClientItemModel::Block(block) => {
-                                match &block_registry.get_block(*block).block_type {
-                                    BlockRenderDataType::Air => {}
-                                    BlockRenderDataType::Cube(data) => {
-                                        Self::add_rect_vertices(
-                                            &mut vertices,
-                                            element.anchor,
-                                            Vec2 {
-                                                x: element.position.x as f32,
-                                                y: element.position.y as f32,
-                                            },
-                                            *size,
-                                            data.front,
-                                            Color::WHITE,
-                                            aspect_ratio,
-                                            self.gui_scale,
-                                            mouse,
-                                        );
-                                    }
-                                    BlockRenderDataType::Static(_) => {}
-                                    BlockRenderDataType::Foliage(_) => {}
-                                }
+                            ItemModel::Block { front, .. } => {
+                                Self::add_rect_vertices(
+                                    &mut vertices,
+                                    element.anchor,
+                                    Vec2 {
+                                        x: element.position.x as f32,
+                                        y: element.position.y as f32,
+                                    },
+                                    *size,
+                                    *front,
+                                    Color::WHITE,
+                                    aspect_ratio,
+                                    self.gui_scale,
+                                    mouse,
+                                );
                             }
                         }
                         self.text_renderer.render(

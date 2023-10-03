@@ -1,9 +1,9 @@
 use crate::content::{EntityRegistry, ItemRegistry};
 use crate::game::{ClientPlayer, World};
 use crate::gui::GUIRenderer;
-use crate::model::{ItemTextureResolver, Model};
+use crate::model::Model;
 use crate::texture;
-use crate::texture::{Texture, TextureAtlas};
+use crate::texture::Texture;
 use block_byte_common::{Face, Position, TexCoords, Vec3};
 use cgmath::{Matrix4, SquareMatrix};
 use image::RgbaImage;
@@ -319,7 +319,7 @@ impl RenderState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     strip_index_format: None,
                     front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: Some(wgpu::Face::Back),
+                    cull_mode: /*Some(wgpu::Face::Back)*/None,
                     polygon_mode: wgpu::PolygonMode::Fill,
                     unclipped_depth: false,
                     conservative: false,
@@ -387,7 +387,6 @@ impl RenderState {
         gui: &mut GUIRenderer,
         item_registry: &ItemRegistry,
         entity_registry: &EntityRegistry,
-        texture_atlas: &TextureAtlas,
     ) -> Result<(), wgpu::SurfaceError> {
         self.camera_uniform
             .update_view_proj(camera, self.size.width as f32 / self.size.height as f32);
@@ -445,11 +444,6 @@ impl RenderState {
             }
         }
         let (model_buffer, model_vertex_count) = {
-            let item_texture_resolver = ItemTextureResolver {
-                texture_atlas,
-                item_registry,
-                block_registry: &world.block_registry,
-            };
             let mut vertices = Vec::new();
             for (block_position, dynamic_block_data) in &world.dynamic_blocks {
                 let dynamic_data = world
@@ -461,7 +455,7 @@ impl RenderState {
                 dynamic_data.add_vertices(
                     Matrix4::identity(),
                     dynamic_block_data.animation,
-                    Some((&dynamic_block_data.items, item_texture_resolver)),
+                    Some((&dynamic_block_data.items, item_registry)),
                     &mut |position, coords| {
                         vertices.push(Vertex {
                             position: [
@@ -500,7 +494,7 @@ impl RenderState {
                         },
                     ),
                     entity.animation,
-                    Some((&entity.items, item_texture_resolver)),
+                    Some((&entity.items, item_registry)),
                     &mut |position, coords| {
                         vertices.push(Vertex {
                             position: [position.x as f32, position.y as f32, position.z as f32],
@@ -618,13 +612,8 @@ impl RenderState {
             });
             render_pass.set_pipeline(&self.gui_render_pipeline);
             render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
-            let (buffer, vertex_count) = gui.draw(
-                &self.device,
-                item_registry,
-                &world.block_registry,
-                self.mouse,
-                self.size,
-            );
+            let (buffer, vertex_count) =
+                gui.draw(&self.device, item_registry, self.mouse, self.size);
             render_pass.set_vertex_buffer(0, buffer);
             render_pass.draw(0..vertex_count, 0..1);
         }

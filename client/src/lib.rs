@@ -82,7 +82,7 @@ pub async fn run() {
     );
     let mut keys = HashSet::new();
     let mut world = World::new(block_registry.clone());
-    let mut gui = GUIRenderer::new(texture_atlas.clone(), render_state.device(), text_renderer);
+    let mut gui = GUIRenderer::new(texture_atlas, render_state.device(), text_renderer);
     let mut connection = SocketConnection::new("localhost:4321");
     let mut first_teleport = false;
     let mut last_render_time = Instant::now();
@@ -390,7 +390,6 @@ pub async fn run() {
                 &mut gui,
                 &item_registry,
                 &entity_registry,
-                &texture_atlas,
             ) {
                 Ok(_) => {}
                 Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
