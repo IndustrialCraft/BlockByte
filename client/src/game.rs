@@ -1,7 +1,8 @@
-use crate::content::{BlockRegistry, BlockRenderDataType};
+use crate::content::{BlockRegistry, BlockRenderDataType, EntityRegistry};
+use crate::game::RaycastResult::{Block, Entity};
 use crate::render::{FaceVerticesExtension, Vertex};
 use block_byte_common::messages::MovementType;
-use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position, AABB};
+use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position, Vec3, AABB};
 use cgmath::{ElementWise, InnerSpace, Matrix4, Point3, SquareMatrix, Vector3};
 use log::warn;
 use std::collections::{HashMap, HashSet};
@@ -446,15 +447,17 @@ impl Chunk {
 pub struct World {
     pub chunks: HashMap<ChunkPosition, Chunk>,
     pub block_registry: Rc<BlockRegistry>,
+    pub entity_registry: Rc<EntityRegistry>,
     pub modified_chunks: HashSet<ChunkPosition>,
     pub dynamic_blocks: HashMap<BlockPosition, DynamicBlockData>,
     pub entities: HashMap<u32, EntityData>,
 }
 impl World {
-    pub fn new(block_registry: Rc<BlockRegistry>) -> Self {
+    pub fn new(block_registry: Rc<BlockRegistry>, entity_registry: Rc<EntityRegistry>) -> Self {
         World {
             chunks: HashMap::new(),
             block_registry,
+            entity_registry,
             modified_chunks: HashSet::new(),
             dynamic_blocks: HashMap::new(),
             entities: HashMap::new(),
@@ -556,12 +559,40 @@ impl World {
         max_distance: f64,
         start_position: Position,
         direction: Vector3<f32>,
-    ) -> Option<(BlockPosition, Face)> {
+    ) -> RaycastResult {
+        let mut closest_entity: Option<(f64, u32)> = None;
+        for (id, entity) in &self.entities {
+            let entity_data = self.entity_registry.get_entity(entity.type_id);
+            let aabb = AABB {
+                x: entity.position.x,
+                y: entity.position.y,
+                z: entity.position.z,
+                w: entity_data.hitbox_w,
+                h: entity_data.hitbox_h,
+                d: entity_data.hitbox_d,
+            };
+            if let Some(distance) = aabb.raycast(
+                start_position,
+                Vec3 {
+                    x: direction.x,
+                    y: direction.y,
+                    z: direction.z,
+                },
+            ) {
+                if distance <= max_distance
+                    && distance < closest_entity.map(|e| e.0).unwrap_or(f64::INFINITY)
+                {
+                    closest_entity = Some((distance, *id));
+                }
+            }
+        }
         let mut output = None;
         voxel_tile_raycast::voxel_raycast(
             nalgebra::Vector3::new(start_position.x, start_position.y, start_position.z),
             nalgebra::Vector3::new(direction.x as f64, direction.y as f64, direction.z as f64),
-            max_distance,
+            closest_entity
+                .map(|entity| entity.0 - 1.) //todo: figure out why its not working without -1
+                .unwrap_or(max_distance),
             |index, _hit_pos, hit_normal| {
                 let block_position = BlockPosition {
                     x: index.x,
@@ -589,8 +620,22 @@ impl World {
                 }
             },
         );
-        output
+        let mut result = RaycastResult::Miss;
+        if let Some(block) = output {
+            result = Block(block.0, block.1);
+        } else {
+            if let Some(entity) = &closest_entity {
+                result = Entity(entity.1);
+            }
+        }
+
+        result
     }
+}
+pub enum RaycastResult {
+    Entity(u32),
+    Block(BlockPosition, Face),
+    Miss,
 }
 pub struct EntityData {
     pub type_id: u32,

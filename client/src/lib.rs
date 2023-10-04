@@ -25,7 +25,7 @@ use winit::{
     window::WindowBuilder,
 };
 
-use crate::game::{ClientPlayer, EntityData, World};
+use crate::game::{ClientPlayer, EntityData, RaycastResult, World};
 use crate::gui::GUIRenderer;
 use crate::net::SocketConnection;
 use crate::render::RenderState;
@@ -51,6 +51,7 @@ pub async fn run() {
         text_renderer,
     ) = content::load_assets(&Path::new("../server/save/content.zip"), false);
     let block_registry = Rc::new(block_registry);
+    let entity_registry = Rc::new(entity_registry);
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
@@ -81,7 +82,7 @@ pub async fn run() {
         block_registry.clone(),
     );
     let mut keys = HashSet::new();
-    let mut world = World::new(block_registry.clone());
+    let mut world = World::new(block_registry.clone(), entity_registry.clone());
     let mut gui = GUIRenderer::new(texture_atlas, render_state.device(), text_renderer);
     let mut connection = SocketConnection::new("localhost:4321");
     let mut first_teleport = false;
@@ -146,8 +147,31 @@ pub async fn run() {
                             ));
                         }
                     } else {
-                        if let Some((position, face)) =
-                            world.raycast(5., camera.get_eye(), camera.make_front())
+                        match world.raycast(5., camera.get_eye(), camera.make_front()) {
+                            RaycastResult::Entity(id) => match button {
+                                MouseButton::Left => {
+                                    connection.send_message(&NetworkMessageC2S::LeftClickEntity(id))
+                                }
+                                MouseButton::Right => connection
+                                    .send_message(&NetworkMessageC2S::RightClickEntity(id)),
+                                _ => {}
+                            },
+                            RaycastResult::Block(position, face) => match button {
+                                MouseButton::Left => connection
+                                    .send_message(&NetworkMessageC2S::BreakBlock(position)),
+                                MouseButton::Right => {
+                                    connection.send_message(&NetworkMessageC2S::RightClickBlock(
+                                        position,
+                                        face,
+                                        camera.is_shifting(),
+                                    ))
+                                }
+                                _ => {}
+                            },
+                            RaycastResult::Miss => {}
+                        }
+                        /*if let Some((position, face)) =
+
                         {
                             match button {
                                 MouseButton::Left => connection
@@ -161,7 +185,7 @@ pub async fn run() {
                                 }
                                 _ => {}
                             }
-                        }
+                        }*/
                     }
                 }
             }

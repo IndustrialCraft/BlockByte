@@ -475,23 +475,15 @@ impl RenderState {
                         &Vec3 {
                             x: (entity.position.x + (entity_data.hitbox_w / 2.)) as f32,
                             y: entity.position.y as f32,
-                            z: (entity.position.z + (entity_data.hitbox_h / 2.)) as f32,
+                            z: (entity.position.z + (entity_data.hitbox_d / 2.)) as f32,
                         },
                         &Vec3 {
                             x: 0.,
                             y: (entity.rotation + 180.).to_radians(),
                             z: 0.,
                         },
-                        &Vec3 {
-                            x: 0.,
-                            y: 0.,
-                            z: 0.,
-                        },
-                        &Vec3 {
-                            x: 1.,
-                            y: 1.,
-                            z: 1.,
-                        },
+                        &Vec3::ZERO,
+                        &Vec3::ONE,
                     ),
                     entity.animation,
                     Some((&entity.items, item_registry)),

@@ -359,6 +359,28 @@ pub struct AABB {
     pub d: f64,
 }
 impl AABB {
+    pub fn raycast(&self, position: Position, direction: Vec3) -> Option<f64> {
+        let t1 = (self.x - position.x) / direction.x as f64;
+        let t2 = ((self.x + self.w) - position.x) / direction.x as f64;
+        let t3 = (self.y - position.y) / direction.y as f64;
+        let t4 = ((self.y + self.h) - position.y) / direction.y as f64;
+        let t5 = (self.z - position.z) / direction.z as f64;
+        let t6 = ((self.z + self.d) - position.z) / direction.z as f64;
+
+        let tmin = ((t1.min(t2)).max(t3.min(t4))).max(t5.min(t6));
+        let tmax = ((t1.max(t2)).min(t3.max(t4))).min(t5.max(t6));
+
+        if tmax < 0. {
+            return None;
+        }
+        if tmin > tmax {
+            return None;
+        }
+        if tmin < 0. {
+            return Some(tmax);
+        }
+        return Some(tmin);
+    }
     pub fn calc_second_point(&self) -> (f64, f64, f64) {
         (self.x + self.w, self.y + self.h, self.z + self.d)
     }
