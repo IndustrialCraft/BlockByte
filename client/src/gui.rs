@@ -180,26 +180,28 @@ impl<'a> GUIRenderer<'a> {
                                 );
                             }
                         }
-                        self.text_renderer.render(
-                            &mut vertices,
-                            element.anchor,
-                            Vec2 {
-                                x: element.position.x as f32,
-                                y: element.position.y as f32,
-                            },
-                            50.,
-                            &item_id.1.to_string(),
-                            Color {
-                                r: 0,
-                                g: 0,
-                                b: 0,
-                                a: 255,
-                            },
-                            &self.texture_atlas,
-                            aspect_ratio,
-                            self.gui_scale,
-                            mouse,
-                        );
+                        if item_id.1 != 1 {
+                            self.text_renderer.render(
+                                &mut vertices,
+                                element.anchor,
+                                Vec2 {
+                                    x: element.position.x as f32,
+                                    y: element.position.y as f32,
+                                },
+                                50.,
+                                &item_id.1.to_string(),
+                                Color {
+                                    r: 0,
+                                    g: 0,
+                                    b: 0,
+                                    a: 255,
+                                },
+                                &self.texture_atlas,
+                                aspect_ratio,
+                                self.gui_scale,
+                                mouse,
+                            );
+                        }
                     }
                 }
                 _ => {}
