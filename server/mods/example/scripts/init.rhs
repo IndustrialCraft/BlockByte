@@ -119,4 +119,4 @@ register_event("bb:command", |player,command|{
     }
 });
 
-register_event("bb:player_join", |player|{player.abilities().creative(true);player.abilities().movement_type(MovementType::NoClip);player.abilities().speed(0.3);});
+register_event("bb:player_join", |player|{player.abilities().creative(true);player.abilities().movement_type(MovementType::Normal);player.abilities().speed(1.);});

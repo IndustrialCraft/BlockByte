@@ -56,7 +56,7 @@ impl ClientPlayer {
             y: self.position.y as f64,
             z: self.position.z as f64,
         }
-        .add(0., self.eye_height_diff() as f64, 0.)
+        .add(0.3, self.eye_height_diff() as f64, 0.3)
     }
     pub fn update_position(
         &mut self,
@@ -197,9 +197,9 @@ impl ClientPlayer {
             return false;
         }
         let bounding_box = AABB {
-            x: position.x - 0.3,
+            x: position.x,
             y: position.y,
-            z: position.z - 0.3,
+            z: position.z,
             w: 0.6,
             h: 1.95 - if self.shifting { 0.5 } else { 0. },
             d: 0.6,
@@ -240,22 +240,13 @@ impl ClientPlayer {
         1.75 - self.shifting_animation
     }
     pub fn create_view_matrix(&self) -> Matrix4<f32> {
-        Matrix4::look_at_rh(
-            self.position
-                + Vector3 {
-                    x: 0.,
-                    y: self.eye_height_diff(),
-                    z: 0.,
-                },
-            self.position
-                + Vector3 {
-                    x: 0.,
-                    y: self.eye_height_diff(),
-                    z: 0.,
-                }
-                + self.make_front(),
-            Self::UP,
-        )
+        let eye = self.get_eye();
+        let eye = Point3 {
+            x: eye.x as f32,
+            y: eye.y as f32,
+            z: eye.z as f32,
+        };
+        Matrix4::look_at_rh(eye, eye + self.make_front(), Self::UP)
     }
     pub fn create_projection_matrix(&self, aspect: f32) -> Matrix4<f32> {
         cgmath::perspective(cgmath::Deg(90.), aspect, 0.001, 1000.)
