@@ -165,7 +165,7 @@ impl Model {
                                 y: item_element.position.y
                                     + (((position.z as f32 + side.0 .1 as f32) / sides.1.y)
                                         * item_element.size.y),
-                                z: item_element.position.z + (position.y as f32 / 32.),
+                                z: item_element.position.z + ((1. - position.y) as f32 / 32.),
                             });
                             vertex_consumer.call_mut((
                                 Position {
