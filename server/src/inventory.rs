@@ -633,14 +633,14 @@ impl LootTable {
         T: Fn(ItemStack),
     {
         for table in &self.tables {
-            consumer.call((ItemStack::new(
-                &table.0,
-                table
-                    .1
-                    .clamped_sample(rand::random::<f64>() % 1.)
-                    .unwrap()
-                    .round() as u32,
-            ),));
+            let count = table
+                .1
+                .clamped_sample(rand::random::<f64>() % 1.)
+                .unwrap()
+                .round() as u32;
+            if count > 0 {
+                consumer.call((ItemStack::new(&table.0, count),));
+            }
         }
     }
 }

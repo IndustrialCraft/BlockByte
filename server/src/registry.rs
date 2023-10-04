@@ -9,14 +9,16 @@ use block_byte_common::content::{
     ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData,
 };
 use block_byte_common::messages::NetworkMessageS2C;
-use block_byte_common::{BlockPosition, Face};
+use block_byte_common::{BlockPosition, Face, Position};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
+use rand::{thread_rng, Rng};
 use rhai::Dynamic;
 use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
 
 use crate::inventory::Recipe;
+use crate::util::ChunkLocation;
 use crate::{
     inventory::ItemStack,
     mods::{ClientContentData, ScriptCallback},
@@ -157,11 +159,41 @@ impl BlockState {
             state_id: self.get_full_id(),
         }
     }
-    pub fn on_break(&self, _position: ChunkBlockLocation, player: &Entity) {
+    pub fn on_break(&self, location: ChunkBlockLocation, player: &Entity) {
         if let Some(loottable) = &self.loottable {
             let loottable = player.server.loot_tables.get(loottable).unwrap();
             loottable.generate_items(|item| {
-                player.inventory.get_full_view().add_item(&item);
+                let rotation: f32 = thread_rng().gen_range((0.)..(360.));
+                let strength = 0.2;
+                let item_entity = Entity::new(
+                    ChunkLocation {
+                        chunk: location.chunk.clone(),
+                        position: Position {
+                            x: location.position.x as f64 + 0.5,
+                            y: location.position.y as f64 + 0.5,
+                            z: location.position.z as f64 + 0.5,
+                        },
+                    },
+                    player
+                        .server
+                        .entity_registry
+                        .entity_by_identifier(&Identifier::new("bb", "item"))
+                        .unwrap(),
+                    None,
+                );
+                item_entity
+                    .inventory
+                    .get_full_view()
+                    .set_item(0, Some(item))
+                    .unwrap();
+
+                let rotation_radians = rotation.to_radians();
+                item_entity.apply_knockback(
+                    rotation_radians.sin() as f64 * strength,
+                    strength,
+                    rotation_radians.cos() as f64 * strength,
+                );
+                *item_entity.rotation_shifting.lock() = (rotation, false);
             });
         }
     }

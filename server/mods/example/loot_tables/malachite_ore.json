@@ -3,9 +3,24 @@
         {
             "id":"example:malachite_chunk",
             "count":{
-                "0":3,
-                "1":5
+                "0":0,
+                "1":1
             }
+        },
+        {
+            "id":"example:malachite_chunk",
+            "count":{
+                "0":0,
+                "1":1
+            }
+        },
+        {
+            "id":"example:malachite_chunk",
+            "count":1
+        },
+        {
+            "id":"example:malachite_chunk",
+            "count":1
         }
     ]
 }

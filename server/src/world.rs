@@ -846,7 +846,7 @@ impl EntityData {
 pub struct Entity {
     this: Weak<Self>,
     location: Mutex<ChunkLocation>,
-    rotation_shifting: Mutex<(f32, bool)>,
+    pub(crate) rotation_shifting: Mutex<(f32, bool)>,
     teleport: Mutex<Option<ChunkLocation>>,
     pub entity_type: Arc<EntityType>,
     pub entity_data: Mutex<EntityData>,
