@@ -193,8 +193,9 @@ impl Server {
         for entity_data in loaded_mods.3 {
             entity_registry
                 .borrow_mut()
-                .register(entity_data.id, |id| {
+                .register(entity_data.id.clone(), |id| {
                     Arc::new(EntityType {
+                        id: entity_data.id,
                         client_id: id,
                         client_data: entity_data.client,
                         ticker: Mutex::new(
@@ -211,7 +212,8 @@ impl Server {
             .borrow_mut()
             .register(Identifier::new("bb", "item"), |client_id| {
                 Arc::new(EntityType {
-                    client_id: client_id,
+                    id: Identifier::new("bb", "item"),
+                    client_id,
                     client_data: ClientEntityData {
                         model: "bb:item".to_string(),
                         texture: "".to_string(),

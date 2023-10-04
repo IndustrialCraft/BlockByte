@@ -136,7 +136,11 @@ impl Inventory {
         self.items.lock().clone()
     }
     pub fn load_content(&self, content: Box<[Option<ItemStack>]>) {
+        let length = content.len();
         *self.items.lock() = content;
+        for i in 0..length {
+            self.sync_slot(i as u32);
+        }
     }
     pub fn get_owner(&self) -> &WeakInventoryWrapper {
         &self.owner
@@ -348,22 +352,24 @@ impl Inventory {
             });
         }
     }
-    pub fn serialize(&self) -> Vec<u8> {
-        let items = self.export_content();
-        bitcode::serialize(&InventorySaveData {
-            items: items
+    pub fn serialize(&self) -> InventorySaveData {
+        InventorySaveData {
+            items: self
+                .items
+                .lock()
                 .iter()
                 .map(|item| {
                     item.as_ref()
                         .map(|item| (item.item_type.id.to_string(), item.item_count))
                 })
                 .collect(),
-        })
-        .unwrap()
+        }
     }
-    pub fn deserialize(&self, data: &[u8], item_registry: &ItemRegistry) -> Result<(), ()> {
-        let inventory_save_data =
-            bitcode::deserialize::<InventorySaveData>(data).map_err(|_| ())?;
+    pub fn deserialize(
+        &self,
+        inventory_save_data: InventorySaveData,
+        item_registry: &ItemRegistry,
+    ) {
         let items: Vec<_> = inventory_save_data
             .items
             .iter()
@@ -379,7 +385,6 @@ impl Inventory {
             })
             .collect();
         self.load_content(items.into_boxed_slice());
-        Ok(())
     }
     pub fn get_view(&self, slot_range: Range<u32>) -> InventoryView {
         InventoryView {

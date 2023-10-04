@@ -306,6 +306,7 @@ pub struct ItemModelMapping {
 }
 
 pub struct EntityType {
+    pub id: Identifier,
     pub client_id: u32,
     pub client_data: ClientEntityData,
     pub ticker: Mutex<Option<ScriptCallback>>,

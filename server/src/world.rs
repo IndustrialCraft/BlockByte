@@ -26,6 +26,7 @@ use rhai::{Array, Dynamic};
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::inventory::InventorySaveData;
 use crate::registry::BlockState;
 use crate::{
     inventory::{Inventory, InventoryWrapper, ItemStack, WeakInventoryWrapper},
@@ -313,7 +314,31 @@ impl Chunk {
             {
                 let save_path = gen_chunk.get_chunk_path();
                 *gen_chunk.blocks.lock() = match gen_chunk.load_from_save(save_path) {
-                    Ok(blocks) => blocks,
+                    Ok((blocks, entities)) => {
+                        if entities.len() > 0 {}
+                        for entity_data in entities {
+                            let entity = Entity::new(
+                                ChunkLocation {
+                                    position: entity_data.position,
+                                    chunk: gen_chunk.clone(),
+                                },
+                                gen_chunk
+                                    .world
+                                    .server
+                                    .entity_registry
+                                    .entity_by_identifier(&entity_data.entity_type)
+                                    .unwrap(),
+                                None,
+                            );
+                            *entity.velocity.lock() = entity_data.velocity;
+                            entity.rotation_shifting.lock().0 = entity_data.rotation;
+                            entity.inventory.deserialize(
+                                entity_data.inventory,
+                                &gen_chunk.world.server.item_registry,
+                            );
+                        }
+                        blocks
+                    }
                     Err(()) => gen_chunk.world.world_generator.generate(&gen_chunk),
                 };
             }
@@ -368,7 +393,10 @@ impl Chunk {
         }));
         chunk
     }
-    pub fn load_from_save(&self, save_path: PathBuf) -> Result<[[[BlockData; 16]; 16]; 16], ()> {
+    pub fn load_from_save(
+        &self,
+        save_path: PathBuf,
+    ) -> Result<([[[BlockData; 16]; 16]; 16], Vec<EntitySaveData>), ()> {
         let mut chunk_save_data = bitcode::deserialize::<ChunkSaveData>(
             std::fs::read(save_path).map_err(|_| ())?.as_slice(),
         )
@@ -377,11 +405,7 @@ impl Chunk {
         let block_palette: Vec<_> = chunk_save_data
             .palette
             .iter()
-            .map(|id| {
-                block_registry
-                    .block_by_identifier(&Identifier::parse(id.as_str()).unwrap())
-                    .unwrap()
-            })
+            .map(|id| block_registry.block_by_identifier(&id).unwrap())
             .collect();
         let blocks = array_init(|x| {
             array_init(|y| {
@@ -408,7 +432,7 @@ impl Chunk {
                 })
             })
         });
-        Ok(blocks)
+        Ok((blocks, chunk_save_data.entities))
     }
     pub fn ptr(&self) -> Arc<Chunk> {
         self.this.upgrade().unwrap()
@@ -446,6 +470,9 @@ impl Chunk {
         self.entities.lock().push(entity);
     }
     fn add_viewer(&self, viewer: Arc<Entity>) {
+        self.viewers.lock().insert(ChunkViewer {
+            player: viewer.clone(),
+        });
         if self.loading_stage.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
             let thread_viewer = viewer.clone();
             let position = self.position.clone();
@@ -489,7 +516,6 @@ impl Chunk {
                 .try_send_messages(&entity.create_add_messages(entity.get_location().position))
                 .unwrap();
         }
-        self.viewers.lock().insert(ChunkViewer { player: viewer });
     }
     fn remove_viewer(&self, viewer: &Entity) {
         viewer
@@ -581,55 +607,65 @@ impl Chunk {
         let chunk = self.this.upgrade().unwrap();
         if !self.world.temporary {
             self.world.server.thread_pool.execute(Box::new(move || {
-                {
-                    let mut blocks_save = [[[0u16; 16]; 16]; 16];
-                    let mut block_map = FxHashMap::default();
-                    let blocks = chunk.blocks.lock();
-                    let block_registry = &chunk.world.server.block_registry;
-                    let mut block_data = HashMap::new();
-                    for x in 0..16 {
-                        for y in 0..16 {
-                            for z in 0..16 {
-                                let block = &blocks[x][y][z];
-                                let (block_state_ref, serialized_block) = match block {
-                                    BlockData::Simple(id) => {
-                                        (BlockStateRef::from_state_id(*id), None)
-                                    }
-                                    BlockData::Data(block) => {
-                                        (block.state, Some(block.serialize()))
-                                    }
-                                };
-                                let block = block_registry.state_by_ref(&block_state_ref);
-                                let block_id = &block.parent.id; //todo: save state
-                                let block_map_len = block_map.len();
-                                let numeric_id =
-                                    *block_map.entry(block_id).or_insert(block_map_len);
-                                blocks_save[x][y][z] = numeric_id as u16;
-                                if let Some(serialized_block) = serialized_block {
-                                    block_data
-                                        .insert((x as u8, y as u8, z as u8), serialized_block);
-                                }
+                let mut blocks_save = [[[0u16; 16]; 16]; 16];
+                let mut block_map = FxHashMap::default();
+                let blocks = chunk.blocks.lock();
+                let block_registry = &chunk.world.server.block_registry;
+                let mut block_data = HashMap::new();
+                for x in 0..16 {
+                    for y in 0..16 {
+                        for z in 0..16 {
+                            let block = &blocks[x][y][z];
+                            let (block_state_ref, serialized_block) = match block {
+                                BlockData::Simple(id) => (BlockStateRef::from_state_id(*id), None),
+                                BlockData::Data(block) => (block.state, Some(block.serialize())),
+                            };
+                            let block = block_registry.state_by_ref(&block_state_ref);
+                            let block_id = &block.parent.id; //todo: save state
+                            let block_map_len = block_map.len();
+                            let numeric_id = *block_map.entry(block_id).or_insert(block_map_len);
+                            blocks_save[x][y][z] = numeric_id as u16;
+                            if let Some(serialized_block) = serialized_block {
+                                block_data.insert((x as u8, y as u8, z as u8), serialized_block);
                             }
                         }
                     }
-                    let chunk_save_data = ChunkSaveData {
-                        blocks: blocks_save,
-                        palette: {
-                            let mut block_map: Vec<_> = block_map.iter().collect();
-                            block_map.sort_by(|first, second| first.1.cmp(second.1));
-                            block_map.iter().map(|e| e.0.to_string()).collect()
-                        },
-                        block_data,
-                    };
-                    std::fs::write(
-                        chunk.get_chunk_path(),
-                        bitcode::serialize(&chunk_save_data).unwrap(),
-                    )
-                    .unwrap();
                 }
+                let mut entities = Vec::new();
+                for entity in chunk.entities.lock().iter() {
+                    let position = entity.get_location().position;
+                    if position.to_chunk_pos() != chunk.position
+                        || entity.is_removed()
+                        || entity.is_player()
+                    {
+                        continue;
+                    }
+                    entities.push(EntitySaveData {
+                        entity_type: entity.entity_type.id.clone(),
+                        velocity: entity.velocity.lock().clone(),
+                        rotation: entity.get_rotation(),
+                        position,
+                        inventory: entity.inventory.serialize(),
+                    });
+                }
+                let chunk_save_data = ChunkSaveData {
+                    blocks: blocks_save,
+                    palette: {
+                        let mut block_map: Vec<_> = block_map.iter().collect();
+                        block_map.sort_by(|first, second| first.1.cmp(second.1));
+                        block_map.iter().map(|e| (*e.0).clone()).collect()
+                    },
+                    block_data,
+                    entities,
+                };
+                std::fs::write(
+                    chunk.get_chunk_path(),
+                    bitcode::serialize(&chunk_save_data).unwrap(),
+                )
+                .unwrap();
+                chunk.entities.lock().clear();
             }));
         }
-        self.entities.lock().clear();
         self.viewers.lock().clear();
     }
     pub fn get_chunk_path(&self) -> PathBuf {
@@ -643,9 +679,23 @@ impl Chunk {
 }
 #[derive(Serialize, Deserialize)]
 pub struct ChunkSaveData {
-    palette: Vec<String>,
+    palette: Vec<Identifier>,
     blocks: [[[u16; 16]; 16]; 16],
-    block_data: HashMap<(u8, u8, u8), Vec<u8>>,
+    block_data: HashMap<(u8, u8, u8), BlockSaveData>,
+    entities: Vec<EntitySaveData>,
+}
+#[derive(Serialize, Deserialize)]
+pub struct BlockSaveData {
+    inventory: InventorySaveData,
+}
+#[derive(Serialize, Deserialize)]
+pub struct EntitySaveData {
+    position: Position,
+    rotation: f32,
+    entity_type: Identifier,
+    inventory: InventorySaveData,
+    velocity: (f64, f64, f64),
+    //todo: user data
 }
 
 struct ChunkViewer {
@@ -1359,7 +1409,6 @@ impl Entity {
                                                 .get_full_view()
                                                 .set_item(i as u32, Some(recipe.get_icon()))
                                                 .unwrap();
-                                            println!("here");
                                         }
                                         inventory.get_user_data().put_data_point(
                                             &Identifier::new("bb", "recipes"),
@@ -1827,16 +1876,16 @@ impl WorldBlock {
         player.send_chat_message("clicked".to_string());
         InteractionResult::Consumed
     }
-    pub fn serialize(&self) -> Vec<u8> {
-        self.inventory.serialize()
+    pub fn serialize(&self) -> BlockSaveData {
+        BlockSaveData {
+            inventory: self.inventory.serialize(),
+        }
     }
-    pub fn deserialize(&self, data: Vec<u8>) {
-        self.inventory
-            .deserialize(
-                data.as_slice(),
-                &self.chunk.upgrade().unwrap().world.server.item_registry,
-            )
-            .unwrap();
+    pub fn deserialize(&self, data: BlockSaveData) {
+        self.inventory.deserialize(
+            data.inventory,
+            &self.chunk.upgrade().unwrap().world.server.item_registry,
+        );
     }
     pub fn ptr(&self) -> Arc<WorldBlock> {
         self.this.upgrade().unwrap()

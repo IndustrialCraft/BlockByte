@@ -1,9 +1,10 @@
 use block_byte_common::{BlockPosition, Position};
+use serde::{Deserialize, Serialize};
 use std::{fmt::Display, sync::Arc};
 
 use crate::world::{Chunk, World};
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug, Serialize, Deserialize)]
 pub struct Identifier {
     pub namespace: String,
     pub key: String,
