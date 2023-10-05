@@ -317,7 +317,7 @@ impl Chunk {
                                         [neighbor_offset.2 as usize],
                                 );
                                 if neighbor_block.is_face_full(face.opposite())
-                                    || (neighbor_block.transparent && block.transparent)
+                                    || (neighbor_block.fluid && block.fluid)
                                 {
                                     continue;
                                 }

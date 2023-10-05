@@ -11,6 +11,7 @@ use block_byte_common::{Color, Position, Vec2};
 use fxhash::FxHashMap;
 use json::{object, JsonValue};
 use parking_lot::{Mutex, MutexGuard};
+use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use splines::Spline;
 use uuid::Uuid;
@@ -635,7 +636,7 @@ impl LootTable {
         for table in &self.tables {
             let count = table
                 .1
-                .clamped_sample(rand::random::<f64>() % 1.)
+                .clamped_sample(thread_rng().gen_range((0.)..(1.)))
                 .unwrap()
                 .round() as u32;
             if count > 0 {
