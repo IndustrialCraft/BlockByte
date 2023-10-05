@@ -61,7 +61,7 @@ register_image("example:water", "images/water.png");
 register_image("example:log_side", "images/log_side.png");
 register_image("example:log_base", "images/log_base.png");
 register_image("example:grass", "images/grass.png");
-register_image("example:grass_side", "images/grass_side.png");
+register_image("example:grass_side", load_image("images/dirt.png").overlay(load_image("images/grass_side.png").multiply(load_image("images/grass.png"))));
 register_image("example:dirt", "images/dirt.png");
 register_image("example:leaves", "images/leaves.png");
 register_image("example:sand", "images/sand.png");

@@ -5,7 +5,9 @@ use block_byte_common::content::{
     ClientEntityData,
 };
 use block_byte_common::messages::MovementType;
-use block_byte_common::{BlockPosition, Position};
+use block_byte_common::{BlockPosition, Color, Position};
+use image::io::Reader;
+use image::{ImageOutputFormat, Rgba, RgbaImage};
 use json::JsonValue;
 use parking_lot::Mutex;
 use rhai::plugin::*;
@@ -255,7 +257,7 @@ impl ModManager {
                 let mut full_path = start_path.clone();
                 full_path.push(path);
                 if !full_path.starts_with(start_path) {
-                    panic!("path travelsal attack");
+                    panic!("path traversal attack");
                 }
                 register_content.lock().by_type(content_type).insert(
                     Identifier::parse(id).unwrap(),
@@ -266,6 +268,41 @@ impl ModManager {
         content_register.call_mut(("register_image", ContentType::Image));
         content_register.call_mut(("register_sound", ContentType::Sound));
         content_register.call_mut(("register_model", ContentType::Model));
+
+        let register_content = content.clone();
+        loading_engine.register_fn("register_image", move |id: &str, image: ModImage| {
+            register_content
+                .lock()
+                .images
+                .insert(Identifier::parse(id).unwrap(), image.export());
+        });
+
+        let image_mod_path = current_mod_path.clone();
+        loading_engine.register_fn("load_image", move |path: &str| {
+            let start_path = { image_mod_path.lock().clone() };
+            let mut full_path = start_path.clone();
+            full_path.push(path);
+            if !full_path.starts_with(start_path) {
+                panic!("path traversal attack");
+            }
+            ModImage::load(std::fs::read(full_path).unwrap())
+        });
+        loading_engine.register_fn("multiply", |first: &mut ModImage, second: ModImage| {
+            first.multiply(&second)
+        });
+        loading_engine.register_fn("overlay", |first: &mut ModImage, second: ModImage| {
+            first.overlay(&second)
+        });
+        loading_engine.register_fn("color", |image: &mut ModImage, color: Color| {
+            image.color(color)
+        });
+        loading_engine.register_fn("create_color", |r: f32, g: f32, b: f32, a: f32| Color {
+            r: (r * 255.) as u8,
+            g: (g * 255.) as u8,
+            b: (b * 255.) as u8,
+            a: (a * 255.) as u8,
+        });
+
         for loaded_mod in &mods {
             {
                 let mut path = current_mod_path.lock();
@@ -1034,5 +1071,83 @@ pub fn spline_from_json(json: &JsonValue) -> Spline<f64, f64> {
                 })
                 .collect(),
         )
+    }
+}
+#[derive(Clone)]
+pub struct ModImage {
+    image: RgbaImage,
+}
+impl ModImage {
+    pub fn load(data: Vec<u8>) -> ModImage {
+        ModImage {
+            image: Reader::new(std::io::Cursor::new(data))
+                .with_guessed_format()
+                .unwrap()
+                .decode()
+                .unwrap()
+                .into_rgba8(),
+        }
+    }
+    pub fn color(&self, color: Color) -> ModImage {
+        let mut image = self.image.clone();
+        for pixel in image.pixels_mut() {
+            pixel.0 = (Color::from_array(pixel.0) * color).to_array();
+        }
+        ModImage { image }
+    }
+    pub fn remove_background(&self, threshold: u8) -> ModImage {
+        let mut image = self.image.clone();
+        for pixel in image.pixels_mut() {
+            pixel.0[3] = if pixel.0[3] >= threshold { 255 } else { 0 };
+        }
+        ModImage { image }
+    }
+    pub fn multiply(&self, other: &ModImage) -> ModImage {
+        if self.image.width() != other.image.width() || self.image.height() != other.image.height()
+        {
+            panic!("cannot multiply images with different dimensions");
+        }
+        let mut image = self.image.clone();
+        for x in 0..self.image.width() {
+            for y in 0..self.image.height() {
+                image.put_pixel(
+                    x,
+                    y,
+                    Rgba(
+                        (Color::from_array(self.image.get_pixel(x, y).0)
+                            * Color::from_array(other.image.get_pixel(x, y).0))
+                        .to_array(),
+                    ),
+                );
+            }
+        }
+        ModImage { image }
+    }
+    pub fn overlay(&self, overlay: &ModImage) -> ModImage {
+        if self.image.width() != overlay.image.width()
+            || self.image.height() != overlay.image.height()
+        {
+            panic!("cannot overlay images with different dimensions");
+        }
+        let mut image = self.image.clone();
+        for x in 0..self.image.width() {
+            for y in 0..self.image.height() {
+                let overlay_color = overlay.image.get_pixel(x, y).0;
+                if overlay_color[3] > 0 {
+                    image.put_pixel(x, y, Rgba(overlay_color));
+                }
+            }
+        }
+        ModImage { image }
+    }
+    pub fn export(&self) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        self.image
+            .write_to(
+                &mut std::io::Cursor::new(&mut buffer),
+                ImageOutputFormat::Png,
+            )
+            .unwrap();
+        buffer
     }
 }

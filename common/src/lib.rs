@@ -336,6 +336,17 @@ impl Color {
         b: 255,
         a: 255,
     };
+    pub fn from_array(data: [u8; 4]) -> Color {
+        Color {
+            r: data[0],
+            g: data[1],
+            b: data[2],
+            a: data[3],
+        }
+    }
+    pub fn to_array(&self) -> [u8; 4] {
+        [self.r, self.g, self.b, self.a]
+    }
 }
 impl ops::Mul for Color {
     type Output = Self;
