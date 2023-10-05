@@ -828,9 +828,9 @@ impl EntityData {
                 player.inventory.get_slot_id(self.slot),
                 GUIElementEdit {
                     base_color: Some(Color {
-                        r: 255,
-                        g: 0,
-                        b: 0,
+                        r: 100,
+                        g: 100,
+                        b: 100,
                         a: 255,
                     }),
                     ..Default::default()

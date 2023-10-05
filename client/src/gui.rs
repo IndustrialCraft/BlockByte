@@ -146,6 +146,10 @@ impl<'a> GUIRenderer<'a> {
                     }
                     if let Some(item_id) = item_id.as_ref() {
                         let item = item_registry.get_item(item_id.0);
+                        let size = Vec2 {
+                            x: size.x * (7. / 8.),
+                            y: size.y * (7. / 8.),
+                        };
                         match &item.model {
                             ItemModel::Texture { texture, .. } => {
                                 Self::add_rect_vertices(
@@ -155,7 +159,7 @@ impl<'a> GUIRenderer<'a> {
                                         x: element.position.x as f32,
                                         y: element.position.y as f32,
                                     },
-                                    *size,
+                                    size,
                                     *texture,
                                     Color::WHITE,
                                     aspect_ratio,
@@ -171,7 +175,7 @@ impl<'a> GUIRenderer<'a> {
                                         x: element.position.x as f32,
                                         y: element.position.y as f32,
                                     },
-                                    *size,
+                                    size,
                                     *front,
                                     Color::WHITE,
                                     aspect_ratio,

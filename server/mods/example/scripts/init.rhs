@@ -70,7 +70,7 @@ register_image("example:plank", "images/plank.png");
 register_image("example:copper_axe", "images/copper_axe.png");
 register_image("example:copper_shovel", "images/copper_shovel.png");
 register_image("example:copper_pickaxe", "images/copper_pickaxe.png");
-//register_image("slot", "images/slot.png");
+register_image("bb:slot", "images/slot.png");
 register_image("example:malachite", "images/malachite.png");
 register_image("example:malachite_chunk", "images/malachite_chunk.png");
 register_image("example:grass_foliage", "images/grass_foliage.png");
