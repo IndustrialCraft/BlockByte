@@ -930,8 +930,9 @@ impl Entity {
                 viewer.player.try_send_messages(&add_message).unwrap();
             }
         }
-        entity.set_open_inventory(None);
-
+        if entity.is_player() {
+            entity.set_open_inventory(None);
+        }
         /*entity.try_send_message(&NetworkMessageS2C::PlayerAbilities(
             1.,
             crate::net::MovementType::NoClip,

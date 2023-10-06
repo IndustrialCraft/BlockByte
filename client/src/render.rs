@@ -4,19 +4,25 @@ use crate::gui::GUIRenderer;
 use crate::model::Model;
 use crate::texture;
 use crate::texture::Texture;
-use block_byte_common::{Face, Position, TexCoords, Vec3};
+use block_byte_common::{Face, Position, TexCoords, Vec3, AABB};
 use cgmath::{Matrix4, SquareMatrix};
 use image::RgbaImage;
 use std::iter;
+use std::mem::size_of;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::Relaxed;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::{BlendState, Buffer, BufferUsages, Device, LoadOp, Sampler, TextureView};
+use wgpu::{
+    BindGroup, BlendState, Buffer, BufferUsages, CommandEncoder, Device, LoadOp, Queue, Sampler,
+    TextureView,
+};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::window::Window;
 
 pub struct RenderState {
     surface: wgpu::Surface,
     device: wgpu::Device,
-    queue: wgpu::Queue,
+    pub(crate) queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: PhysicalSize<u32>,
     window: Window,
@@ -25,6 +31,7 @@ pub struct RenderState {
     chunk_foliage_render_pipeline: wgpu::RenderPipeline,
     gui_render_pipeline: wgpu::RenderPipeline,
     model_render_pipeline: wgpu::RenderPipeline,
+    pub(crate) outline_renderer: OutlineRenderer,
     texture: Texture,
     camera_uniform: CameraUniform,
     camera_buffer: Buffer,
@@ -94,6 +101,10 @@ impl RenderState {
         let gui_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("GUI Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("assets/gui_shader.wgsl").into()),
+        });
+        let outline_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("GUI Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("assets/outline_shader.wgsl").into()),
         });
         let camera_uniform = CameraUniform::new();
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -344,10 +355,50 @@ impl RenderState {
                 },
                 multiview: None,
             });
+        let outline_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Outline Render Pipeline Layout"),
+                bind_group_layouts: &[&camera_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+        let outline_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Outline Render Pipeline"),
+                layout: Some(&outline_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &outline_shader,
+                    entry_point: "vs_main",
+                    buffers: &[OutlineVertex::desc()],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &outline_shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::LineList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+            });
         Self {
             window,
             surface,
-            device,
             queue,
             config,
             size,
@@ -356,12 +407,14 @@ impl RenderState {
             chunk_foliage_render_pipeline,
             gui_render_pipeline,
             model_render_pipeline,
+            outline_renderer: OutlineRenderer::new(outline_render_pipeline, &device),
             texture,
             camera_uniform,
             camera_buffer,
             camera_bind_group,
             depth_texture,
             mouse: PhysicalPosition::new(0., 0.),
+            device,
         }
     }
 
@@ -595,6 +648,8 @@ impl RenderState {
                 }
             }
         }
+        self.outline_renderer
+            .render(&mut encoder, &view, &self.camera_bind_group);
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("GUI Render Pass"),
@@ -629,6 +684,101 @@ impl RenderState {
         Ok(())
     }
 }
+pub struct OutlineRenderer {
+    buffer: Buffer,
+    render: AtomicBool,
+    pipeline: wgpu::RenderPipeline,
+}
+impl OutlineRenderer {
+    pub fn new(pipeline: wgpu::RenderPipeline, device: &Device) -> Self {
+        Self {
+            pipeline,
+            buffer: device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Outline Buffer"),
+                contents: vec![0u8; 24 * size_of::<OutlineVertex>()].as_slice(),
+                usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            }),
+            render: AtomicBool::new(false),
+        }
+    }
+    pub fn set_aabb(&self, aabb: Option<AABB>, queue: &Queue) {
+        self.render.store(aabb.is_some(), Relaxed);
+        if let Some(aabb) = aabb {
+            let p000 = OutlineVertex {
+                position: [aabb.x as f32, aabb.y as f32, aabb.z as f32],
+            };
+            let p001 = OutlineVertex {
+                position: [aabb.x as f32, aabb.y as f32, (aabb.z + aabb.d) as f32],
+            };
+            let p010 = OutlineVertex {
+                position: [aabb.x as f32, (aabb.y + aabb.h) as f32, aabb.z as f32],
+            };
+            let p011 = OutlineVertex {
+                position: [
+                    aabb.x as f32,
+                    (aabb.y + aabb.h) as f32,
+                    (aabb.z + aabb.d) as f32,
+                ],
+            };
+            let p100 = OutlineVertex {
+                position: [(aabb.x + aabb.w) as f32, aabb.y as f32, aabb.z as f32],
+            };
+            let p101 = OutlineVertex {
+                position: [
+                    (aabb.x + aabb.w) as f32,
+                    aabb.y as f32,
+                    (aabb.z + aabb.d) as f32,
+                ],
+            };
+            let p110 = OutlineVertex {
+                position: [
+                    (aabb.x + aabb.w) as f32,
+                    (aabb.y + aabb.h) as f32,
+                    aabb.z as f32,
+                ],
+            };
+            let p111 = OutlineVertex {
+                position: [
+                    (aabb.x + aabb.w) as f32,
+                    (aabb.y + aabb.h) as f32,
+                    (aabb.z + aabb.d) as f32,
+                ],
+            };
+            let vertices = vec![
+                p000, p001, p001, p101, p101, p100, p100, p000, p010, p011, p011, p111, p111, p110,
+                p110, p010, p000, p010, p100, p110, p101, p111, p001, p011,
+            ];
+
+            queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&vertices));
+        }
+    }
+    pub fn render(
+        &self,
+        encoder: &mut CommandEncoder,
+        view: &TextureView,
+        camera_bind_group: &BindGroup,
+    ) {
+        if !self.render.load(Relaxed) {
+            return;
+        }
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Outline Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: true,
+                },
+            })],
+            depth_stencil_attachment: None,
+        });
+        render_pass.set_bind_group(0, camera_bind_group, &[]);
+        render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_vertex_buffer(0, self.buffer.slice(..));
+        render_pass.draw(0..24, 0..1);
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -661,6 +811,25 @@ pub struct GUIVertex {
 impl GUIVertex {
     const ATTRIBS: [wgpu::VertexAttribute; 3] =
         wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Uint32];
+
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        use std::mem;
+
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBS,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct OutlineVertex {
+    pub position: [f32; 3],
+}
+impl OutlineVertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x3];
 
     fn desc() -> wgpu::VertexBufferLayout<'static> {
         use std::mem;

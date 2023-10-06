@@ -11,7 +11,7 @@ mod texture;
 
 use array_init::array_init;
 use block_byte_common::messages::{NetworkMessageC2S, NetworkMessageS2C};
-use block_byte_common::{KeyboardKey, Position};
+use block_byte_common::{KeyboardKey, Position, AABB};
 use cgmath::Point3;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -87,6 +87,7 @@ pub async fn run() {
     let mut connection = SocketConnection::new("localhost:4321");
     let mut first_teleport = false;
     let mut last_render_time = Instant::now();
+
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             ref event,
@@ -246,6 +247,33 @@ pub async fn run() {
                 camera.position.z,
                 1. / dt
             ));
+            render_state.outline_renderer.set_aabb(
+                match world.raycast(5., camera.get_eye(), camera.make_front()) {
+                    RaycastResult::Entity(id) => {
+                        let entity = world.entities.get(&id).unwrap();
+                        let position = entity.position;
+                        let entity_data = entity_registry.get_entity(entity.type_id);
+                        Some(AABB {
+                            x: position.x,
+                            y: position.y,
+                            z: position.z,
+                            w: entity_data.hitbox_w,
+                            h: entity_data.hitbox_h,
+                            d: entity_data.hitbox_d,
+                        })
+                    }
+                    RaycastResult::Block(position, _) => Some(AABB {
+                        x: position.x as f64,
+                        y: position.y as f64,
+                        z: position.z as f64,
+                        w: 1.,
+                        h: 1.,
+                        d: 1.,
+                    }),
+                    RaycastResult::Miss => None,
+                },
+                &render_state.queue,
+            );
             for (_, dynamic_block_data) in &mut world.dynamic_blocks {
                 if let Some(animation) = dynamic_block_data.animation.as_mut() {
                     animation.1 += dt;
