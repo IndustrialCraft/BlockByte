@@ -260,7 +260,7 @@ impl Inventory {
                         position: Position {
                             x: 0.,
                             y: 0.,
-                            z: 0.,
+                            z: 10.,
                         },
                         base_color: Color::WHITE,
                     },

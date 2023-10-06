@@ -104,7 +104,6 @@ impl<'a> GUIRenderer<'a> {
         let aspect_ratio = size.width as f32 / size.height as f32;
         let mouse = self.get_mouse_position(mouse_physical, size);
         let mut vertices: Vec<GUIVertex> = Vec::new();
-        //todo: sort by z position
         for element in self.elements.values() {
             match &element.component_type {
                 GUIComponent::ImageComponent { texture: uv, size } => {
@@ -121,6 +120,7 @@ impl<'a> GUIRenderer<'a> {
                         aspect_ratio,
                         self.gui_scale,
                         mouse,
+                        element.position.z as f32,
                     );
                 }
                 GUIComponent::SlotComponent {
@@ -142,6 +142,7 @@ impl<'a> GUIRenderer<'a> {
                             aspect_ratio,
                             self.gui_scale,
                             mouse,
+                            element.position.z as f32,
                         );
                     }
                     if let Some(item_id) = item_id.as_ref() {
@@ -165,6 +166,7 @@ impl<'a> GUIRenderer<'a> {
                                     aspect_ratio,
                                     self.gui_scale,
                                     mouse,
+                                    element.position.z as f32 + 0.1,
                                 );
                             }
                             ItemModel::Block { front, .. } => {
@@ -181,6 +183,7 @@ impl<'a> GUIRenderer<'a> {
                                     aspect_ratio,
                                     self.gui_scale,
                                     mouse,
+                                    element.position.z as f32 + 0.1,
                                 );
                             }
                         }
@@ -204,6 +207,7 @@ impl<'a> GUIRenderer<'a> {
                                 aspect_ratio,
                                 self.gui_scale,
                                 mouse,
+                                element.position.z as f32 + 0.2,
                             );
                         }
                     }
@@ -232,6 +236,7 @@ impl<'a> GUIRenderer<'a> {
                             aspect_ratio,
                             self.gui_scale,
                             mouse,
+                            1000.,
                         );
                     }
                 }
@@ -280,6 +285,7 @@ impl<'a> GUIRenderer<'a> {
         aspect_ratio: f32,
         gui_scale: f32,
         mouse: Vec2,
+        depth: f32,
     ) {
         let anchor = anchor.get_center(mouse);
         let position = Vec2 {
@@ -291,7 +297,7 @@ impl<'a> GUIRenderer<'a> {
             y: size.y * gui_scale,
         };
         let vertex_4 = GUIVertex {
-            position: [position.x, position.y],
+            position: [position.x, position.y, depth],
             tex_coords: [uv.u1, uv.v2],
             color: (color.r as u32)
                 + ((color.g as u32) << 8)
@@ -299,7 +305,7 @@ impl<'a> GUIRenderer<'a> {
                 + ((color.a as u32) << 24),
         };
         let vertex_3 = GUIVertex {
-            position: [position.x + size.x, position.y],
+            position: [position.x + size.x, position.y, depth],
             tex_coords: [uv.u2, uv.v2],
             color: (color.r as u32)
                 + ((color.g as u32) << 8)
@@ -307,7 +313,7 @@ impl<'a> GUIRenderer<'a> {
                 + ((color.a as u32) << 24),
         };
         let vertex_2 = GUIVertex {
-            position: [position.x + size.x, position.y + size.y],
+            position: [position.x + size.x, position.y + size.y, depth],
             tex_coords: [uv.u2, uv.v1],
             color: (color.r as u32)
                 + ((color.g as u32) << 8)
@@ -315,7 +321,7 @@ impl<'a> GUIRenderer<'a> {
                 + ((color.a as u32) << 24),
         };
         let vertex_1 = GUIVertex {
-            position: [position.x, position.y + size.y],
+            position: [position.x, position.y + size.y, depth],
             tex_coords: [uv.u1, uv.v1],
             color: (color.r as u32)
                 + ((color.g as u32) << 8)
@@ -347,6 +353,7 @@ impl<'a> TextRenderer<'a> {
         aspect_ratio: f32,
         gui_scale: f32,
         mouse: Vec2,
+        depth: f32,
     ) {
         let layout = self
             .font
@@ -372,6 +379,7 @@ impl<'a> TextRenderer<'a> {
                     aspect_ratio,
                     gui_scale,
                     mouse,
+                    depth,
                 );
             }
         }

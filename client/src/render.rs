@@ -53,7 +53,7 @@ impl RenderState {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    features: wgpu::Features::empty(),
+                    features: wgpu::Features::DEPTH_CLIP_CONTROL,
                     limits: if cfg!(target_arch = "wasm32") {
                         wgpu::Limits::downlevel_webgl2_defaults()
                     } else {
@@ -286,10 +286,16 @@ impl RenderState {
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: Some(wgpu::Face::Back),
                 polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
+                unclipped_depth: true,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::GreaterEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -600,7 +606,14 @@ impl RenderState {
                         store: true,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.2,
+                    depth_ops: Some(wgpu::Operations {
+                        load: LoadOp::Clear(0.),
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
             });
             render_pass.set_pipeline(&self.gui_render_pipeline);
             render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
@@ -641,13 +654,13 @@ impl Vertex {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GUIVertex {
-    pub position: [f32; 2],
+    pub position: [f32; 3],
     pub tex_coords: [f32; 2],
     pub color: u32,
 }
 impl GUIVertex {
     const ATTRIBS: [wgpu::VertexAttribute; 3] =
-        wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Uint32];
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Uint32];
 
     fn desc() -> wgpu::VertexBufferLayout<'static> {
         use std::mem;

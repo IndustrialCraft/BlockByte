@@ -2,7 +2,7 @@
 // Vertex shader
 
 struct VertexInput {
-    @location(0) position: vec2<f32>,
+    @location(0) position: vec3<f32>,
     @location(1) tex_coords: vec2<f32>,
     @location(2) color: u32,
 }
@@ -19,7 +19,7 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
-    out.clip_position = vec4<f32>(model.position, 0., 1.0); // 2.
+    out.clip_position = vec4<f32>(model.position, 1.0); // 2.
     out.color = model.color;
     return out;
 }
@@ -34,5 +34,9 @@ var s_diffuse: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return textureSample(t_diffuse, s_diffuse, in.tex_coords) * vec4(f32(in.color&0xFFu)/255.,f32((in.color>>8u)&0xFFu)/255.,f32((in.color>>16u)&0xFFu)/255.,f32((in.color>>24u)&0xFFu)/255.);
+    let color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.tex_coords) * vec4(f32(in.color&0xFFu)/255.,f32((in.color>>8u)&0xFFu)/255.,f32((in.color>>16u)&0xFFu)/255.,f32((in.color>>24u)&0xFFu)/255.);
+    if color.w == 0.{
+        discard;
+    }
+    return color;
 }
