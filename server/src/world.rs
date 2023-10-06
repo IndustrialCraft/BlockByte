@@ -13,11 +13,11 @@ use std::{
 use array_init::array_init;
 use atomic_counter::{AtomicCounter, RelaxedCounter};
 use bitcode::__private::Serialize;
-use block_byte_common::gui::{GUIElementEdit, PositionAnchor};
+use block_byte_common::gui::{GUIComponent, GUIElement, GUIElementEdit, PositionAnchor};
 use block_byte_common::messages::{
     MouseButton, MovementType, NetworkMessageC2S, NetworkMessageS2C,
 };
-use block_byte_common::{BlockPosition, ChunkPosition, Color, KeyboardKey, Position, AABB};
+use block_byte_common::{BlockPosition, ChunkPosition, Color, KeyboardKey, Position, Vec2, AABB};
 use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{object, JsonValue};
@@ -930,6 +930,7 @@ impl Entity {
                 viewer.player.try_send_messages(&add_message).unwrap();
             }
         }
+        entity.set_open_inventory(None);
 
         /*entity.try_send_message(&NetworkMessageS2C::PlayerAbilities(
             1.,
@@ -973,6 +974,27 @@ impl Entity {
         }
         self.try_send_message(&NetworkMessageS2C::SetCursorLock(new_inventory.is_none()))
             .unwrap();
+        self.try_send_message(&NetworkMessageS2C::GuiRemoveElements("cursor".to_string()))
+            .unwrap();
+        if new_inventory.is_none() {
+            self.try_send_message(&NetworkMessageS2C::GuiSetElement(
+                "cursor".to_string(),
+                GUIElement {
+                    position: Position {
+                        x: 0.,
+                        y: 0.,
+                        z: 0.,
+                    },
+                    anchor: PositionAnchor::Center,
+                    base_color: Color::WHITE,
+                    component_type: GUIComponent::ImageComponent {
+                        size: Vec2 { x: 50., y: 50. },
+                        texture: "bb:cursor".to_string(),
+                    },
+                },
+            ))
+            .unwrap();
+        }
         *current_inventory = new_inventory;
     }
     pub fn get_id(&self) -> &Uuid {
