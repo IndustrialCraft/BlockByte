@@ -296,7 +296,7 @@ impl ModManager {
         loading_engine.register_fn("color", |image: &mut ModImage, color: Color| {
             image.color(color)
         });
-        loading_engine.register_fn("create_color", |r: f32, g: f32, b: f32, a: f32| Color {
+        loading_engine.register_fn("create_color", |r: f64, g: f64, b: f64, a: f64| Color {
             r: (r * 255.) as u8,
             g: (g * 255.) as u8,
             b: (b * 255.) as u8,

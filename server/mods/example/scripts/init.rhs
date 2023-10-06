@@ -8,10 +8,10 @@ create_block("example:leaves").client_type_cube("example:leaves","example:leaves
 create_block("example:test_model").client_type_air().client_dynamic("example:player","example:player").client_dynamic_add_animation("walk").client_dynamic_add_item("main_hand").register_item("example:mode_test_block","Model Test Block").register();
 create_block("example:barrel").client_type_cube("example:barrel","example:barrel","example:barrel","example:barrel","example:barrel","example:barrel").register_item("example:barrel_block","Barrel Block").data_container().register();
 create_block("example:malachite").client_type_cube("example:malachite","example:malachite","example:malachite","example:malachite","example:malachite","example:malachite").breaking_tool(ToolType::Pickaxe,1.).loot("example:malachite_ore").register_item("example:malachite_block","Malachite Block").register();
-create_block("example:malachite_rock").client_type_static("example:stone","example:malachite").loot("example:malachite_rock").register_item("example:malachite_rock","Malachite Rock").no_collide().register();
-create_block("example:rock").client_type_static("example:stone","example:stone").register_item("example:rock","Rock").no_collide().register();
+create_block("example:malachite_rock").client_type_static("example:rock","example:malachite").loot("example:malachite_rock").register_item("example:malachite_rock","Malachite Rock").no_collide().register();
+create_block("example:rock").client_type_static("example:rock","example:stone").register_item("example:rock","Rock").no_collide().register();
 create_block("example:grass_foliage").client_type_foliage("example:grass_foliage","example:grass_foliage","example:grass_foliage","example:grass_foliage").no_collide().client_render_data(2).register();
-
+create_block("example:branch").client_type_static("example:branch","example:log_side").no_collide().register();
 create_item("example:plank").client_model_texture("example:plank").client_name("Plank").register();
 create_item("example:selection_wand").on_right_click(|player,target|{
     if type_of(target) == "BlockPosition"{
@@ -51,7 +51,7 @@ create_item("example:copper_shovel").client_name("Copper Shovel").client_model_t
 create_item("example:copper_pickaxe").client_name("Copper Pickaxe").client_model_texture("example:copper_pickaxe").tool(64, 1., 1.).tool_add_type(ToolType::Pickaxe).register();
 create_item("example:malachite_chunk").client_name("Malachite Ore Chunk").client_model_texture("example:malachite_chunk").register();
 
-create_biome("example:forest", "example:grass","example:dirt","example:stone","example:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.1, "example:grass_foliage").add_structure(0.02, "example:rock").add_structure(0.02, "example:tree").register();
+create_biome("example:forest", "example:grass","example:dirt","example:stone","example:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.1, "example:grass_foliage").add_structure(0.02, "example:rock").add_structure(0.02, "example:branch").add_structure(0.02, "example:tree").register();
 create_biome("example:ocean", "example:sand","example:sand","example:stone","example:water").spline_add_height(-1., 1.).spline_add_height(0., 0.).register();
 
 create_entity("bb:player").client_model("example:player","example:player").client_add_item("main_hand").client_hitbox(0.6, 1.7, 0.6).register();
@@ -61,7 +61,8 @@ register_image("example:water", "images/water.png");
 register_image("example:log_side", "images/log_side.png");
 register_image("example:log_base", "images/log_base.png");
 register_image("example:grass", "images/grass.png");
-register_image("example:grass_side", load_image("images/dirt.png").overlay(load_image("images/grass_side.png").multiply(load_image("images/grass.png"))));
+register_image("example:grass_side", load_image("images/dirt.png").overlay(load_image("images/grass_side_mask.png").multiply(load_image("images/grass.png"))));
+register_image("example:malachite", load_image("images/stone.png").overlay(load_image("images/ore_mask.png").color(create_color(6./255.,115./255.,52./255.,1.))));
 register_image("example:dirt", "images/dirt.png");
 register_image("example:leaves", "images/leaves.png");
 register_image("example:sand", "images/sand.png");
@@ -72,14 +73,14 @@ register_image("example:copper_shovel", "images/copper_shovel.png");
 register_image("example:copper_pickaxe", "images/copper_pickaxe.png");
 register_image("bb:slot", "images/slot.png");
 register_image("bb:cursor", "images/cursor.png");
-register_image("example:malachite", "images/malachite.png");
-register_image("example:malachite_chunk", "images/malachite_chunk.png");
+register_image("example:malachite_chunk", load_image("images/stone_chunk.png").overlay(load_image("images/ore_chunk_mask.png").color(create_color(6./255.,115./255.,52./255.,1.))));
 register_image("example:grass_foliage", "images/grass_foliage.png");
 
 register_image("example:player", "images/player.png");
 register_model("example:player", "models/player.bbm");
 
-register_model("example:stone", "models/stone.bbm");
+register_model("example:rock", "models/rock.bbm");
+register_model("example:branch", "models/branch.bbm");
 
 
 register_event("bb:command", |player,command|{

@@ -164,7 +164,8 @@ impl BlockState {
             let loottable = player.server.loot_tables.get(loottable).unwrap();
             loottable.generate_items(|item| {
                 let rotation: f32 = thread_rng().gen_range((0.)..(360.));
-                let strength = 0.2;
+                let vertical_strength = 0.4;
+                let horizontal_strength = 0.2;
                 let item_entity = Entity::new(
                     ChunkLocation {
                         chunk: location.chunk.clone(),
@@ -189,9 +190,9 @@ impl BlockState {
 
                 let rotation_radians = rotation.to_radians();
                 item_entity.apply_knockback(
-                    rotation_radians.sin() as f64 * strength,
-                    strength,
-                    rotation_radians.cos() as f64 * strength,
+                    rotation_radians.sin() as f64 * horizontal_strength,
+                    vertical_strength,
+                    rotation_radians.cos() as f64 * horizontal_strength,
                 );
                 *item_entity.rotation_shifting.lock() = (rotation, false);
             });
