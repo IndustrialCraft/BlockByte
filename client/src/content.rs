@@ -8,10 +8,10 @@ use block_byte_common::content::{
 use block_byte_common::{Face, TexCoords, Vec2};
 use image::RgbaImage;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::PathBuf;
 
 pub fn load_assets(
-    zip_path: &Path,
+    zip_path: PathBuf,
     dump_atlas: bool,
 ) -> (
     RgbaImage,
@@ -19,7 +19,7 @@ pub fn load_assets(
     BlockRegistry,
     ItemRegistry,
     EntityRegistry,
-    TextRenderer,
+    TextRenderer<'static>,
 ) {
     let mut zip =
         zip::ZipArchive::new(std::fs::File::open(zip_path).expect("asset archive not found"))

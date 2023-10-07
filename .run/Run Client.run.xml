@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Run Client" type="CargoCommandRunConfiguration" factoryName="Cargo Command" singleton="false">
-    <option name="command" value="run --bin block_byte_client --release" />
+    <option name="command" value="run --bin block_byte_client --release -- ../server/save/content.zip localhost:4321" />
     <option name="workingDirectory" value="file://$PROJECT_DIR$/client" />
     <option name="emulateTerminal" value="false" />
     <option name="channel" value="DEFAULT" />

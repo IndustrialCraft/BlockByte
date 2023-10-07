@@ -14,7 +14,8 @@ use block_byte_common::messages::{NetworkMessageC2S, NetworkMessageS2C};
 use block_byte_common::{KeyboardKey, Position, AABB};
 use cgmath::Point3;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::env::args;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 use winit::dpi::PhysicalPosition;
@@ -42,6 +43,7 @@ pub async fn run() {
             env_logger::init();
         }
     }
+    let args: Vec<String> = args().collect();
     let (
         texture_image,
         texture_atlas,
@@ -49,7 +51,7 @@ pub async fn run() {
         item_registry,
         entity_registry,
         text_renderer,
-    ) = content::load_assets(&Path::new("../server/save/content.zip"), false);
+    ) = content::load_assets(PathBuf::from(args.get(1).unwrap()), false);
     let block_registry = Rc::new(block_registry);
     let entity_registry = Rc::new(entity_registry);
 
@@ -84,7 +86,7 @@ pub async fn run() {
     let mut keys = HashSet::new();
     let mut world = World::new(block_registry.clone(), entity_registry.clone());
     let mut gui = GUIRenderer::new(texture_atlas, render_state.device(), text_renderer);
-    let mut connection = SocketConnection::new("localhost:4321");
+    let mut connection = SocketConnection::new(args.get(2).unwrap());
     let mut first_teleport = false;
     let mut last_render_time = Instant::now();
 
