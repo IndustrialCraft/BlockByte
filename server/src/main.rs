@@ -400,7 +400,7 @@ impl Server {
     fn create_listener_thread(game_server: Weak<Server>, port: u16) -> Receiver<PlayerConnection> {
         let (tx, rx) = crossbeam_channel::unbounded();
         spawn(move || {
-            let server = TcpListener::bind(("127.0.0.1", port)).unwrap();
+            let server = TcpListener::bind(("0.0.0.0", port)).unwrap();
             for stream in server.incoming() {
                 if let Ok(stream) = stream {
                     let tx = tx.clone();
