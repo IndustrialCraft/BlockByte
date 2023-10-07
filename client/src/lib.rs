@@ -91,6 +91,8 @@ pub async fn run() {
     let mut last_render_time = Instant::now();
     let mut fluid_selectable = false;
 
+    let text_input_channel = spawn_stdin_channel();
+
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             ref event,
@@ -255,6 +257,9 @@ pub async fn run() {
                 camera.position.z,
                 1. / dt
             ));
+            while let Ok(message) = text_input_channel.try_recv() {
+                connection.send_message(&NetworkMessageC2S::SendMessage(message));
+            }
             render_state.outline_renderer.set_aabb(
                 match world.raycast(5., camera.get_eye(), camera.make_front(), fluid_selectable) {
                     RaycastResult::Entity(id) => {
@@ -387,7 +392,9 @@ pub async fn run() {
                         fluid_selectable = selectable;
                     }
                     NetworkMessageS2C::PlaySound(_, _, _, _, _) => {}
-                    NetworkMessageS2C::ChatMessage(_) => {}
+                    NetworkMessageS2C::ChatMessage(message) => {
+                        println!("[CHAT]{}", message);
+                    }
                     NetworkMessageS2C::PlayerAbilities(speed, movement_type) => {
                         camera.set_abilities(speed, movement_type);
                     }
@@ -468,7 +475,15 @@ pub async fn run() {
         _ => {}
     })
 }
-
+fn spawn_stdin_channel() -> std::sync::mpsc::Receiver<String> {
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || loop {
+        let mut buffer = String::new();
+        std::io::stdin().read_line(&mut buffer).unwrap();
+        tx.send(buffer).unwrap();
+    });
+    rx
+}
 pub fn keyboard_key_from_virtual_keycode(keycode: VirtualKeyCode) -> KeyboardKey {
     match keycode {
         VirtualKeyCode::Key1 => KeyboardKey::Key1,

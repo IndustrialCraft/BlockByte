@@ -1645,7 +1645,7 @@ impl Entity {
                     }
                     NetworkMessageC2S::SendMessage(message) => {
                         if message.starts_with("/") {
-                            let message = &message[1..];
+                            let message = &message[1..].trim_end();
                             let parts: rhai::Array = message
                                 .split(" ")
                                 .map(|str| Dynamic::from_str(str).unwrap())

@@ -188,6 +188,8 @@ impl ClientPlayer {
         self.position += total_move;
         if self.movement_type == MovementType::Normal {
             self.velocity.y -= delta_time * 15f32;
+        } else {
+            self.velocity.y = 0.;
         }
 
         self.shifting_animation += (if self.shifting { 1. } else { -1. }) * delta_time * 4.;
