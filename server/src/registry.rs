@@ -163,38 +163,40 @@ impl BlockState {
         if let Some(loottable) = &self.loottable {
             let loottable = player.server.loot_tables.get(loottable).unwrap();
             loottable.generate_items(|item| {
-                let rotation: f32 = thread_rng().gen_range((0.)..(360.));
-                let vertical_strength = 0.4;
-                let horizontal_strength = 0.2;
-                let item_entity = Entity::new(
-                    ChunkLocation {
-                        chunk: location.chunk.clone(),
-                        position: Position {
-                            x: location.position.x as f64 + 0.5,
-                            y: location.position.y as f64 + 0.5,
-                            z: location.position.z as f64 + 0.5,
+                for _ in 0..item.get_count() {
+                    let rotation: f32 = thread_rng().gen_range((0.)..(360.));
+                    let vertical_strength = 0.4;
+                    let horizontal_strength = 0.2;
+                    let item_entity = Entity::new(
+                        ChunkLocation {
+                            chunk: location.chunk.clone(),
+                            position: Position {
+                                x: location.position.x as f64 + 0.5,
+                                y: location.position.y as f64 + 0.5,
+                                z: location.position.z as f64 + 0.5,
+                            },
                         },
-                    },
-                    player
-                        .server
-                        .entity_registry
-                        .entity_by_identifier(&Identifier::new("bb", "item"))
-                        .unwrap(),
-                    None,
-                );
-                item_entity
-                    .inventory
-                    .get_full_view()
-                    .set_item(0, Some(item))
-                    .unwrap();
+                        player
+                            .server
+                            .entity_registry
+                            .entity_by_identifier(&Identifier::new("bb", "item"))
+                            .unwrap(),
+                        None,
+                    );
+                    item_entity
+                        .inventory
+                        .get_full_view()
+                        .set_item(0, Some(item.copy(1)))
+                        .unwrap();
 
-                let rotation_radians = rotation.to_radians();
-                item_entity.apply_knockback(
-                    rotation_radians.sin() as f64 * horizontal_strength,
-                    vertical_strength,
-                    rotation_radians.cos() as f64 * horizontal_strength,
-                );
-                *item_entity.rotation_shifting.lock() = (rotation, false);
+                    let rotation_radians = rotation.to_radians();
+                    item_entity.apply_knockback(
+                        rotation_radians.sin() as f64 * horizontal_strength,
+                        vertical_strength,
+                        rotation_radians.cos() as f64 * horizontal_strength,
+                    );
+                    *item_entity.rotation_shifting.lock() = (rotation, false);
+                }
             });
         }
     }
