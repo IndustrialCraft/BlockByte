@@ -17,7 +17,9 @@ use block_byte_common::gui::{GUIComponent, GUIElement, GUIElementEdit, PositionA
 use block_byte_common::messages::{
     MouseButton, MovementType, NetworkMessageC2S, NetworkMessageS2C,
 };
-use block_byte_common::{BlockPosition, ChunkPosition, Color, KeyboardKey, Position, Vec2, AABB};
+use block_byte_common::{
+    BlockPosition, ChunkPosition, Color, KeyboardKey, KeyboardModifier, Position, Vec2, AABB,
+};
 use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{object, JsonValue};
@@ -1247,7 +1249,8 @@ impl Entity {
                                                         .unwrap(),
                                                     None,
                                                 );
-                                                let count = if key_mod & 0x0040 != 0 {
+                                                let count = if key_mod & KeyboardModifier::CTRL != 0
+                                                {
                                                     item.get_count()
                                                 } else {
                                                     1

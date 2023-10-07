@@ -11,7 +11,7 @@ mod texture;
 
 use array_init::array_init;
 use block_byte_common::messages::{NetworkMessageC2S, NetworkMessageS2C};
-use block_byte_common::{KeyboardKey, Position, AABB};
+use block_byte_common::{KeyboardKey, KeyboardModifier, Position, AABB};
 use cgmath::Point3;
 use std::collections::{HashMap, HashSet};
 use std::env::args;
@@ -92,7 +92,7 @@ pub async fn run() {
     let mut fluid_selectable = false;
 
     let text_input_channel = spawn_stdin_channel();
-
+    #[allow(deprecated)]
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             ref event,
@@ -104,6 +104,7 @@ pub async fn run() {
                     KeyboardInput {
                         state,
                         virtual_keycode,
+                        modifiers: mods,
                         ..
                     },
                 ..
@@ -117,12 +118,22 @@ pub async fn run() {
                             keys.remove(virtual_keycode);
                         }
                     }
+                    let mut modifiers = 0;
+                    if mods.contains(ModifiersState::SHIFT) {
+                        modifiers |= KeyboardModifier::SHIFT;
+                    }
+                    if mods.contains(ModifiersState::CTRL) {
+                        modifiers |= KeyboardModifier::CTRL;
+                    }
+                    if mods.contains(ModifiersState::ALT) {
+                        modifiers |= KeyboardModifier::ALT;
+                    }
                     connection.send_message(&NetworkMessageC2S::Keyboard(
                         keyboard_key_from_virtual_keycode(*virtual_keycode),
-                        0,
+                        modifiers,
                         *state == ElementState::Pressed,
                         false,
-                    ))
+                    ));
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {

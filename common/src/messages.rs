@@ -39,7 +39,7 @@ pub enum NetworkMessageC2S {
     RightClickBlock(BlockPosition, Face, bool),
     PlayerPosition(Position, bool, f32, bool),
     MouseScroll(i32, i32),
-    Keyboard(KeyboardKey, u16, bool, bool),
+    Keyboard(KeyboardKey, u8, bool, bool),
     GuiClick(String, MouseButton, bool),
     RequestBlockBreakTime(u32, BlockPosition),
     LeftClickEntity(u32),

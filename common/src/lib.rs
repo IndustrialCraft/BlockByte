@@ -483,6 +483,12 @@ impl Iterator for AABBBlockIterator {
         return_position
     }
 }
+#[allow(non_snake_case)]
+pub mod KeyboardModifier {
+    pub const SHIFT: u8 = 1;
+    pub const CTRL: u8 = 2;
+    pub const ALT: u8 = 4;
+}
 
 //from winit
 #[derive(Serialize, Deserialize)]
