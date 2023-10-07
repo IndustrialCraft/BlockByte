@@ -252,7 +252,7 @@ impl ClientPlayer {
         Matrix4::look_at_rh(eye, eye + self.make_front(), Self::UP)
     }
     pub fn create_projection_matrix(&self, aspect: f32) -> Matrix4<f32> {
-        cgmath::perspective(cgmath::Deg(90.), aspect, 0.001, 1000.)
+        cgmath::perspective(cgmath::Deg(90.), aspect, 0.05, 500.)
     }
 }
 pub struct DynamicBlockData {
