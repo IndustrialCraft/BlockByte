@@ -57,7 +57,7 @@ pub async fn run() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
-    window.set_cursor_grab(CursorGrabMode::Confined).unwrap();
+    window.set_cursor_grab(CursorGrabMode::Confined).ok();
     window.set_cursor_visible(false);
     #[cfg(target_arch = "wasm32")]
     {
@@ -342,7 +342,7 @@ pub async fn run() {
                             } else {
                                 CursorGrabMode::None
                             })
-                            .unwrap();
+                            .ok();
                         render_state.window().set_cursor_visible(!locked);
                         render_state
                             .window()
