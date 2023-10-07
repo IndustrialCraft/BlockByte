@@ -1048,6 +1048,8 @@ mod ToolTypeModule {
     pub const Pickaxe: ToolType = ToolType::Pickaxe;
     #[allow(non_upper_case_globals)]
     pub const Wrench: ToolType = ToolType::Wrench;
+    #[allow(non_upper_case_globals)]
+    pub const Knife: ToolType = ToolType::Knife;
 }
 
 pub fn spline_from_json(json: &JsonValue) -> Spline<f64, f64> {

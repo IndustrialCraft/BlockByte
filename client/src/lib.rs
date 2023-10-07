@@ -89,6 +89,7 @@ pub async fn run() {
     let mut connection = SocketConnection::new(args.get(2).unwrap());
     let mut first_teleport = false;
     let mut last_render_time = Instant::now();
+    let mut fluid_selectable = false;
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -150,7 +151,12 @@ pub async fn run() {
                             ));
                         }
                     } else {
-                        match world.raycast(5., camera.get_eye(), camera.make_front()) {
+                        match world.raycast(
+                            5.,
+                            camera.get_eye(),
+                            camera.make_front(),
+                            fluid_selectable,
+                        ) {
                             RaycastResult::Entity(id) => match button {
                                 MouseButton::Left => {
                                     connection.send_message(&NetworkMessageC2S::LeftClickEntity(id))
@@ -250,7 +256,7 @@ pub async fn run() {
                 1. / dt
             ));
             render_state.outline_renderer.set_aabb(
-                match world.raycast(5., camera.get_eye(), camera.make_front()) {
+                match world.raycast(5., camera.get_eye(), camera.make_front(), fluid_selectable) {
                     RaycastResult::Entity(id) => {
                         let entity = world.entities.get(&id).unwrap();
                         let position = entity.position;
@@ -377,7 +383,9 @@ pub async fn run() {
                     NetworkMessageS2C::Knockback(x, y, z, set) => {
                         camera.knockback(x, y, z, set);
                     }
-                    NetworkMessageS2C::FluidSelectable(_) => {}
+                    NetworkMessageS2C::FluidSelectable(selectable) => {
+                        fluid_selectable = selectable;
+                    }
                     NetworkMessageS2C::PlaySound(_, _, _, _, _) => {}
                     NetworkMessageS2C::ChatMessage(_) => {}
                     NetworkMessageS2C::PlayerAbilities(speed, movement_type) => {

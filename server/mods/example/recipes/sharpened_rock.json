@@ -1,0 +1,15 @@
+{
+    "type": "bb:crafting",
+    "item_inputs": [
+        {
+            "id":"example:rock",
+            "count":2
+        }
+    ],
+    "item_outputs": [
+        {
+            "id":"example:sharpened_rock",
+            "count":1
+        }
+    ]
+}

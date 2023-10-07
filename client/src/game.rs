@@ -559,6 +559,7 @@ impl World {
         max_distance: f64,
         start_position: Position,
         direction: Vector3<f32>,
+        fluid_selectable: bool,
     ) -> RaycastResult {
         let mut closest_entity: Option<(f64, u32)> = None;
         for (id, entity) in &self.entities {
@@ -600,7 +601,8 @@ impl World {
                     z: index.z,
                 };
                 let block = self.get_block(block_position);
-                if self.block_registry.get_block(block.unwrap_or(0)).selectable {
+                let block = self.block_registry.get_block(block.unwrap_or(0));
+                if block.selectable && !(block.fluid && !fluid_selectable) {
                     output = Some((
                         block_position,
                         Face::all()

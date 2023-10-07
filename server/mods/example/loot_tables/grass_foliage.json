@@ -1,0 +1,8 @@
+{
+    "tables": [
+        {
+            "id":"example:cut_grass",
+            "count":1
+        }
+    ]
+}

@@ -488,4 +488,5 @@ pub enum ToolType {
     Shovel = 2,
     Pickaxe = 4,
     Wrench = 8,
+    Knife = 16,
 }

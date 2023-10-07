@@ -1,0 +1,15 @@
+{
+    "type": "bb:crafting",
+    "item_inputs": [
+        {
+            "id":"example:cut_grass",
+            "count":3
+        }
+    ],
+    "item_outputs": [
+        {
+            "id":"example:grass_twine",
+            "count":1
+        }
+    ]
+}

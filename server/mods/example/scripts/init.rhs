@@ -9,9 +9,9 @@ create_block("example:test_model").client_type_air().client_dynamic("example:pla
 create_block("example:barrel").client_type_cube("example:barrel","example:barrel","example:barrel","example:barrel","example:barrel","example:barrel").register_item("example:barrel_block","Barrel Block").data_container().register();
 create_block("example:malachite").client_type_cube("example:malachite","example:malachite","example:malachite","example:malachite","example:malachite","example:malachite").breaking_tool(ToolType::Pickaxe,1.).loot("example:malachite_ore").register_item("example:malachite_block","Malachite Block").register();
 create_block("example:malachite_rock").client_type_static("example:rock","example:malachite").loot("example:malachite_rock").register_item("example:malachite_rock","Malachite Rock").no_collide().register();
-create_block("example:rock").client_type_static("example:rock","example:stone").register_item("example:rock","Rock").no_collide().register();
-create_block("example:grass_foliage").client_type_foliage("example:grass_foliage","example:grass_foliage","example:grass_foliage","example:grass_foliage").no_collide().client_render_data(2).register();
-create_block("example:branch").client_type_static("example:branch","example:log_side").no_collide().register();
+create_block("example:rock").client_type_static("example:rock","example:stone").loot("example:rock").no_collide().register();
+create_block("example:grass_foliage").client_type_foliage("example:grass_foliage","example:grass_foliage","example:grass_foliage","example:grass_foliage").loot("example:grass_foliage").no_collide().client_render_data(2).register();
+create_block("example:branch").client_type_static("example:branch","example:log_side").loot("example:branch").no_collide().register();
 create_item("example:plank").client_model_texture("example:plank").client_name("Plank").register();
 create_item("example:selection_wand").on_right_click(|player,target|{
     if type_of(target) == "BlockPosition"{
@@ -50,6 +50,12 @@ create_item("example:copper_axe").client_name("Copper Axe").client_model_texture
 create_item("example:copper_shovel").client_name("Copper Shovel").client_model_texture("example:copper_shovel").tool(64, 1., 1.).tool_add_type(ToolType::Shovel).register();
 create_item("example:copper_pickaxe").client_name("Copper Pickaxe").client_model_texture("example:copper_pickaxe").tool(64, 1., 1.).tool_add_type(ToolType::Pickaxe).register();
 create_item("example:malachite_chunk").client_name("Malachite Ore Chunk").client_model_texture("example:malachite_chunk").register();
+create_item("example:rock").client_name("Rock").client_model_texture("example:stone_chunk").register();
+
+create_item("example:sharpened_rock").client_name("Sharpened Rock").client_model_texture("example:sharpened_rock").tool(32, 1., 1.).tool_add_type(ToolType::Knife).register();
+create_item("example:cut_grass").client_name("Cut Grass").client_model_texture("example:cut_grass").register();
+create_item("example:grass_twine").client_name("Grass Twine").client_model_texture("example:grass_twine").register();
+create_item("example:stick").client_name("Stick").client_model_texture("example:stick").register();
 
 create_biome("example:forest", "example:grass","example:dirt","example:stone","example:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.1, "example:grass_foliage").add_structure(0.02, "example:rock").add_structure(0.02, "example:branch").add_structure(0.02, "example:tree").register();
 create_biome("example:ocean", "example:sand","example:sand","example:stone","example:water").spline_add_height(-1., 1.).spline_add_height(0., 0.).register();
@@ -75,6 +81,11 @@ register_image("bb:slot", "images/slot.png");
 register_image("bb:cursor", "images/cursor.png");
 register_image("example:malachite_chunk", load_image("images/stone_chunk.png").overlay(load_image("images/ore_chunk_mask.png").color(create_color(6./255.,115./255.,52./255.,1.))));
 register_image("example:grass_foliage", "images/grass_foliage.png");
+register_image("example:sharpened_rock", "images/sharpened_rock.png");
+register_image("example:grass_twine", "images/grass_twine.png");
+register_image("example:cut_grass", "images/cut_grass.png");
+register_image("example:stone_chunk", "images/stone_chunk.png");
+register_image("example:stick", "images/stick.png");
 
 register_image("example:player", "images/player.png");
 register_model("example:player", "models/player.bbm");
