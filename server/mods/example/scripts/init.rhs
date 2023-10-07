@@ -12,6 +12,7 @@ create_block("example:malachite_rock").client_type_static("example:rock","exampl
 create_block("example:rock").client_type_static("example:rock","example:stone").loot("example:rock").no_collide().register();
 create_block("example:grass_foliage").client_type_foliage("example:grass_foliage","example:grass_foliage","example:grass_foliage","example:grass_foliage").loot("example:grass_foliage").no_collide().client_render_data(2).register();
 create_block("example:branch").client_type_static("example:branch","example:log_side").loot("example:branch").no_collide().register();
+create_block("example:campfire").client_type_air().client_dynamic("example:campfire","example:campfire").client_dynamic_add_item("main").register_item("example:campfire", "Campfire").data_container().register();
 create_item("example:plank").client_model_texture("example:plank").client_name("Plank").register();
 create_item("example:selection_wand").on_right_click(|player,target|{
     if type_of(target) == "BlockPosition"{
@@ -57,7 +58,7 @@ create_item("example:cut_grass").client_name("Cut Grass").client_model_texture("
 create_item("example:grass_twine").client_name("Grass Twine").client_model_texture("example:grass_twine").register();
 create_item("example:stick").client_name("Stick").client_model_texture("example:stick").register();
 
-create_biome("example:forest", "example:grass","example:dirt","example:stone","example:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.1, "example:grass_foliage").add_structure(0.02, "example:rock").add_structure(0.02, "example:branch").add_structure(0.02, "example:tree").register();
+create_biome("example:forest", "example:grass","example:dirt","example:stone","example:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.1, "example:grass_foliage").add_structure(0.02, "example:rock").add_structure(0.02, "example:branch").add_structure(0.0002, "example:malachite_chunk").add_structure(0.02, "example:tree").register();
 create_biome("example:ocean", "example:sand","example:sand","example:stone","example:water").spline_add_height(-1., 1.).spline_add_height(0., 0.).register();
 
 create_entity("bb:player").client_model("example:player","example:player").client_add_item("main_hand").client_hitbox(0.6, 1.7, 0.6).register();
@@ -89,6 +90,9 @@ register_image("example:stick", "images/stick.png");
 
 register_image("example:player", "images/player.png");
 register_model("example:player", "models/player.bbm");
+
+register_image("example:campfire", "images/campfire.png");
+register_model("example:campfire", "models/campfire.bbm");
 
 register_model("example:rock", "models/rock.bbm");
 register_model("example:branch", "models/branch.bbm");

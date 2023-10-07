@@ -281,7 +281,6 @@ impl Item {
                         .client_id,
                 ),
             ));
-            target_chunk.announce_to_viewers(NetworkMessageS2C::BlockAnimation(block_position, 0));
             return InteractionResult::Consumed;
         }
         if let Some(right_click) = &self.on_right_click {
