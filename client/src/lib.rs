@@ -91,6 +91,8 @@ pub async fn run() {
     let mut last_render_time = Instant::now();
     let mut fluid_selectable = false;
 
+    let mut last_position_sent = Instant::now();
+
     let text_input_channel = spawn_stdin_channel();
     #[allow(deprecated)]
     event_loop.run(move |event, _, control_flow| match event {
@@ -311,7 +313,8 @@ pub async fn run() {
                 }
             }
             //todo: send less frequently
-            if first_teleport {
+            if first_teleport && last_position_sent.elapsed().as_millis() > 100 {
+                last_position_sent = Instant::now();
                 connection.send_message(&NetworkMessageC2S::PlayerPosition(
                     Position {
                         x: camera.position.x as f64,
