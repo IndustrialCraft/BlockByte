@@ -1,4 +1,6 @@
+use std::hash::Hasher;
 use std::ops::Add;
+use std::sync::atomic::Ordering;
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
@@ -263,7 +265,12 @@ impl World {
         }
     }
 }
-
+impl Eq for World {}
+impl PartialEq for World {
+    fn eq(&self, other: &Self) -> bool {
+        Weak::ptr_eq(&self.this, &other.this)
+    }
+}
 #[derive(Clone)]
 pub enum BlockData {
     Simple(u32),
@@ -362,36 +369,6 @@ impl Chunk {
             gen_chunk
                 .loading_stage
                 .store(2, std::sync::atomic::Ordering::SeqCst);
-            let mut palette = Vec::new();
-            let mut block_data = [[[0; 16]; 16]; 16];
-            let blocks = gen_chunk.blocks.lock();
-            for x in 0..16 {
-                for y in 0..16 {
-                    for z in 0..16 {
-                        let block_id = blocks[x][y][z].get_client_id();
-                        let palette_entry =
-                            match palette.iter().position(|block| *block == block_id) {
-                                Some(entry) => entry,
-                                None => {
-                                    palette.push(block_id);
-                                    palette.len() - 1
-                                }
-                            };
-                        block_data[x][y][z] = palette_entry as u16;
-                    }
-                }
-            }
-            let mut encoder = flate2::write::GzEncoder::new(Vec::new(), Compression::default());
-            std::io::copy(
-                &mut bitcode::serialize(&block_data).unwrap().as_slice(),
-                &mut encoder,
-            )
-            .unwrap();
-            let load_message =
-                NetworkMessageS2C::LoadChunk(position, palette, encoder.finish().unwrap());
-            for viewer in gen_chunk.viewers.lock().iter() {
-                viewer.player.try_send_message(&load_message).ok();
-            }
         }));
         chunk
     }
@@ -475,41 +452,7 @@ impl Chunk {
         self.viewers.lock().insert(ChunkViewer {
             player: viewer.clone(),
         });
-        if self.loading_stage.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
-            let thread_viewer = viewer.clone();
-            let position = self.position.clone();
-            let chunk = self.ptr();
-            self.world.server.thread_pool.execute(Box::new(move || {
-                let mut palette = Vec::new();
-                let mut block_data = [[[0; 16]; 16]; 16];
-                let blocks = chunk.blocks.lock();
-                for x in 0..16 {
-                    for y in 0..16 {
-                        for z in 0..16 {
-                            let block_id = blocks[x][y][z].get_client_id();
-                            let palette_entry =
-                                match palette.iter().position(|block| *block == block_id) {
-                                    Some(entry) => entry,
-                                    None => {
-                                        palette.push(block_id);
-                                        palette.len() - 1
-                                    }
-                                };
-                            block_data[x][y][z] = palette_entry as u16;
-                        }
-                    }
-                }
-                let mut encoder = flate2::write::GzEncoder::new(Vec::new(), Compression::default());
-                std::io::copy(
-                    &mut bitcode::serialize(&block_data).unwrap().as_slice(),
-                    &mut encoder,
-                )
-                .unwrap();
-                let load_message =
-                    NetworkMessageS2C::LoadChunk(position, palette, encoder.finish().unwrap());
-                thread_viewer.try_send_message(&load_message).unwrap();
-            }));
-        }
+        viewer.chunk_loading_manager.lock().load(self.ptr());
         for entity in self.entities.lock().iter() {
             if Arc::ptr_eq(entity, &viewer) {
                 continue;
@@ -520,9 +463,7 @@ impl Chunk {
         }
     }
     fn remove_viewer(&self, viewer: &Entity) {
-        viewer
-            .try_send_message(&NetworkMessageS2C::UnloadChunk(self.position))
-            .unwrap();
+        viewer.chunk_loading_manager.lock().unload(self.ptr());
         for entity in self.entities.lock().iter() {
             if entity.as_ref() == viewer {
                 continue;
@@ -677,6 +618,17 @@ impl Chunk {
             self.position.x, self.position.y, self.position.z
         ));
         path
+    }
+}
+impl Eq for Chunk {}
+impl PartialEq for Chunk {
+    fn eq(&self, other: &Self) -> bool {
+        self.position == other.position && (self.world == other.world)
+    }
+}
+impl Hash for Chunk {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.position.hash(state);
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -862,6 +814,7 @@ pub struct Entity {
     pub connection: Mutex<Option<PlayerConnection>>,
     velocity: Mutex<(f64, f64, f64)>,
     pub user_data: Mutex<UserData>,
+    pub chunk_loading_manager: Mutex<ChunkLoadingManager>,
 }
 
 static ENTITY_CLIENT_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
@@ -875,8 +828,9 @@ impl Entity {
         let location: ChunkLocation = location.into();
         let position = location.position;
         let chunk = location.chunk.clone();
+        let server = location.chunk.world.server.clone();
         let entity = Arc::new_cyclic(|weak| Entity {
-            server: location.chunk.world.server.clone(),
+            server: server.clone(),
             location: Mutex::new(location),
             entity_type: entity_type.clone(),
             removed: AtomicBool::new(false),
@@ -905,6 +859,7 @@ impl Entity {
             connection: Mutex::new(connection),
             velocity: Mutex::new((0., 0., 0.)),
             user_data: Mutex::new(UserData::new()),
+            chunk_loading_manager: Mutex::new(ChunkLoadingManager::new(weak.clone(), server)),
         });
         entity
             .try_send_message(&NetworkMessageS2C::TeleportPlayer(position, 0.))
@@ -1111,6 +1066,7 @@ impl Entity {
         velocity.2 += z;
     }
     pub fn tick(&self) {
+        self.chunk_loading_manager.lock().tick();
         let mut teleport_location = { self.teleport.lock().as_ref().map(|loc| loc.clone()) };
         if !self.is_player() {
             let mut velocity = self.velocity.lock();
@@ -1710,6 +1666,80 @@ impl Entity {
     }
     pub fn arc(&self) -> Arc<Entity> {
         self.this.upgrade().unwrap()
+    }
+}
+pub struct ChunkLoadingManager {
+    server: Arc<Server>,
+    entity: Weak<Entity>,
+    to_load: HashSet<Arc<Chunk>>,
+}
+impl ChunkLoadingManager {
+    pub fn new(entity: Weak<Entity>, server: Arc<Server>) -> Self {
+        ChunkLoadingManager {
+            server,
+            entity,
+            to_load: HashSet::new(),
+        }
+    }
+    pub fn load(&mut self, chunk: Arc<Chunk>) {
+        self.to_load.insert(chunk);
+    }
+    pub fn unload(&mut self, chunk: Arc<Chunk>) {
+        self.entity
+            .upgrade()
+            .unwrap()
+            .try_send_message(&NetworkMessageS2C::UnloadChunk(chunk.position))
+            .ok();
+    }
+    pub fn tick(&mut self) {
+        for chunk in self
+            .to_load
+            .extract_if(|chunk| chunk.loading_stage.load(Ordering::Relaxed) >= 2)
+            .take(
+                self.server
+                    .settings
+                    .get_i64("server.max_chunks_sent_per_tick", 200) as usize,
+            )
+        {
+            let entity = self.entity.clone();
+            self.server.thread_pool.execute(Box::new(move || {
+                let mut palette = Vec::new();
+                let mut block_data = [[[0; 16]; 16]; 16];
+                let blocks = chunk.blocks.lock();
+                for x in 0..16 {
+                    for y in 0..16 {
+                        for z in 0..16 {
+                            let block_id = blocks[x][y][z].get_client_id();
+                            let palette_entry =
+                                match palette.iter().position(|block| *block == block_id) {
+                                    Some(entry) => entry,
+                                    None => {
+                                        palette.push(block_id);
+                                        palette.len() - 1
+                                    }
+                                };
+                            block_data[x][y][z] = palette_entry as u16;
+                        }
+                    }
+                }
+                let mut encoder = flate2::write::GzEncoder::new(Vec::new(), Compression::default());
+                std::io::copy(
+                    &mut bitcode::serialize(&block_data).unwrap().as_slice(),
+                    &mut encoder,
+                )
+                .unwrap();
+                let load_message = NetworkMessageS2C::LoadChunk(
+                    chunk.position,
+                    palette,
+                    encoder.finish().unwrap(),
+                );
+                entity
+                    .upgrade()
+                    .unwrap()
+                    .try_send_message(&load_message)
+                    .ok();
+            }));
+        }
     }
 }
 
