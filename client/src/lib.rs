@@ -312,7 +312,6 @@ pub async fn run() {
                         .unwrap();
                 }
             }
-            //todo: send less frequently
             if first_teleport && last_position_sent.elapsed().as_millis() > 100 {
                 last_position_sent = Instant::now();
                 connection.send_message(&NetworkMessageC2S::PlayerPosition(
@@ -375,7 +374,7 @@ pub async fn run() {
                                 x: render_state.size().width as f32 / 2.,
                                 y: render_state.size().height as f32 / 2.,
                             })
-                            .unwrap();
+                            .ok();
                     }
                     NetworkMessageS2C::AddEntity(type_id, id, position, rotation, animation, _) => {
                         world.entities.insert(
