@@ -8,7 +8,6 @@ use std::{
 use block_byte_common::content::{
     ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData,
 };
-use block_byte_common::messages::NetworkMessageS2C;
 use block_byte_common::{BlockPosition, Face, Position};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -268,8 +267,8 @@ impl Item {
                 }
                 _ => None,
             });
-            let target_chunk = world.get_chunk(block_position.to_chunk_pos()).unwrap();
-            target_chunk.announce_to_viewers(NetworkMessageS2C::BlockItem(
+            //let target_chunk = world.get_chunk(block_position.to_chunk_pos()).unwrap();
+            /*target_chunk.announce_to_viewers(NetworkMessageS2C::BlockItem(
                 block_position,
                 0,
                 Some(
@@ -280,7 +279,7 @@ impl Item {
                         .unwrap()
                         .client_id,
                 ),
-            ));
+            ));*/
             return InteractionResult::Consumed;
         }
         if let Some(right_click) = &self.on_right_click {

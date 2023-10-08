@@ -248,9 +248,10 @@ impl Model {
             * Matrix4::from_nonuniform_scale(scale.x, scale.y, scale.z)
     }
     pub fn get_animation_length(&self, animation: u32) -> Option<f32> {
+        let index = self.animations.get(animation as usize)?;
         self.data
             .animations
-            .get(*self.animations.get(animation as usize).unwrap() as usize)
+            .get(*index as usize)
             .map(|animation| animation.1)
     }
 }

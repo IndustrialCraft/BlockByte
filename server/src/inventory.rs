@@ -174,14 +174,13 @@ impl Inventory {
         match &self.owner.upgrade().unwrap() {
             InventoryWrapper::Entity(entity) => {
                 if let Some(mapping) = entity.entity_type.item_model_mapping.mapping.get(&index) {
-                    entity
-                        .get_location()
-                        .chunk
-                        .announce_to_viewers(NetworkMessageS2C::EntityItem(
+                    entity.get_location().chunk.announce_to_viewers(
+                        &NetworkMessageS2C::EntityItem(
                             entity.client_id,
                             *mapping,
                             item.as_ref().map(|item| item.item_type.client_id),
-                        ));
+                        ),
+                    );
                 }
             }
             //todo: block

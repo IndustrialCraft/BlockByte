@@ -435,10 +435,16 @@ impl Chunk {
         };
         let block = block.create_block_data(&self.this.upgrade().unwrap(), block_position);
         if self.loading_stage.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
-            self.announce_to_viewers(NetworkMessageS2C::SetBlock(
+            self.announce_to_viewers(&NetworkMessageS2C::SetBlock(
                 block_position,
                 block.get_client_id(),
             ));
+        }
+        match &block {
+            BlockData::Simple(_) => {}
+            BlockData::Data(block) => {
+                block.animation_controller.resync();
+            }
         }
         self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize] = block;
     }
@@ -483,9 +489,9 @@ impl Chunk {
             }
         }
     }
-    pub fn announce_to_viewers(&self, message: NetworkMessageS2C) {
+    pub fn announce_to_viewers(&self, message: &NetworkMessageS2C) {
         for viewer in self.viewers.lock().iter() {
-            viewer.player.try_send_message(&message).unwrap();
+            viewer.player.try_send_message(message).unwrap();
         }
     }
     pub fn tick(&self) {
@@ -807,7 +813,7 @@ pub struct Entity {
     removed: AtomicBool,
     pub client_id: u32,
     id: Uuid,
-    animation_controller: Mutex<AnimationController>,
+    animation_controller: Mutex<AnimationController<Entity>>,
     pub inventory: Inventory,
     pub server: Arc<Server>,
     open_inventory: Mutex<Option<InventoryWrapper>>,
@@ -1668,6 +1674,24 @@ impl Entity {
         self.this.upgrade().unwrap()
     }
 }
+impl Animatable for Entity {
+    fn send_animation_to_viewers(&self, animation: u32) {
+        self.get_location()
+            .chunk
+            .announce_to_viewers(&NetworkMessageS2C::EntityAnimation(
+                self.client_id,
+                animation,
+            ));
+    }
+    fn send_animation_to(&self, viewer: &Entity, animation: u32) {
+        viewer
+            .try_send_message(&NetworkMessageS2C::EntityAnimation(
+                self.client_id,
+                animation,
+            ))
+            .ok();
+    }
+}
 pub struct ChunkLoadingManager {
     server: Arc<Server>,
     entity: Weak<Entity>,
@@ -1701,24 +1725,26 @@ impl ChunkLoadingManager {
                     .get_i64("server.max_chunks_sent_per_tick", 200) as usize,
             )
         {
-            let entity = self.entity.clone();
+            let entity = self.entity.upgrade().unwrap();
             self.server.thread_pool.execute(Box::new(move || {
                 let mut palette = Vec::new();
                 let mut block_data = [[[0; 16]; 16]; 16];
-                let blocks = chunk.blocks.lock();
-                for x in 0..16 {
-                    for y in 0..16 {
-                        for z in 0..16 {
-                            let block_id = blocks[x][y][z].get_client_id();
-                            let palette_entry =
-                                match palette.iter().position(|block| *block == block_id) {
-                                    Some(entry) => entry,
-                                    None => {
-                                        palette.push(block_id);
-                                        palette.len() - 1
-                                    }
-                                };
-                            block_data[x][y][z] = palette_entry as u16;
+                {
+                    let blocks = chunk.blocks.lock();
+                    for x in 0..16 {
+                        for y in 0..16 {
+                            for z in 0..16 {
+                                let block_id = blocks[x][y][z].get_client_id();
+                                let palette_entry =
+                                    match palette.iter().position(|block| *block == block_id) {
+                                        Some(entry) => entry,
+                                        None => {
+                                            palette.push(block_id);
+                                            palette.len() - 1
+                                        }
+                                    };
+                                block_data[x][y][z] = palette_entry as u16;
+                            }
                         }
                     }
                 }
@@ -1733,11 +1759,21 @@ impl ChunkLoadingManager {
                     palette,
                     encoder.finish().unwrap(),
                 );
-                entity
-                    .upgrade()
-                    .unwrap()
-                    .try_send_message(&load_message)
-                    .ok();
+                entity.try_send_message(&load_message).ok();
+                {
+                    let blocks = chunk.blocks.lock();
+                    for x in 0..16 {
+                        for y in 0..16 {
+                            for z in 0..16 {
+                                let block = &blocks[x][y][z];
+                                match &block {
+                                    BlockData::Simple(_) => {}
+                                    BlockData::Data(block) => block.on_sent_to_client(&entity),
+                                }
+                            }
+                        }
+                    }
+                }
             }));
         }
     }
@@ -1776,17 +1812,17 @@ impl AABB {
             .is_some()
     }
 }
-pub struct AnimationController {
-    entity: Weak<Entity>,
+pub struct AnimationController<T> {
+    viewable: Weak<T>,
     animation: u32,
     animation_start_time: f32,
     default_animation: u32,
 }
 
-impl AnimationController {
-    pub fn new(entity: Weak<Entity>, default_animation: u32) -> Self {
+impl<T: Animatable> AnimationController<T> {
+    pub fn new(entity: Weak<T>, default_animation: u32) -> Self {
         AnimationController {
-            entity,
+            viewable: entity,
             animation: default_animation,
             animation_start_time: 0., //todo
             default_animation,
@@ -1797,17 +1833,28 @@ impl AnimationController {
         if self.animation != new_animation {
             self.animation = new_animation;
             self.animation_start_time = 0.; //todo
-            let entity = self.entity.upgrade().unwrap();
-            entity
-                .location
-                .lock()
-                .chunk
-                .announce_to_viewers(NetworkMessageS2C::EntityAnimation(
-                    entity.client_id,
-                    self.animation,
-                ));
+            self.viewable
+                .upgrade()
+                .unwrap()
+                .send_animation_to_viewers(self.animation);
         }
     }
+    pub fn sync_to(&self, viewer: &Entity) {
+        self.viewable
+            .upgrade()
+            .unwrap()
+            .send_animation_to(viewer, self.animation);
+    }
+    pub fn resync(&self) {
+        self.viewable
+            .upgrade()
+            .unwrap()
+            .send_animation_to_viewers(self.animation);
+    }
+}
+pub trait Animatable {
+    fn send_animation_to_viewers(&self, animation: u32);
+    fn send_animation_to(&self, viewer: &Entity, animation: u32);
 }
 #[derive(Clone)]
 pub struct Structure {
@@ -1902,6 +1949,7 @@ pub struct WorldBlock {
     position: BlockPosition,
     state: BlockStateRef,
     pub inventory: Inventory,
+    animation_controller: AnimationController<WorldBlock>,
 }
 
 impl WorldBlock {
@@ -1924,8 +1972,12 @@ impl WorldBlock {
                 None,
                 None,
             ),
+            animation_controller: AnimationController::new(this.clone(), 0),
             this: this.clone(),
         })
+    }
+    pub fn on_sent_to_client(&self, player: &Entity) {
+        self.animation_controller.sync_to(player);
     }
     pub fn on_right_click(&self, player: &Entity) -> InteractionResult {
         player.set_open_inventory(Some(InventoryWrapper::Block(self.this.upgrade().unwrap())));
@@ -1945,6 +1997,19 @@ impl WorldBlock {
     }
     pub fn ptr(&self) -> Arc<WorldBlock> {
         self.this.upgrade().unwrap()
+    }
+}
+impl Animatable for WorldBlock {
+    fn send_animation_to_viewers(&self, animation: u32) {
+        self.chunk
+            .upgrade()
+            .unwrap()
+            .announce_to_viewers(&NetworkMessageS2C::BlockAnimation(self.position, animation));
+    }
+    fn send_animation_to(&self, viewer: &Entity, animation: u32) {
+        viewer
+            .try_send_message(&NetworkMessageS2C::BlockAnimation(self.position, animation))
+            .ok();
     }
 }
 

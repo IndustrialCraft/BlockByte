@@ -309,7 +309,7 @@ pub async fn run() {
                         .as_ref()
                         .unwrap()
                         .get_animation_length(animation.0)
-                        .unwrap();
+                        .unwrap_or(0.);
                 }
             }
             if first_teleport && last_position_sent.elapsed().as_millis() > 100 {
