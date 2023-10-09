@@ -11,7 +11,7 @@ mod texture;
 
 use array_init::array_init;
 use block_byte_common::messages::{NetworkMessageC2S, NetworkMessageS2C};
-use block_byte_common::{KeyboardKey, KeyboardModifier, Position, AABB};
+use block_byte_common::{BlockPosition, Face, KeyboardKey, KeyboardModifier, Position, AABB};
 use cgmath::Point3;
 use std::collections::{HashMap, HashSet};
 use std::env::args;
@@ -19,6 +19,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 use winit::dpi::PhysicalPosition;
+use winit::event::ElementState::Pressed;
 use winit::window::CursorGrabMode;
 use winit::{
     event::*,
@@ -93,6 +94,8 @@ pub async fn run() {
 
     let mut last_position_sent = Instant::now();
 
+    let mut block_breaking_manager = BlockBreakingManager::new();
+
     let text_input_channel = spawn_stdin_channel();
     #[allow(deprecated)]
     event_loop.run(move |event, _, control_flow| match event {
@@ -139,11 +142,10 @@ pub async fn run() {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                if *state == ElementState::Pressed {
-                    if !gui.is_cursor_locked() {
-                        if let Some(element) =
-                            gui.get_selected(render_state.mouse, render_state.size())
-                        {
+                if !gui.is_cursor_locked() {
+                    if let Some(element) = gui.get_selected(render_state.mouse, render_state.size())
+                    {
+                        if *state == ElementState::Pressed {
                             connection.send_message(&NetworkMessageC2S::GuiClick(
                                 element.0.to_string(),
                                 match button {
@@ -165,51 +167,35 @@ pub async fn run() {
                                 keys.contains(&VirtualKeyCode::LShift),
                             ));
                         }
-                    } else {
-                        match world.raycast(
-                            5.,
-                            camera.get_eye(),
-                            camera.make_front(),
-                            fluid_selectable,
-                        ) {
-                            RaycastResult::Entity(id) => match button {
-                                MouseButton::Left => {
-                                    connection.send_message(&NetworkMessageC2S::LeftClickEntity(id))
+                    }
+                } else {
+                    block_breaking_manager.set_left_click_held(*state == Pressed);
+                    match world.raycast(5., camera.get_eye(), camera.make_front(), fluid_selectable)
+                    {
+                        RaycastResult::Entity(id) => {
+                            if *state == ElementState::Pressed {
+                                match button {
+                                    MouseButton::Left => connection
+                                        .send_message(&NetworkMessageC2S::LeftClickEntity(id)),
+                                    MouseButton::Right => connection
+                                        .send_message(&NetworkMessageC2S::RightClickEntity(id)),
+                                    _ => {}
                                 }
-                                MouseButton::Right => connection
-                                    .send_message(&NetworkMessageC2S::RightClickEntity(id)),
-                                _ => {}
-                            },
-                            RaycastResult::Block(position, face) => match button {
-                                MouseButton::Left => connection
-                                    .send_message(&NetworkMessageC2S::BreakBlock(position)),
-                                MouseButton::Right => {
-                                    connection.send_message(&NetworkMessageC2S::RightClickBlock(
-                                        position,
-                                        face,
-                                        camera.is_shifting(),
-                                    ))
-                                }
-                                _ => {}
-                            },
-                            RaycastResult::Miss => {}
-                        }
-                        /*if let Some((position, face)) =
-
-                        {
-                            match button {
-                                MouseButton::Left => connection
-                                    .send_message(&NetworkMessageC2S::BreakBlock(position)),
-                                MouseButton::Right => {
-                                    connection.send_message(&NetworkMessageC2S::RightClickBlock(
-                                        position,
-                                        face,
-                                        camera.is_shifting(),
-                                    ))
-                                }
-                                _ => {}
                             }
-                        }*/
+                        }
+                        RaycastResult::Block(position, face) => match button {
+                            MouseButton::Right => {
+                                if *state == ElementState::Pressed {
+                                    connection.send_message(&NetworkMessageC2S::RightClickBlock(
+                                        position,
+                                        face,
+                                        camera.is_shifting(),
+                                    ))
+                                }
+                            }
+                            _ => {}
+                        },
+                        RaycastResult::Miss => {}
                     }
                 }
             }
@@ -264,17 +250,32 @@ pub async fn run() {
             let dt = dt.as_secs_f32();
             camera.update_position(&keys, dt, &world);
             render_state.window().set_title(&format!(
-                "BlockByte x: {} y: {} z: {} fps: {}",
+                "BlockByte x: {:.1} y: {:.1} z: {:.1} fps: {:.0} {}",
                 camera.position.x,
                 camera.position.y,
                 camera.position.z,
-                1. / dt
+                1. / dt,
+                block_breaking_manager
+                    .breaking_animation
+                    .as_ref()
+                    .map(|animation| format!(
+                        "breaking: {}%",
+                        (animation.0 / animation.1 * 100.) as u8
+                    ))
+                    .unwrap_or(String::new())
             ));
+            block_breaking_manager.tick(dt, &mut connection, keys.contains(&VirtualKeyCode::R));
             while let Ok(message) = text_input_channel.try_recv() {
                 connection.send_message(&NetworkMessageC2S::SendMessage(message));
             }
+            let raycast =
+                world.raycast(5., camera.get_eye(), camera.make_front(), fluid_selectable);
+            block_breaking_manager.set_target_block(match raycast {
+                RaycastResult::Block(block, face) => Some((block, face)),
+                _ => None,
+            });
             render_state.outline_renderer.set_aabb(
-                match world.raycast(5., camera.get_eye(), camera.make_front(), fluid_selectable) {
+                match raycast {
                     RaycastResult::Entity(id) => {
                         let entity = world.entities.get(&id).unwrap();
                         let position = entity.position;
@@ -397,7 +398,9 @@ pub async fn run() {
                     NetworkMessageS2C::DeleteEntity(id) => {
                         world.entities.remove(&id);
                     }
-                    NetworkMessageS2C::BlockBreakTimeResponse(_, _) => {}
+                    NetworkMessageS2C::BlockBreakTimeResponse(id, time) => {
+                        block_breaking_manager.on_block_break_time_response(id, time);
+                    }
                     NetworkMessageS2C::Knockback(x, y, z, set) => {
                         camera.knockback(x, y, z, set);
                     }
@@ -445,13 +448,15 @@ pub async fn run() {
                         }
                     }
                     NetworkMessageS2C::BlockItem(block_position, slot, item) => {
-                        let id = world.get_block(block_position).and_then(|block|world
-                            .block_registry
-                            .get_block(block)
-                            .dynamic
-                            .as_ref()
-                            .and_then(|model| model.get_item_slot(slot))
-                            .cloned());
+                        let id = world.get_block(block_position).and_then(|block| {
+                            world
+                                .block_registry
+                                .get_block(block)
+                                .dynamic
+                                .as_ref()
+                                .and_then(|model| model.get_item_slot(slot))
+                                .cloned()
+                        });
                         if let Some(dynamic) = world.get_dynamic_block_data(block_position) {
                             let id = id.unwrap();
                             match item {
@@ -488,6 +493,84 @@ pub async fn run() {
         _ => {}
     })
 }
+struct BlockBreakingManager {
+    id: u32,
+    time_requested: bool,
+    target_block: Option<(BlockPosition, Face)>,
+    key_down: bool,
+    breaking_animation: Option<(f32, f32)>,
+    just_pressed: bool,
+}
+impl BlockBreakingManager {
+    pub fn new() -> Self {
+        BlockBreakingManager {
+            id: 0,
+            target_block: None,
+            breaking_animation: None,
+            key_down: false,
+            time_requested: false,
+            just_pressed: false,
+        }
+    }
+    pub fn tick(
+        &mut self,
+        delta_time: f32,
+        connection: &mut SocketConnection,
+        keep_breaking: bool,
+    ) {
+        if let Some(target_block) = self.target_block {
+            if self.key_down
+                && self.breaking_animation.is_none()
+                && !self.time_requested
+                && (keep_breaking || self.just_pressed)
+            {
+                self.time_requested = true;
+                self.id += 1;
+                connection.send_message(&NetworkMessageC2S::RequestBlockBreakTime(
+                    self.id,
+                    target_block.0,
+                ));
+            }
+        }
+        if let Some(breaking_animation) = &mut self.breaking_animation {
+            if let Some(target_block) = self.target_block {
+                breaking_animation.0 += delta_time;
+                if breaking_animation.0 >= breaking_animation.1 {
+                    self.breaking_animation = None;
+                    connection.send_message(&NetworkMessageC2S::BreakBlock(target_block.0));
+                }
+            }
+        }
+        self.just_pressed = false;
+    }
+    pub fn on_block_break_time_response(&mut self, id: u32, time: f32) {
+        if self.id == id {
+            self.breaking_animation = Some((0., time));
+            self.time_requested = false;
+        }
+    }
+    pub fn set_left_click_held(&mut self, held: bool) {
+        if (!self.key_down) && held {
+            self.just_pressed = true;
+        }
+        self.time_requested = false;
+        self.key_down = held;
+        if !held {
+            self.breaking_animation = None;
+        }
+    }
+    pub fn set_target_block(&mut self, block: Option<(BlockPosition, Face)>) {
+        if match (self.target_block, block) {
+            (Some(previous), Some(current)) => previous.0 != current.0,
+            _ => true,
+        } {
+            self.breaking_animation = None;
+            self.time_requested = false;
+        }
+        self.target_block = block;
+    }
+}
+
 fn spawn_stdin_channel() -> std::sync::mpsc::Receiver<String> {
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     std::thread::spawn(move || loop {

@@ -1945,9 +1945,9 @@ impl Structure {
 
 pub struct WorldBlock {
     this: Weak<WorldBlock>,
-    pub(crate) chunk: Weak<Chunk>,
-    pub(crate) position: BlockPosition,
-    pub(crate) state: BlockStateRef,
+    pub chunk: Weak<Chunk>,
+    pub position: BlockPosition,
+    pub state: BlockStateRef,
     pub inventory: Inventory,
     animation_controller: AnimationController<WorldBlock>,
 }
@@ -1980,22 +1980,23 @@ impl WorldBlock {
         self.animation_controller.sync_to(player);
         let chunk = self.chunk.upgrade().unwrap();
         let block = chunk.world.server.block_registry.state_by_ref(&self.state);
-        for (inventory_index, model_index) in & block.parent.item_model_mapping.mapping {
-            player.try_send_message(&NetworkMessageS2C::BlockItem(
-                self.position,
-                *model_index,
-                self.inventory
-                    .get_full_view()
-                    .get_item(*inventory_index)
-                    .unwrap()
-                    .as_ref()
-                    .map(|item| item.item_type.client_id),
-            )).ok();
+        for (inventory_index, model_index) in &block.parent.item_model_mapping.mapping {
+            player
+                .try_send_message(&NetworkMessageS2C::BlockItem(
+                    self.position,
+                    *model_index,
+                    self.inventory
+                        .get_full_view()
+                        .get_item(*inventory_index)
+                        .unwrap()
+                        .as_ref()
+                        .map(|item| item.item_type.client_id),
+                ))
+                .ok();
         }
     }
     pub fn on_right_click(&self, player: &Entity) -> InteractionResult {
         player.set_open_inventory(Some(InventoryWrapper::Block(self.this.upgrade().unwrap())));
-        player.send_chat_message("clicked".to_string());
         InteractionResult::Consumed
     }
     pub fn serialize(&self) -> BlockSaveData {
@@ -2009,11 +2010,11 @@ impl WorldBlock {
             &self.chunk.upgrade().unwrap().world.server.item_registry,
         );
     }
-    pub fn update_to_clients(&self){
+    pub fn update_to_clients(&self) {
         self.animation_controller.resync();
         let chunk = self.chunk.upgrade().unwrap();
         let block = chunk.world.server.block_registry.state_by_ref(&self.state);
-        for (inventory_index, model_index) in & block.parent.item_model_mapping.mapping {
+        for (inventory_index, model_index) in &block.parent.item_model_mapping.mapping {
             chunk.announce_to_viewers(&NetworkMessageS2C::BlockItem(
                 self.position,
                 *model_index,
