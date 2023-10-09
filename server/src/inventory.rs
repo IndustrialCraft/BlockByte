@@ -183,7 +183,19 @@ impl Inventory {
                     );
                 }
             }
-            //todo: block
+            InventoryWrapper::Block(block) => {
+                let chunk = block.chunk.upgrade().unwrap();
+                let block_type = chunk.world.server.block_registry.state_by_ref(&block.state);
+                if let Some(mapping) = block_type.parent.item_model_mapping.mapping.get(&index) {
+                    chunk.announce_to_viewers(
+                        &NetworkMessageS2C::BlockItem(
+                            block.position,
+                            *mapping,
+                            item.as_ref().map(|item| item.item_type.client_id),
+                        ),
+                    );
+                }
+            }
             _ => {}
         }
     }

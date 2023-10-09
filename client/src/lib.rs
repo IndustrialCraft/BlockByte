@@ -445,13 +445,13 @@ pub async fn run() {
                         }
                     }
                     NetworkMessageS2C::BlockItem(block_position, slot, item) => {
-                        let id = world
+                        let id = world.get_block(block_position).and_then(|block|world
                             .block_registry
-                            .get_block(world.get_block(block_position).unwrap()) //todo: prevent crash if unloaded
+                            .get_block(block)
                             .dynamic
                             .as_ref()
                             .and_then(|model| model.get_item_slot(slot))
-                            .cloned();
+                            .cloned());
                         if let Some(dynamic) = world.get_dynamic_block_data(block_position) {
                             let id = id.unwrap();
                             match item {
