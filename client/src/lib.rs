@@ -169,7 +169,9 @@ pub async fn run() {
                         }
                     }
                 } else {
-                    block_breaking_manager.set_left_click_held(*state == Pressed);
+                    if *button == MouseButton::Left {
+                        block_breaking_manager.set_left_click_held(*state == Pressed);
+                    }
                     match world.raycast(5., camera.get_eye(), camera.make_front(), fluid_selectable)
                     {
                         RaycastResult::Entity(id) => {
