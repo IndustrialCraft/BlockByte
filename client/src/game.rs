@@ -589,12 +589,22 @@ impl World {
                 }
             }
         }
+        let entity_hit_position = match &closest_entity {
+            Some((distance, _)) => {
+                let mut entity_hit_position = start_position;
+                entity_hit_position.x += direction.x as f64 * distance;
+                entity_hit_position.y += direction.y as f64 * distance;
+                entity_hit_position.z += direction.z as f64 * distance;
+                Some(entity_hit_position.to_block_pos())
+            }
+            None => None,
+        };
         let mut output = None;
         voxel_tile_raycast::voxel_raycast(
             nalgebra::Vector3::new(start_position.x, start_position.y, start_position.z),
             nalgebra::Vector3::new(direction.x as f64, direction.y as f64, direction.z as f64),
             closest_entity
-                .map(|entity| entity.0 - 1.) //todo: figure out why its not working without -1
+                .map(|entity| entity.0)
                 .unwrap_or(max_distance),
             |index, _hit_pos, hit_normal| {
                 let block_position = BlockPosition {
@@ -604,7 +614,9 @@ impl World {
                 };
                 let block = self.get_block(block_position);
                 let block = self.block_registry.get_block(block.unwrap_or(0));
-                if block.selectable && !(block.fluid && !fluid_selectable) {
+                if Some(block_position) == entity_hit_position {
+                    true
+                } else if block.selectable && !(block.fluid && !fluid_selectable) {
                     output = Some((
                         block_position,
                         Face::all()
