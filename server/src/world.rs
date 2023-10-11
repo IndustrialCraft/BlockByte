@@ -31,7 +31,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::inventory::InventorySaveData;
-use crate::registry::BlockState;
+use crate::registry::{Block, BlockState};
 use crate::{
     inventory::{Inventory, InventoryWrapper, ItemStack, WeakInventoryWrapper},
     net::PlayerConnection,
@@ -300,6 +300,7 @@ pub struct Chunk {
     viewers: Mutex<FxHashSet<ChunkViewer>>,
     unload_timer: AtomicU8,
     loading_stage: AtomicU8,
+    ticking_blocks: Mutex<HashSet<(u8, u8, u8)>>,
     this: Weak<Chunk>,
 }
 
@@ -316,6 +317,7 @@ impl Chunk {
             entities: Mutex::new(Vec::new()),
             viewers: Mutex::new(FxHashSet::default()),
             loading_stage: AtomicU8::new(0),
+            ticking_blocks: Mutex::new(HashSet::new()),
             this: this.clone(),
         });
         let gen_chunk = chunk.clone();
@@ -348,7 +350,10 @@ impl Chunk {
                         }
                         blocks
                     }
-                    Err(()) => gen_chunk.world.world_generator.generate(&gen_chunk),
+                    Err(()) => {
+                        gen_chunk.ticking_blocks.lock().clear();
+                        gen_chunk.world.world_generator.generate(&gen_chunk)
+                    }
                 };
             }
 
@@ -399,12 +404,13 @@ impl Chunk {
                             z: (self.position.z * 16) + z as i32,
                         },
                     );
+                    let offset = (x as u8, y as u8, z as u8);
                     if let BlockData::Data(block) = &block_data {
-                        if let Some(data) = chunk_save_data
-                            .block_data
-                            .remove(&(x as u8, y as u8, z as u8))
-                        {
+                        if let Some(data) = chunk_save_data.block_data.remove(&offset) {
                             block.deserialize(data);
+                            if block.needs_ticking() {
+                                self.ticking_blocks.lock().insert(offset);
+                            }
                         }
                     }
                     block_data
@@ -433,6 +439,11 @@ impl Chunk {
             y: self.position.y * 16 + offset_y as i32,
             z: self.position.z * 16 + offset_z as i32,
         };
+        let previous_ticking =
+            match &self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize] {
+                BlockData::Simple(_) => false,
+                BlockData::Data(block) => block.needs_ticking(),
+            };
         let block = block.create_block_data(&self.this.upgrade().unwrap(), block_position);
         if self.loading_stage.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
             self.announce_to_viewers(&NetworkMessageS2C::SetBlock(
@@ -440,11 +451,22 @@ impl Chunk {
                 block.get_client_id(),
             ));
         }
-        match &block {
-            BlockData::Simple(_) => {}
+        let new_ticking = match &block {
+            BlockData::Simple(_) => false,
             BlockData::Data(block) => {
                 block.update_to_clients();
+                block.needs_ticking()
             }
+        };
+        let offset = (offset_x, offset_y, offset_z);
+        match (previous_ticking, new_ticking) {
+            (true, false) => {
+                self.ticking_blocks.lock().remove(&offset);
+            }
+            (false, true) => {
+                self.ticking_blocks.lock().insert(offset);
+            }
+            _ => {}
         }
         self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize] = block;
     }
@@ -534,6 +556,19 @@ impl Chunk {
         }
 
         let entities: Vec<_> = self.entities.lock().iter().map(|e| e.clone()).collect();
+        let blocks: Vec<_> = {
+            let blocks = self.blocks.lock();
+            self.ticking_blocks
+                .lock()
+                .iter()
+                .map(
+                    |e| match &blocks[e.0 as usize][e.1 as usize][e.2 as usize] {
+                        BlockData::Simple(_) => panic!("simple block was marked as tickable"),
+                        BlockData::Data(block) => block.clone(),
+                    },
+                )
+                .collect()
+        };
         if self.viewers.lock().len() > 0 {
             self.unload_timer
                 .store(0, std::sync::atomic::Ordering::Relaxed);
@@ -543,11 +578,14 @@ impl Chunk {
                 for entity in entities {
                     entity.tick();
                 }
+                for block in blocks {
+                    block.tick();
+                }
             }));
         }
     }
     pub fn needs_ticking(&self) -> bool {
-        self.entities.lock().len() > 0
+        self.entities.lock().len() > 0 || self.ticking_blocks.lock().len() > 0
     }
     pub fn should_unload(&self) -> bool {
         self.unload_timer.load(std::sync::atomic::Ordering::Relaxed) >= Chunk::UNLOAD_TIME
@@ -687,10 +725,14 @@ impl UserData {
         }
     }
     pub fn put_data_point(&mut self, id: &Identifier, data: Dynamic) {
-        self.data.insert(id.clone(), data);
+        if data.is_unit() {
+            self.data.remove(id);
+        } else {
+            self.data.insert(id.clone(), data);
+        }
     }
-    pub fn take_data_point(&mut self, id: &Identifier) -> Dynamic {
-        self.data.remove(id).unwrap_or(Dynamic::UNIT)
+    pub fn take_data_point(&mut self, id: &Identifier) -> Option<Dynamic> {
+        self.data.remove(id)
     }
     pub fn get_data_point_ref(&mut self, id: &Identifier) -> Option<&mut Dynamic> {
         self.data.get_mut(id)
@@ -1948,7 +1990,9 @@ pub struct WorldBlock {
     pub chunk: Weak<Chunk>,
     pub position: BlockPosition,
     pub state: BlockStateRef,
+    pub block: Arc<Block>,
     pub inventory: Inventory,
+    user_data: Mutex<UserData>,
     animation_controller: AnimationController<WorldBlock>,
 }
 
@@ -1973,14 +2017,21 @@ impl WorldBlock {
                 None,
             ),
             animation_controller: AnimationController::new(this.clone(), 0),
+            block: location
+                .chunk
+                .world
+                .server
+                .block_registry
+                .state_by_ref(&state)
+                .parent
+                .clone(),
+            user_data: Mutex::new(UserData::new()),
             this: this.clone(),
         })
     }
     pub fn on_sent_to_client(&self, player: &Entity) {
         self.animation_controller.sync_to(player);
-        let chunk = self.chunk.upgrade().unwrap();
-        let block = chunk.world.server.block_registry.state_by_ref(&self.state);
-        for (inventory_index, model_index) in &block.parent.item_model_mapping.mapping {
+        for (inventory_index, model_index) in &self.block.item_model_mapping.mapping {
             player
                 .try_send_message(&NetworkMessageS2C::BlockItem(
                     self.position,
@@ -1994,6 +2045,51 @@ impl WorldBlock {
                 ))
                 .ok();
         }
+    }
+    pub fn tick(&self) {
+        let recipe_time_identifier = Identifier::new("bb", "recipe_time");
+        let mut user_data = self.user_data.lock();
+        if let Some(time) = user_data.take_data_point(&recipe_time_identifier) {
+            let mut time = time.as_int().unwrap();
+            time -= 1;
+            user_data.put_data_point(
+                &recipe_time_identifier,
+                if time <= 0 {
+                    let chunk = self.chunk.upgrade().unwrap();
+                    let recipes = chunk
+                        .world
+                        .server
+                        .recipes
+                        .by_type(&self.block.machine_data.as_ref().unwrap().recipe_type);
+                    for recipe in recipes {
+                        if recipe.can_craft(&self.inventory) {
+                            recipe.consume_inputs(&self.inventory).unwrap();
+                            recipe.add_outputs(&self.inventory);
+                            break;
+                        }
+                    }
+                    Dynamic::UNIT
+                } else {
+                    Dynamic::from_int(time)
+                },
+            );
+        } else {
+            let chunk = self.chunk.upgrade().unwrap();
+            let recipes = chunk
+                .world
+                .server
+                .recipes
+                .by_type(&self.block.machine_data.as_ref().unwrap().recipe_type);
+            for recipe in recipes {
+                if recipe.can_craft(&self.inventory) {
+                    user_data.put_data_point(&recipe_time_identifier, Dynamic::from_int(20));
+                    break;
+                }
+            }
+        }
+    }
+    pub fn needs_ticking(&self) -> bool {
+        self.block.machine_data.is_some()
     }
     pub fn on_right_click(&self, player: &Entity) -> InteractionResult {
         player.set_open_inventory(Some(InventoryWrapper::Block(self.this.upgrade().unwrap())));
@@ -2013,8 +2109,7 @@ impl WorldBlock {
     pub fn update_to_clients(&self) {
         self.animation_controller.resync();
         let chunk = self.chunk.upgrade().unwrap();
-        let block = chunk.world.server.block_registry.state_by_ref(&self.state);
-        for (inventory_index, model_index) in &block.parent.item_model_mapping.mapping {
+        for (inventory_index, model_index) in &self.block.item_model_mapping.mapping {
             chunk.announce_to_viewers(&NetworkMessageS2C::BlockItem(
                 self.position,
                 *model_index,

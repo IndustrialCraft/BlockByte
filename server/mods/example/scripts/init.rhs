@@ -12,7 +12,7 @@ create_block("example:malachite_rock").client_type_static("example:rock","exampl
 create_block("example:rock").client_type_static("example:rock","example:stone").loot("example:rock").no_collide().register();
 create_block("example:grass_foliage").client_type_foliage("example:grass_foliage","example:grass_foliage","example:grass_foliage","example:grass_foliage").loot("example:grass_foliage").no_collide().client_render_data(2).register();
 create_block("example:branch").client_type_static("example:branch","example:log_side").loot("example:branch").no_collide().register();
-create_block("example:campfire").client_type_air().client_dynamic("example:campfire","example:campfire").client_dynamic_add_item("main").register_item("example:campfire", "Campfire").data_container().register();
+create_block("example:campfire").machine("example:campfire",1.,1).client_type_air().client_dynamic("example:campfire","example:campfire").client_dynamic_add_item("main").register_item("example:campfire", "Campfire").data_container().register();
 create_item("example:plank").client_model_texture("example:plank").client_name("Plank").register();
 create_item("example:selection_wand").on_right_click(|player,target|{
     if type_of(target) == "BlockPosition"{
@@ -52,6 +52,8 @@ create_item("example:copper_shovel").client_name("Copper Shovel").client_model_t
 create_item("example:copper_pickaxe").client_name("Copper Pickaxe").client_model_texture("example:copper_pickaxe").tool(64, 1., 1.).tool_add_type(ToolType::Pickaxe).register();
 create_item("example:malachite_chunk").client_name("Malachite Ore Chunk").client_model_texture("example:malachite_chunk").register();
 create_item("example:rock").client_name("Rock").client_model_texture("example:stone_chunk").register();
+create_item("example:raw_beef").client_name("Raw Beef").client_model_texture("example:raw_beef").register();
+create_item("example:cooked_beef").client_name("Cooked Beef").client_model_texture("example:cooked_beef").register();
 
 create_item("example:sharpened_rock").client_name("Sharpened Rock").client_model_texture("example:sharpened_rock").tool(32, 1., 1.).tool_add_type(ToolType::Knife).register();
 create_item("example:cut_grass").client_name("Cut Grass").client_model_texture("example:cut_grass").register();
@@ -87,6 +89,8 @@ register_image("example:grass_twine", "images/grass_twine.png");
 register_image("example:cut_grass", "images/cut_grass.png");
 register_image("example:stone_chunk", "images/stone_chunk.png");
 register_image("example:stick", "images/stick.png");
+register_image("example:raw_beef", "images/raw_beef.png");
+register_image("example:cooked_beef", "images/cooked_beef.png");
 
 register_image("example:player", "images/player.png");
 register_model("example:player", "models/player.bbm");

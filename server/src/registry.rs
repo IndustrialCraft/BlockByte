@@ -44,9 +44,10 @@ impl BlockRegistry {
                     id: Identifier::new("bb", "air"),
                     default_state: id,
                     data_container: false,
-                    item_model_mapping: ItemModelMapping{
-                        mapping: HashMap::new()
-                    }
+                    item_model_mapping: ItemModelMapping {
+                        mapping: HashMap::new(),
+                    },
+                    machine_data: None,
                 });
                 let state = vec![BlockState {
                     state_id: id,
@@ -101,7 +102,14 @@ pub struct Block {
     pub id: Identifier,
     pub default_state: u32,
     pub data_container: bool,
+    pub machine_data: Option<BlockMachineData>,
     pub item_model_mapping: ItemModelMapping,
+}
+#[derive(Clone, Debug)]
+pub struct BlockMachineData {
+    pub recipe_type: Identifier,
+    pub base_speed: f32,
+    pub tier: u32,
 }
 
 impl Block {

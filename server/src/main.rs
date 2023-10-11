@@ -138,12 +138,13 @@ impl Server {
                         default_state: id,
                         data_container: block_data.data_container,
                         item_model_mapping: {
-                            let mut mapping = ItemModelMapping{
-                                mapping: HashMap::new()
+                            let mut mapping = ItemModelMapping {
+                                mapping: HashMap::new(),
                             };
                             mapping.mapping.insert(0, 0);
                             mapping
-                        }
+                        },
+                        machine_data: block_data.machine_data.clone(),
                     });
                     let state = vec![BlockState {
                         state_id: id,

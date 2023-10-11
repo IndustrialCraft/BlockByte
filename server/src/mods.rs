@@ -24,6 +24,7 @@ use std::{
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
+use crate::registry::BlockMachineData;
 use crate::world::World;
 use crate::{
     inventory::{LootTable, Recipe},
@@ -148,18 +149,12 @@ impl ModManager {
         let registered_entities = entities.clone();
         let registered_biomes = biomes.clone();
         let registered_events = events.clone();
-        loading_engine.register_fn("register_event", move |event: &str, callback: FnPtr| {
-            let mut registerd_events = registered_events.lock();
-            registerd_events
-                .entry(Identifier::parse(event).unwrap())
-                .or_insert(Vec::new())
-                .push(ScriptCallback::new(callback));
-        });
         loading_engine
             .register_type_with_name::<BlockBuilder>("BlockBuilder")
             .register_fn("create_block", BlockBuilder::new)
             .register_fn("breaking_tool", BlockBuilder::breaking_tool)
             .register_fn("loot", BlockBuilder::loot)
+            .register_fn("machine", BlockBuilder::machine)
             .register_fn("breaking_speed", BlockBuilder::breaking_speed)
             .register_fn("client_type_air", BlockBuilder::client_type_air)
             .register_fn("client_type_cube", BlockBuilder::client_type_cube)
@@ -198,6 +193,13 @@ impl ModManager {
                     this.clone()
                 },
             );
+        loading_engine.register_fn("register_event", move |event: &str, callback: FnPtr| {
+            let mut registerd_events = registered_events.lock();
+            registerd_events
+                .entry(Identifier::parse(event).unwrap())
+                .or_insert(Vec::new())
+                .push(ScriptCallback::new(callback));
+        });
         loading_engine
             .register_type_with_name::<ItemBuilder>("ItemBuilder")
             .register_fn("create_item", ItemBuilder::new)
@@ -655,6 +657,7 @@ pub struct BlockBuilder {
     pub breaking_data: (f32, Option<(ToolType, f32)>),
     pub loot: Option<Identifier>,
     pub no_collide: bool,
+    pub machine_data: Option<BlockMachineData>,
 }
 
 impl BlockBuilder {
@@ -674,7 +677,21 @@ impl BlockBuilder {
             breaking_data: (1., None),
             loot: None,
             no_collide: false,
+            machine_data: None,
         }))
+    }
+    pub fn machine(
+        this: &mut Arc<Mutex<Self>>,
+        recipe_type: &str,
+        base_speed: f64,
+        tier: i64,
+    ) -> Arc<Mutex<Self>> {
+        this.lock().machine_data = Some(BlockMachineData {
+            recipe_type: Identifier::parse(recipe_type).unwrap(),
+            base_speed: base_speed as f32,
+            tier: tier as u32,
+        });
+        this.clone()
     }
     pub fn breaking_speed(this: &mut Arc<Mutex<Self>>, breaking_speed: f64) -> Arc<Mutex<Self>> {
         this.lock().breaking_data.0 = breaking_speed as f32;
