@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use splines::Spline;
 use uuid::Uuid;
 
+use crate::registry::ToolType;
 use crate::world::UserData;
 use crate::{
     registry::{InteractionResult, Item, ItemRegistry},
@@ -187,13 +188,11 @@ impl Inventory {
                 let chunk = block.chunk.upgrade().unwrap();
                 let block_type = chunk.world.server.block_registry.state_by_ref(&block.state);
                 if let Some(mapping) = block_type.parent.item_model_mapping.mapping.get(&index) {
-                    chunk.announce_to_viewers(
-                        &NetworkMessageS2C::BlockItem(
-                            block.position,
-                            *mapping,
-                            item.as_ref().map(|item| item.item_type.client_id),
-                        ),
-                    );
+                    chunk.announce_to_viewers(&NetworkMessageS2C::BlockItem(
+                        block.position,
+                        *mapping,
+                        item.as_ref().map(|item| item.item_type.client_id),
+                    ));
                 }
             }
             _ => {}
@@ -624,27 +623,66 @@ impl Recipe {
 }
 
 pub struct LootTable {
-    tables: Vec<(Arc<Item>, Spline<f64, f64>)>,
+    tables: Vec<(Arc<Item>, Spline<f64, f64>, Conditions)>,
+}
+#[derive(Default)]
+pub struct Conditions {
+    tool_type: Option<ToolType>,
+}
+pub struct LootTableGenerationParameters<'a> {
+    pub(crate) item: Option<&'a ItemStack>,
 }
 impl LootTable {
     pub fn from_json(json: JsonValue, item_registry: &ItemRegistry) -> Self {
         let mut tables = Vec::new();
         for table in json["tables"].members() {
+            let conditions = &table["conditions"];
+            let conditions = if !conditions.is_null() {
+                let tool_type = &conditions["tool_type"];
+                Conditions {
+                    tool_type: match tool_type.as_str() {
+                        Some(tool_type) => match tool_type {
+                            "Axe" => Some(ToolType::Axe),
+                            "Pickaxe" => Some(ToolType::Pickaxe),
+                            "Knife" => Some(ToolType::Knife),
+                            "Wrench" => Some(ToolType::Wrench),
+                            "Shovel" => Some(ToolType::Shovel),
+                            _ => panic!("unknown tool type"),
+                        },
+                        None => None,
+                    },
+                }
+            } else {
+                Default::default()
+            };
             tables.push((
                 item_registry
                     .item_by_identifier(&Identifier::parse(table["id"].as_str().unwrap()).unwrap())
                     .unwrap()
                     .clone(),
                 crate::mods::spline_from_json(&table["count"]),
+                conditions,
             ));
         }
         Self { tables }
     }
-    pub fn generate_items<T>(&self, consumer: T)
+    pub fn generate_items<T>(&self, consumer: T, parameters: LootTableGenerationParameters)
     where
         T: Fn(ItemStack),
     {
         for table in &self.tables {
+            if match (
+                &table.2.tool_type,
+                &parameters
+                    .item
+                    .and_then(|item| item.item_type.tool_data.as_ref()),
+            ) {
+                (Some(tool_type), Some(tool)) => !tool.breaks_type(*tool_type),
+                (Some(_), None) => true,
+                _ => false,
+            } {
+                continue;
+            }
             let count = table
                 .1
                 .clamped_sample(thread_rng().gen_range((0.)..(1.)))

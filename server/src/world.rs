@@ -1522,8 +1522,7 @@ impl Entity {
                             let block_state =
                                 world.server.block_registry.state_by_ref(&block_state);
                             let block_tool = &block_state.breaking_data;
-                            let inventory = self.inventory.get_full_view();
-                            let item = inventory.get_item(self.entity_data.lock().slot).unwrap();
+                            let item = self.get_hand_item();
                             let tool_data = item
                                 .as_ref()
                                 .and_then(|item| item.item_type.tool_data.as_ref());
@@ -1683,7 +1682,10 @@ impl Entity {
             inventory_view.set_item(0, overflow).unwrap();
         }
     }
-
+    pub fn get_hand_item(&self) -> Option<ItemStack> {
+        let inventory = self.inventory.get_full_view();
+        inventory.get_item(self.entity_data.lock().slot).unwrap()
+    }
     pub fn remove(&self) {
         self.removed
             .store(true, std::sync::atomic::Ordering::Relaxed)
