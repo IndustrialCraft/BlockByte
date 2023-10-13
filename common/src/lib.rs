@@ -1,3 +1,5 @@
+#![feature(int_roundings)]
+
 pub mod block_palette;
 pub mod content;
 pub mod gui;
@@ -208,9 +210,9 @@ impl BlockPosition {
     #[inline(always)]
     pub fn to_chunk_pos(&self) -> ChunkPosition {
         ChunkPosition {
-            x: ((self.x as f32) / 16f32).floor() as i32,
-            y: ((self.y as f32) / 16f32).floor() as i32,
-            z: ((self.z as f32) / 16f32).floor() as i32,
+            x: self.x.div_floor(16),
+            y: self.y.div_floor(16),
+            z: self.z.div_floor(16),
         }
     }
     #[inline(always)]
