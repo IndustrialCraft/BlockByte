@@ -75,30 +75,22 @@ pub type InventorySetItemHandler = Box<dyn Fn(&Inventory, u32) + Send + Sync>;
 pub struct Inventory {
     owner: WeakInventoryWrapper,
     items: Mutex<Box<[Option<ItemStack>]>>,
-    viewers: Mutex<FxHashMap<Uuid, Weak<Entity>>>,
-    client_id: String,
-    slots: Vec<(PositionAnchor, f32, f32)>,
+    viewers: Mutex<FxHashMap<Uuid, GuiInventoryViewer>>,
     pub user_data: Mutex<UserData>,
     click_handler: Option<InventoryClickHandler>,
     scroll_handler: Option<InventoryScrollHandler>,
     set_item_handler: Option<InventorySetItemHandler>,
 }
 impl Inventory {
-    pub fn new_owned<F>(
+    pub fn new_owned(
         size: u32,
-        ui_creator: F,
         click_handler: Option<InventoryClickHandler>,
         scroll_handler: Option<InventoryScrollHandler>,
         set_item_handler: Option<InventorySetItemHandler>,
-    ) -> Arc<Self>
-    where
-        F: FnOnce() -> Vec<(PositionAnchor, f32, f32)>,
-    {
+    ) -> Arc<Self> {
         let inventory = Arc::new_cyclic(|this| Inventory {
             items: Mutex::new(vec![None; size as usize].into_boxed_slice()),
             viewers: Mutex::new(FxHashMap::default()),
-            client_id: Uuid::new_v4().to_string(),
-            slots: ui_creator.call_once(()),
             user_data: Mutex::new(UserData::new()),
             click_handler,
             scroll_handler,
@@ -107,23 +99,19 @@ impl Inventory {
         });
         inventory
     }
-    pub fn new<F, T>(
+    pub fn new<T>(
         owner: T,
         size: u32,
-        ui_creator: F,
         click_handler: Option<InventoryClickHandler>,
         scroll_handler: Option<InventoryScrollHandler>,
         set_item_handler: Option<InventorySetItemHandler>,
     ) -> Self
     where
-        F: FnOnce() -> Vec<(PositionAnchor, f32, f32)>,
         T: Into<WeakInventoryWrapper>,
     {
         Inventory {
             items: Mutex::new(vec![None; size as usize].into_boxed_slice()),
             viewers: Mutex::new(FxHashMap::default()),
-            client_id: Uuid::new_v4().to_string(),
-            slots: ui_creator.call_once(()),
             user_data: Mutex::new(UserData::new()),
             click_handler,
             scroll_handler,
@@ -154,10 +142,9 @@ impl Inventory {
         let item = &self.items.lock()[index as usize];
         for viewer in self.viewers.lock().values() {
             viewer
-                .upgrade()
-                .unwrap()
+                .viewer
                 .try_send_message(&NetworkMessageS2C::GuiEditElement(
-                    self.get_slot_id(index),
+                    self.get_slot_id(viewer, index),
                     GUIElementEdit {
                         component_type: GUIComponentEdit::SlotComponent {
                             item_id: Some(
@@ -198,53 +185,58 @@ impl Inventory {
             _ => {}
         }
     }
-    pub fn add_viewer(&self, viewer: Arc<Entity>) {
-        let id = viewer.get_id();
+    pub fn add_viewer(&self, viewer: GuiInventoryViewer) {
+        let id = &viewer.id;
         if self.viewers.lock().contains_key(id) {
             return;
         }
-        for item in self.items.lock().iter().enumerate() {
-            let slot = self.slots.get(item.0).unwrap();
+        let real_view = viewer.view(self);
+        for (slot, slot_data) in viewer.slots.iter().enumerate() {
+            let item = real_view.get_item(slot as u32).unwrap();
             viewer
+                .viewer
                 .try_send_message(&NetworkMessageS2C::GuiSetElement(
-                    self.get_slot_id(item.0 as u32),
+                    self.get_slot_id(&viewer, real_view.map_slot(slot as u32).unwrap()),
                     GUIElement {
                         component_type: GUIComponent::SlotComponent {
                             background: "bb:slot".to_string(),
                             size: Vec2 { x: 100., y: 100. },
                             item_id: item
-                                .1
                                 .as_ref()
                                 .map(|item| (item.item_type.client_id, item.item_count)),
                         },
                         position: Position {
-                            x: slot.1 as f64,
-                            y: slot.2 as f64,
+                            x: slot_data.1 as f64,
+                            y: slot_data.2 as f64,
                             z: 0.,
                         },
-                        anchor: slot.0,
+                        anchor: slot_data.0,
                         base_color: Color::WHITE,
                     },
                 ))
                 .unwrap();
         }
-        self.viewers
-            .lock()
-            .insert(id.clone(), Arc::downgrade(&viewer));
+        self.viewers.lock().insert(id.clone(), viewer);
     }
-    pub fn remove_viewer(&self, viewer: Arc<Entity>) {
-        if let Some(viewer) = self.viewers.lock().remove(viewer.get_id()) {
-            if let Some(entity) = viewer.upgrade() {
-                entity
-                    .try_send_message(&NetworkMessageS2C::GuiRemoveElements(
-                        self.client_id.clone(),
-                    ))
-                    .unwrap();
-            }
+    pub fn remove_viewer(&self, id: &Uuid) {
+        if let Some(viewer) = self.viewers.lock().remove(id) {
+            viewer
+                .viewer
+                .try_send_message(&NetworkMessageS2C::GuiRemoveElements(viewer.id.to_string()))
+                .unwrap();
         }
     }
-    pub fn get_slot_id(&self, slot: u32) -> String {
-        self.client_id.clone() + slot.to_string().as_str()
+    pub fn get_slot_id(&self, viewer: &GuiInventoryViewer, slot: u32) -> String {
+        viewer.id.to_string() + slot.to_string().as_str()
+    }
+    pub fn get_slot_id_entity(&self, entity: &Entity, slot: u32) -> String {
+        self.viewers
+            .lock()
+            .get(entity.get_id())
+            .unwrap()
+            .id
+            .to_string()
+            + slot.to_string().as_str()
     }
     fn item_to_json(item: &Option<ItemStack>) -> Option<JsonValue> {
         item.as_ref()
@@ -286,9 +278,16 @@ impl Inventory {
             //player.try_send_message(&&NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"image",texture:"cursor",w:0.05,h:0.05}.to_string())).ok();
         }
     }
-    pub fn resolve_slot(&self, id: &str) -> Option<u32> {
-        if id.starts_with(&self.client_id) {
-            Some(id.to_string().replace(&self.client_id, "").parse().unwrap())
+    pub fn resolve_slot(&self, view_id: &Uuid, id: &str) -> Option<u32> {
+        let viewers = self.viewers.lock();
+        let viewer = viewers.get(view_id).unwrap();
+        if id.starts_with(&viewer.id.to_string()) {
+            Some(
+                id.to_string()
+                    .replace(&viewer.id.to_string(), "")
+                    .parse()
+                    .unwrap(),
+            )
         } else {
             None
         }
@@ -411,6 +410,48 @@ impl Inventory {
 pub struct InventorySaveData {
     items: Vec<Option<(String, u32)>>,
 }
+pub struct OwnedInventoryView {
+    slot_range: Range<u32>,
+    inventory: InventoryWrapper,
+}
+impl OwnedInventoryView {
+    pub fn new(slot_range: Range<u32>, inventory: InventoryWrapper) -> Self {
+        OwnedInventoryView {
+            slot_range,
+            inventory,
+        }
+    }
+    pub fn view(&self) -> InventoryView {
+        self.inventory
+            .get_inventory()
+            .get_view(self.slot_range.clone())
+    }
+}
+pub struct GuiInventoryData {
+    pub slot_range: Range<u32>,
+    pub slots: Vec<(PositionAnchor, f32, f32)>,
+}
+impl GuiInventoryData {
+    pub fn into_viewer(self, viewer: Arc<Entity>) -> GuiInventoryViewer {
+        GuiInventoryViewer {
+            slots: self.slots,
+            slot_range: self.slot_range,
+            viewer,
+            id: Uuid::new_v4(),
+        }
+    }
+}
+pub struct GuiInventoryViewer {
+    pub slot_range: Range<u32>,
+    pub slots: Vec<(PositionAnchor, f32, f32)>,
+    pub viewer: Arc<Entity>,
+    pub id: Uuid,
+}
+impl GuiInventoryViewer {
+    pub fn view<'a>(&self, inventory: &'a Inventory) -> InventoryView<'a> {
+        inventory.get_view(self.slot_range.clone())
+    }
+}
 pub struct InventoryView<'a> {
     slot_range: Range<u32>,
     inventory: &'a Inventory,
@@ -423,8 +464,8 @@ impl<'a> InventoryView<'a> {
         self.inventory
     }
     pub fn map_slot(&self, index: u32) -> Result<u32, ()> {
-        if self.slot_range.contains(&index) {
-            Ok(index - self.slot_range.start)
+        if index < self.get_size() {
+            Ok(index + self.slot_range.start)
         } else {
             Err(())
         }

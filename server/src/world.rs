@@ -30,7 +30,7 @@ use rhai::{Array, Dynamic};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::inventory::InventorySaveData;
+use crate::inventory::{GuiInventoryData, GuiInventoryViewer, InventorySaveData};
 use crate::registry::{Block, BlockState};
 use crate::{
     inventory::{Inventory, InventoryWrapper, ItemStack, WeakInventoryWrapper},
@@ -501,7 +501,7 @@ impl Chunk {
                 .unwrap();
         }
         self.viewers.lock().remove(&ChunkViewer {
-            player: viewer.arc(),
+            player: viewer.ptr(),
         });
     }
     pub fn announce_to_viewers_except(&self, message: NetworkMessageS2C, player: &Entity) {
@@ -817,7 +817,7 @@ impl EntityData {
         };
         player
             .try_send_message(&NetworkMessageS2C::GuiEditElement(
-                player.inventory.get_slot_id(self.slot),
+                player.inventory.get_slot_id_entity(&player, self.slot),
                 GUIElementEdit {
                     base_color: Some(Color::WHITE),
                     ..Default::default()
@@ -827,7 +827,7 @@ impl EntityData {
         self.slot = slot;
         player
             .try_send_message(&NetworkMessageS2C::GuiEditElement(
-                player.inventory.get_slot_id(self.slot),
+                player.inventory.get_slot_id_entity(&player, self.slot),
                 GUIElementEdit {
                     base_color: Some(Color {
                         r: 100,
@@ -858,7 +858,7 @@ pub struct Entity {
     animation_controller: Mutex<AnimationController<Entity>>,
     pub inventory: Inventory,
     pub server: Arc<Server>,
-    open_inventory: Mutex<Option<InventoryWrapper>>,
+    open_inventory: Mutex<Option<(InventoryWrapper, Uuid)>>,
     pub connection: Mutex<Option<PlayerConnection>>,
     velocity: Mutex<(f64, f64, f64)>,
     pub user_data: Mutex<UserData>,
@@ -891,14 +891,7 @@ impl Entity {
             animation_controller: Mutex::new(AnimationController::new(weak.clone(), 1)),
             inventory: Inventory::new(
                 WeakInventoryWrapper::Entity(weak.clone()),
-                9,
-                || {
-                    let mut slots = Vec::with_capacity(9);
-                    for i in 0..9 {
-                        slots.push((PositionAnchor::Bottom, ((i - 4) as f32 * 130.), 100.));
-                    }
-                    slots
-                },
+                18,
                 None,
                 None,
                 None,
@@ -914,7 +907,18 @@ impl Entity {
             .ok();
 
         if entity.is_player() {
-            entity.inventory.add_viewer(entity.this.upgrade().unwrap());
+            entity.inventory.add_viewer(GuiInventoryViewer {
+                slot_range: 0..9,
+                slots: {
+                    let mut slots = Vec::with_capacity(9);
+                    for i in 0..9 {
+                        slots.push((PositionAnchor::Bottom, ((i - 4) as f32 * 130.), 100.));
+                    }
+                    slots
+                },
+                id: entity.get_id().clone(),
+                viewer: entity.clone(),
+            });
             for chunk_position in Entity::get_chunks_to_load_at(&chunk.world.server, &position) {
                 chunk
                     .world
@@ -923,12 +927,13 @@ impl Entity {
             }
         }
 
-        {
+        if entity.is_player() {
             let mut entity_data = entity.entity_data.lock();
             entity_data.set_hand_slot(0);
             Inventory::set_cursor(&mut *entity_data);
         }
         chunk.add_entity(entity.clone());
+        println!("here2");
         let add_message = entity.create_add_messages(position);
         for viewer in chunk.viewers.lock().iter() {
             if viewer.player.id != entity.id {
@@ -961,28 +966,38 @@ impl Entity {
     pub fn is_shifting(&self) -> bool {
         self.rotation_shifting.lock().1
     }
-    pub fn set_open_inventory(&self, new_inventory: Option<InventoryWrapper>) {
+    pub fn set_open_inventory(&self, new_inventory: Option<(InventoryWrapper, GuiInventoryData)>) {
         let mut current_inventory = self.open_inventory.lock();
         if let Some(current_inventory) = &*current_inventory {
             current_inventory
+                .0
                 .get_inventory()
-                .remove_viewer(self.this.upgrade().unwrap());
+                .remove_viewer(&current_inventory.1);
         }
-        if let Some(new_inventory) = &new_inventory {
-            new_inventory
+        let (inventory, data) = new_inventory
+            .map(|inv| (Some(inv.0), Some(inv.1)))
+            .unwrap_or((None, None));
+        let view_id = if let Some(data) = data {
+            let viewer = data.into_viewer(self.this.upgrade().unwrap());
+            let id = viewer.id.clone();
+            inventory
+                .as_ref()
+                .unwrap()
                 .get_inventory()
-                .add_viewer(self.this.upgrade().unwrap());
+                .add_viewer(viewer);
+            Some(id)
         } else {
             let mut player_data = self.entity_data.lock();
             //todo: drop hand item
             player_data.set_inventory_hand(None);
             Inventory::set_cursor(&mut *player_data);
-        }
-        self.try_send_message(&NetworkMessageS2C::SetCursorLock(new_inventory.is_none()))
+            None
+        };
+        self.try_send_message(&NetworkMessageS2C::SetCursorLock(inventory.is_none()))
             .unwrap();
         self.try_send_message(&NetworkMessageS2C::GuiRemoveElements("cursor".to_string()))
             .unwrap();
-        if new_inventory.is_none() {
+        if inventory.is_none() {
             self.try_send_message(&NetworkMessageS2C::GuiSetElement(
                 "cursor".to_string(),
                 GUIElement {
@@ -1001,7 +1016,7 @@ impl Entity {
             ))
             .unwrap();
         }
-        *current_inventory = new_inventory;
+        *current_inventory = inventory.map(|inventory| (inventory, view_id.unwrap()));
     }
     pub fn get_id(&self) -> &Uuid {
         &self.id
@@ -1287,23 +1302,11 @@ impl Entity {
                                         self.set_open_inventory(None);
                                     } else {
                                         if self.entity_data.lock().creative {
-                                            self.set_open_inventory(Some(InventoryWrapper::Own(Arc::new(
+                                            self.set_open_inventory(Some((InventoryWrapper::Own(Arc::new(
                                     {
                                         let inventory = Inventory::new(
                                             self,
                                             27,
-                                            || {
-                                                let mut slots = Vec::with_capacity(27);
-                                                for y in 0..3 {
-                                                    for x in 0..9 {
-                                                        slots.push((PositionAnchor::Center,
-                                                            ((x-4) as f32 * 130.),
-                                                                    (y-1) as f32 * 130.,
-                                                        ));
-                                                    }
-                                                }
-                                                slots
-                                            },
                                             Some(Box::new(move |inventory: &Inventory, entity: &Entity, slot: u32, _: MouseButton, _: bool| {
                                                 let mut entity_data = entity.entity_data.lock();
                                                 let hand_empty = entity_data.hand_item.is_none();
@@ -1350,13 +1353,26 @@ impl Entity {
                                         }
                                         inventory
                                     }),
-                                )));
+                                ), GuiInventoryData{
+                                                slots: {
+                                                    let mut slots = Vec::with_capacity(27);
+                                                    for y in 0..3 {
+                                                        for x in 0..9 {
+                                                            slots.push((PositionAnchor::Center,
+                                                                        ((x-4) as f32 * 130.),
+                                                                        (y-1) as f32 * 130.,
+                                                            ));
+                                                        }
+                                                    }
+                                                    slots
+                                                },
+                                                slot_range: 0..27
+                                            })));
                                         } else {
-                                            self.set_open_inventory(Some(InventoryWrapper::Own(
-                                                Arc::new(Inventory::new(
-                                                    self,
-                                                    9,
-                                                    || {
+                                            self.set_open_inventory(Some((
+                                                InventoryWrapper::Entity(self.ptr()),
+                                                GuiInventoryData {
+                                                    slots: {
                                                         let mut slots = Vec::with_capacity(9);
                                                         for i in 0..9 {
                                                             slots.push((
@@ -1367,10 +1383,8 @@ impl Entity {
                                                         }
                                                         slots
                                                     },
-                                                    None,
-                                                    None,
-                                                    None,
-                                                )),
+                                                    slot_range: 9..18,
+                                                },
                                             )));
                                         }
                                     }
@@ -1383,18 +1397,6 @@ impl Entity {
                                     } else {
                                         let inventory = Inventory::new_owned(
                                         27,
-                                        || {
-                                            let mut slots = Vec::with_capacity(27);
-                                            for y in 0..3 {
-                                                for x in 0..9 {
-                                                    slots.push((PositionAnchor::Center,
-                                                        ((x-4) as f32 * 130.),
-                                                                (y-1) as f32 * 130.,
-                                                    ));
-                                                }
-                                            }
-                                            slots
-                                        },
                                         Some(Box::new(
                                             move|inventory: &Inventory, player: &Entity, id: u32, _: MouseButton, _: bool| {
                                                 let recipes: Array = inventory
@@ -1444,8 +1446,24 @@ impl Entity {
                                             &Identifier::new("bb", "recipes"),
                                             Dynamic::from_array(recipes_user_map),
                                         );
-                                        self.set_open_inventory(Some(InventoryWrapper::Own(
-                                            inventory,
+                                        self.set_open_inventory(Some((
+                                            InventoryWrapper::Own(inventory),
+                                            GuiInventoryData {
+                                                slots: {
+                                                    let mut slots = Vec::with_capacity(27);
+                                                    for y in 0..3 {
+                                                        for x in 0..9 {
+                                                            slots.push((
+                                                                PositionAnchor::Center,
+                                                                ((x - 4) as f32 * 130.),
+                                                                (y - 1) as f32 * 130.,
+                                                            ));
+                                                        }
+                                                    }
+                                                    slots
+                                                },
+                                                slot_range: 0..27,
+                                            },
                                         )));
                                     }
                                 }
@@ -1470,7 +1488,7 @@ impl Entity {
                     }
                     NetworkMessageC2S::GuiClick(element, button, shifting) => {
                         {
-                            let slot = self.inventory.resolve_slot(element.as_str());
+                            let slot = self.inventory.resolve_slot(self.get_id(), element.as_str());
                             if let Some(slot) = slot {
                                 self.inventory.on_click_slot(self, slot, button, shifting);
                                 continue;
@@ -1478,10 +1496,11 @@ impl Entity {
                         }
                         {
                             if let Some(open_inventory) = &mut *self.open_inventory.lock() {
-                                let open_inventory = open_inventory.get_inventory();
-                                let slot = open_inventory.resolve_slot(element.as_str());
+                                let inventory = open_inventory.0.get_inventory();
+                                let slot =
+                                    inventory.resolve_slot(&open_inventory.1, element.as_str());
                                 if let Some(slot) = slot {
-                                    open_inventory.on_click_slot(self, slot, button, shifting);
+                                    inventory.on_click_slot(self, slot, button, shifting);
                                     continue;
                                 }
                             }
@@ -1489,7 +1508,7 @@ impl Entity {
                     }
                     NetworkMessageC2S::GuiScroll(element, x, y, shifting) => {
                         {
-                            let slot = self.inventory.resolve_slot(element.as_str());
+                            let slot = self.inventory.resolve_slot(self.get_id(), element.as_str());
                             if let Some(slot) = slot {
                                 self.inventory.on_scroll_slot(self, slot, x, y, shifting);
                                 continue;
@@ -1497,10 +1516,11 @@ impl Entity {
                         }
                         {
                             if let Some(open_inventory) = &mut *self.open_inventory.lock() {
-                                let open_inventory = open_inventory.get_inventory();
-                                let slot = open_inventory.resolve_slot(element.as_str());
+                                let inventory = open_inventory.0.get_inventory();
+                                let slot =
+                                    inventory.resolve_slot(&open_inventory.1, element.as_str());
                                 if let Some(slot) = slot {
-                                    open_inventory.on_scroll_slot(self, slot, x, y, shifting);
+                                    inventory.on_scroll_slot(self, slot, x, y, shifting);
                                     continue;
                                 }
                             }
@@ -1710,11 +1730,14 @@ impl Entity {
                 world.load_chunk(chunk_position).remove_viewer(self);
             }
         }
+        if let Some(inventory) = self.open_inventory.lock().as_ref() {
+            inventory.0.get_inventory().remove_viewer(self.get_id());
+        }
     }
     fn is_player(&self) -> bool {
         self.connection.lock().is_some()
     }
-    pub fn arc(&self) -> Arc<Entity> {
+    pub fn ptr(&self) -> Arc<Entity> {
         self.this.upgrade().unwrap()
     }
 }
@@ -2007,13 +2030,6 @@ impl WorldBlock {
             inventory: Inventory::new(
                 WeakInventoryWrapper::Block(this.clone()),
                 9,
-                || {
-                    let mut slots = Vec::with_capacity(9);
-                    for i in 0..9 {
-                        slots.push((PositionAnchor::Center, ((i - 4) as f32 * 130.), 0.));
-                    }
-                    slots
-                },
                 None,
                 None,
                 None,
@@ -2094,7 +2110,19 @@ impl WorldBlock {
         self.block.machine_data.is_some()
     }
     pub fn on_right_click(&self, player: &Entity) -> InteractionResult {
-        player.set_open_inventory(Some(InventoryWrapper::Block(self.this.upgrade().unwrap())));
+        player.set_open_inventory(Some((
+            InventoryWrapper::Block(self.this.upgrade().unwrap()),
+            GuiInventoryData {
+                slots: {
+                    let mut slots = Vec::with_capacity(9);
+                    for i in 0..9 {
+                        slots.push((PositionAnchor::Center, ((i - 4) as f32 * 130.), 0.));
+                    }
+                    slots
+                },
+                slot_range: 0..9,
+            },
+        )));
         InteractionResult::Consumed
     }
     pub fn serialize(&self) -> BlockSaveData {
