@@ -96,7 +96,7 @@ impl BasicWorldGenerator {
             moisture_noise: NoiseWithSize::new((seed * 7489223) as u32, 1000.),
             biomes,
             column_cache: ThreadLocal::new(),
-            column_cache_common: Mutex::new(Cache::new(100000)),
+            column_cache_common: Mutex::new(Cache::new(2048)),
         }
     }
     pub fn get_terrain_height_at(&self, x: i32, z: i32) -> i32 {
