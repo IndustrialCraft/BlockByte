@@ -5,10 +5,13 @@ use crate::{
 };
 use array_init::array_init;
 use block_byte_common::BlockPosition;
+use moka::sync::Cache;
 use noise::{Fbm, NoiseFn, OpenSimplex};
+use parking_lot::Mutex;
 use rand::{Rng, SeedableRng};
 use splines::{Key, Spline};
 use std::sync::Arc;
+use thread_local::ThreadLocal;
 
 pub trait WorldGenerator {
     fn generate(&self, chunk: &Arc<Chunk>) -> [[[BlockData; 16]; 16]; 16];
@@ -46,6 +49,8 @@ pub struct BasicWorldGenerator {
     temperature_noise: NoiseWithSize,
     moisture_noise: NoiseWithSize,
     biomes: Vec<Biome>,
+    column_cache: ThreadLocal<Cache<(i32, i32), [[(i32, usize); 16]; 16]>>,
+    column_cache_common: Mutex<Cache<(i32, i32), [[(i32, usize); 16]; 16]>>,
 }
 impl BasicWorldGenerator {
     pub fn new(seed: u64, biomes: Vec<Biome>) -> Self {
@@ -90,6 +95,8 @@ impl BasicWorldGenerator {
             temperature_noise: NoiseWithSize::new((seed * 15618236) as u32, 1000.),
             moisture_noise: NoiseWithSize::new((seed * 7489223) as u32, 1000.),
             biomes,
+            column_cache: ThreadLocal::new(),
+            column_cache_common: Mutex::new(Cache::new(100000)),
         }
     }
     pub fn get_terrain_height_at(&self, x: i32, z: i32) -> i32 {
@@ -107,22 +114,18 @@ impl BasicWorldGenerator {
                 .get_splined(x, z, &self.land_mountain_spline)
                 * self.mountain_noise.get_splined(x, z, &self.mountain_spline))) as i32
     }
-    pub fn get_biome_at(&self, x: i32, z: i32, height: i32) -> &Biome {
+    pub fn get_biome_at(&self, x: i32, z: i32, height: i32) -> usize {
         let height = height as f64;
         let x = x as f64;
         let z = z as f64;
         let land = self.land_noise.get(x, z);
-        let temperature = self.land_noise.get(x, z);
-        let moisture = self.land_noise.get(x, z);
+        let temperature = self.temperature_noise.get(x, z);
+        let moisture = self.moisture_noise.get(x, z);
         let biome = self
             .biomes
             .iter()
-            .map(|biome| {
-                (
-                    biome,
-                    biome.get_fitness(land, height, temperature, moisture),
-                )
-            })
+            .enumerate()
+            .map(|(id, biome)| (id, biome.get_fitness(land, height, temperature, moisture)))
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
             .unwrap();
         biome.0
@@ -131,17 +134,24 @@ impl BasicWorldGenerator {
 impl WorldGenerator for BasicWorldGenerator {
     fn generate(&self, chunk: &Arc<Chunk>) -> [[[BlockData; 16]; 16]; 16] {
         let position = chunk.position;
-        let column_data: [[(i32, &Biome); 16]; 16] = array_init(|x| {
-            array_init(|z| {
-                let total_x = (x as i32) + (position.x * 16);
-                let total_z = (z as i32) + (position.z * 16);
-                let terrain_height = self.get_terrain_height_at(total_x, total_z);
-                (
-                    terrain_height,
-                    self.get_biome_at(total_x, total_z, terrain_height),
-                )
-            })
-        });
+        let cache = self
+            .column_cache
+            .get_or(|| self.column_cache_common.lock().clone());
+
+        let column_data: [[(i32, usize); 16]; 16] =
+            cache.get_with((position.x, position.z), || {
+                array_init(|x| {
+                    array_init(|z| {
+                        let total_x = (x as i32) + (position.x * 16);
+                        let total_z = (z as i32) + (position.z * 16);
+                        let terrain_height = self.get_terrain_height_at(total_x, total_z);
+                        (
+                            terrain_height,
+                            self.get_biome_at(total_x, total_z, terrain_height),
+                        )
+                    })
+                })
+            });
         let mut structure_rng = rand::rngs::StdRng::seed_from_u64(
             41516516 * self.seed
                 + (position.x * 41156) as u64
@@ -153,6 +163,7 @@ impl WorldGenerator for BasicWorldGenerator {
                 array_init(|z| {
                     let y = i as i32 + position.y * 16;
                     let (height, biome) = column_data[x][z];
+                    let biome = self.biomes.get(biome).unwrap();
                     if i == 0 {
                         for (chance, structure) in biome.get_structures() {
                             if height / 16 == position.y && structure_rng.gen_bool(*chance as f64) {
