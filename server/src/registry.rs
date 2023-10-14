@@ -132,7 +132,7 @@ impl BlockStateRef {
             .server
             .block_registry
             .state_by_ref(self)
-            .to_block_data(ChunkBlockLocation::new(position, chunk.ptr()).unwrap())
+            .to_block_data(chunk, position)
     }
     pub fn from_state_id(state_id: u32) -> Self {
         Self { state_id }
@@ -155,9 +155,12 @@ pub struct BlockState {
 }
 
 impl BlockState {
-    pub fn to_block_data(&self, chunk_block_location: ChunkBlockLocation) -> BlockData {
+    pub fn to_block_data(&self, chunk: &Chunk, position: BlockPosition) -> BlockData {
         if self.parent.data_container {
-            BlockData::Data(WorldBlock::new(chunk_block_location, self.get_ref()))
+            BlockData::Data(WorldBlock::new(
+                ChunkBlockLocation::new(position, chunk.ptr()).unwrap(),
+                self.get_ref(),
+            ))
         } else {
             BlockData::Simple(self.state_id)
         }

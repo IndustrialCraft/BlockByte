@@ -232,9 +232,8 @@ impl World {
         chunks.get(&position).map(|c| c.clone())
     }
     pub fn tick(&self) {
-        let chunks_to_tick: Vec<Arc<Chunk>> =
-            self.chunks.lock().values().map(|c| c.clone()).collect();
-        for chunk in chunks_to_tick {
+        let chunks: Vec<_> = self.chunks.lock().values().cloned().collect();
+        for chunk in chunks {
             chunk.tick();
         }
         let non_empty = {
@@ -490,15 +489,17 @@ impl Chunk {
                 .unwrap();
         }
     }
-    fn remove_viewer(&self, viewer: &Entity) {
+    fn remove_viewer(&self, viewer: &Entity, unload_entities: bool) {
         viewer.chunk_loading_manager.lock().unload(self.ptr());
-        for entity in self.entities.lock().iter() {
-            if entity.as_ref() == viewer {
-                continue;
+        if unload_entities {
+            for entity in self.entities.lock().iter() {
+                if entity.as_ref() == viewer {
+                    continue;
+                }
+                viewer
+                    .try_send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id))
+                    .unwrap();
             }
-            viewer
-                .try_send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id))
-                .unwrap();
         }
         self.viewers.lock().remove(&ChunkViewer {
             player: viewer.ptr(),
@@ -520,7 +521,6 @@ impl Chunk {
         self.unload_timer
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        let mut removed_entities = Vec::new();
         self.entities
             .lock()
             .extract_if(|entity| {
@@ -540,21 +540,17 @@ impl Chunk {
                 }
                 let removed = entity.is_removed();
                 if removed && !not_same_chunk {
-                    removed_entities.push(entity.clone());
                     for viewer in self.viewers.lock().iter() {
                         viewer
                             .player
                             .try_send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id))
                             .unwrap();
                     }
+                    entity.post_remove();
                 }
                 removed || not_same_chunk
             })
             .count();
-        for entity in removed_entities {
-            entity.post_remove();
-        }
-
         let entities: Vec<_> = self.entities.lock().iter().map(|e| e.clone()).collect();
         let blocks: Vec<_> = {
             let blocks = self.blocks.lock();
@@ -573,7 +569,7 @@ impl Chunk {
             self.unload_timer
                 .store(0, std::sync::atomic::Ordering::Relaxed);
         }
-        if self.needs_ticking() {
+        if entities.len() > 0 || blocks.len() > 0 {
             self.world.server.thread_pool.execute(Box::new(move || {
                 for entity in entities {
                     entity.tick();
@@ -583,9 +579,6 @@ impl Chunk {
                 }
             }));
         }
-    }
-    pub fn needs_ticking(&self) -> bool {
-        self.entities.lock().len() > 0 || self.ticking_blocks.lock().len() > 0
     }
     pub fn should_unload(&self) -> bool {
         self.unload_timer.load(std::sync::atomic::Ordering::Relaxed) >= Chunk::UNLOAD_TIME
@@ -933,7 +926,6 @@ impl Entity {
             Inventory::set_cursor(&mut *entity_data);
         }
         chunk.add_entity(entity.clone());
-        println!("here2");
         let add_message = entity.create_add_messages(position);
         for viewer in chunk.viewers.lock().iter() {
             if viewer.player.id != entity.id {
@@ -1205,7 +1197,11 @@ impl Entity {
 
                     if !Arc::ptr_eq(&old_location.chunk.world, &new_location.chunk.world) {
                         for pos in old_loaded {
-                            old_location.chunk.world.load_chunk(pos).remove_viewer(self);
+                            old_location
+                                .chunk
+                                .world
+                                .load_chunk(pos)
+                                .remove_viewer(self, true);
                         }
                         for pos in new_loaded {
                             new_location
@@ -1217,7 +1213,7 @@ impl Entity {
                     } else {
                         let world = old_location.chunk.world.clone(); //old or new doesn't matter
                         for pos in old_loaded.difference(&new_loaded) {
-                            world.load_chunk(pos.clone()).remove_viewer(self);
+                            world.load_chunk(pos.clone()).remove_viewer(self, true);
                         }
                         for pos in new_loaded.difference(&old_loaded) {
                             world
@@ -1727,7 +1723,7 @@ impl Entity {
             };
             let loading_chunks = Entity::get_chunks_to_load_at(&self.server, &position.clone());
             for chunk_position in loading_chunks {
-                world.load_chunk(chunk_position).remove_viewer(self);
+                world.load_chunk(chunk_position).remove_viewer(self, false);
             }
         }
         if let Some(inventory) = self.open_inventory.lock().as_ref() {
