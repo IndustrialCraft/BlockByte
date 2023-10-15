@@ -114,6 +114,7 @@ impl BlockRegistry {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct BlockStatePropertyStorage {
     pub properties: Vec<(BlockStateProperty, u32)>,
     pub property_names: HashMap<String, u32>,
@@ -183,7 +184,7 @@ impl Block {
         }
     }
 }
-
+#[derive(Clone, Debug)]
 pub enum BlockStateProperty {
     Face,
     HorizontalFace,
@@ -431,7 +432,7 @@ impl Item {
         }
         if let Some(right_click) = &self.on_right_click {
             //todo: supply itemstack parameter
-            right_click.call(&player.server.clone().engine, (player, block_position));
+            let _ = right_click.call(&player.server.clone().engine, (player, block_position));
             return InteractionResult::Consumed;
         }
         InteractionResult::Ignored
@@ -439,7 +440,7 @@ impl Item {
     pub fn on_right_click(&self, _item: &mut ItemStack, player: Arc<Entity>) -> InteractionResult {
         if let Some(right_click) = &self.on_right_click {
             //todo: supply itemstack parameter
-            right_click.call(&player.server.clone().engine, (player, Dynamic::UNIT));
+            let _ = right_click.call(&player.server.clone().engine, (player, Dynamic::UNIT));
             return InteractionResult::Consumed;
         }
         InteractionResult::Ignored

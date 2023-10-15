@@ -5,7 +5,7 @@ use block_byte_common::content::{
     ClientEntityData,
 };
 use block_byte_common::messages::MovementType;
-use block_byte_common::{BlockPosition, Color, Position};
+use block_byte_common::{BlockPosition, Color, HorizontalFace, Position};
 use image::io::Reader;
 use image::{ImageOutputFormat, Rgba, RgbaImage};
 use json::JsonValue;
@@ -24,7 +24,7 @@ use std::{
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
-use crate::registry::BlockMachineData;
+use crate::registry::{BlockMachineData, BlockStateProperty, BlockStatePropertyStorage};
 use crate::world::World;
 use crate::{
     inventory::{LootTable, Recipe},
@@ -119,6 +119,7 @@ impl ModManager {
         Vec<BiomeBuilder>,
         HashMap<Identifier, Vec<ScriptCallback>>,
         Vec<(String, Box<EvalAltResult>)>,
+        Engine,
     ) {
         let mut errors = Vec::new();
         let mut mods = HashMap::new();
@@ -152,28 +153,30 @@ impl ModManager {
         loading_engine
             .register_type_with_name::<BlockBuilder>("BlockBuilder")
             .register_fn("create_block", BlockBuilder::new)
+            .register_fn(
+                "add_property_horizontal_face",
+                BlockBuilder::add_property_horizontal_face,
+            )
             .register_fn("breaking_tool", BlockBuilder::breaking_tool)
             .register_fn("loot", BlockBuilder::loot)
             .register_fn("machine", BlockBuilder::machine)
             .register_fn("breaking_speed", BlockBuilder::breaking_speed)
-            .register_fn("client_type_air", BlockBuilder::client_type_air)
-            .register_fn("client_type_cube", BlockBuilder::client_type_cube)
-            .register_fn("client_type_static", BlockBuilder::client_type_static)
-            .register_fn("client_type_foliage", BlockBuilder::client_type_foliage)
-            .register_fn("client_fluid", BlockBuilder::client_fluid)
-            .register_fn("no_collide", BlockBuilder::no_collide)
-            .register_fn("client_transparent", BlockBuilder::client_transparent)
-            .register_fn("client_selectable", BlockBuilder::client_selectable)
-            .register_fn("client_render_data", BlockBuilder::client_render_data)
-            .register_fn("client_dynamic", BlockBuilder::client_dynamic)
+            .register_fn("create_air", ModClientBlockData::create_air)
+            .register_fn("create_cube", ModClientBlockData::create_cube)
+            .register_fn("create_static", ModClientBlockData::create_static)
+            .register_fn("create_foliage", ModClientBlockData::create_foliage)
+            .register_fn("fluid", ModClientBlockData::fluid)
+            .register_fn("no_collide", ModClientBlockData::no_collide)
+            .register_fn("transparent", ModClientBlockData::transparent)
+            .register_fn("selectable", ModClientBlockData::selectable)
+            .register_fn("render_data", ModClientBlockData::render_data)
+            .register_fn("dynamic", ModClientBlockData::dynamic)
+            .register_fn("rotation", ModClientBlockData::rotation)
             .register_fn(
-                "client_dynamic_add_animation",
-                BlockBuilder::client_dynamic_add_animation,
+                "dynamic_add_animation",
+                ModClientBlockData::dynamic_add_animation,
             )
-            .register_fn(
-                "client_dynamic_add_item",
-                BlockBuilder::client_dynamic_add_item,
-            )
+            .register_fn("dynamic_add_item", ModClientBlockData::dynamic_add_item)
             .register_fn("data_container", BlockBuilder::mark_data_container)
             .register_fn("register", move |this: &mut Arc<Mutex<BlockBuilder>>| {
                 registered_blocks.lock().push(this.clone())
@@ -345,6 +348,7 @@ impl ModManager {
             biomes,
             events,
             errors,
+            loading_engine,
         )
     }
     pub fn load_structures(
@@ -652,33 +656,34 @@ impl BiomeBuilder {
 #[derive(Clone, Debug)]
 pub struct BlockBuilder {
     pub id: Identifier,
-    pub client: ClientBlockData,
+    pub client: ScriptCallback,
     pub data_container: bool,
     pub breaking_data: (f32, Option<(ToolType, f32)>),
     pub loot: Option<Identifier>,
-    pub no_collide: bool,
     pub machine_data: Option<BlockMachineData>,
+    pub properties: BlockStatePropertyStorage,
 }
 
 impl BlockBuilder {
-    pub fn new(id: &str) -> Arc<Mutex<Self>> {
+    pub fn new(id: &str, client: FnPtr) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(BlockBuilder {
             id: Identifier::parse(id).unwrap(),
-            client: ClientBlockData {
-                block_type: ClientBlockRenderDataType::Air,
-                dynamic: None,
-                fluid: false,
-                render_data: 0,
-                transparent: false,
-                selectable: true,
-                no_collide: false,
-            },
+            client: ScriptCallback::new(client),
             data_container: false,
             breaking_data: (1., None),
             loot: None,
-            no_collide: false,
             machine_data: None,
+            properties: BlockStatePropertyStorage::new(),
         }))
+    }
+    pub fn add_property_horizontal_face(
+        this: &mut Arc<Mutex<Self>>,
+        name: &str,
+    ) -> Arc<Mutex<Self>> {
+        this.lock()
+            .properties
+            .register_property(name.to_string(), BlockStateProperty::HorizontalFace);
+        this.clone()
     }
     pub fn machine(
         this: &mut Arc<Mutex<Self>>,
@@ -697,11 +702,7 @@ impl BlockBuilder {
         this.lock().breaking_data.0 = breaking_speed as f32;
         this.clone()
     }
-    pub fn no_collide(this: &mut Arc<Mutex<Self>>) -> Arc<Mutex<Self>> {
-        this.lock().no_collide = true;
-        this.lock().client.no_collide = true;
-        this.clone()
-    }
+
     pub fn loot(this: &mut Arc<Mutex<Self>>, id: &str) -> Arc<Mutex<Self>> {
         this.lock().loot = Some(Identifier::parse(id).unwrap());
         this.clone()
@@ -718,106 +719,116 @@ impl BlockBuilder {
         this.lock().data_container = true;
         this.clone()
     }
-    pub fn client_type_air(this: &mut Arc<Mutex<Self>>) -> Arc<Mutex<Self>> {
-        this.lock().client.block_type = ClientBlockRenderDataType::Air;
-        this.clone()
+}
+#[derive(Clone)]
+pub struct ModClientBlockData {
+    pub(crate) client: ClientBlockData,
+}
+impl ModClientBlockData {
+    pub fn create_air() -> Self {
+        ModClientBlockData::new(ClientBlockRenderDataType::Air)
     }
-    pub fn client_type_cube(
-        this: &mut Arc<Mutex<Self>>,
+    pub fn create_cube(
         front: &str,
         back: &str,
         right: &str,
         left: &str,
         up: &str,
         down: &str,
-    ) -> Arc<Mutex<Self>> {
-        this.lock().client.block_type =
-            ClientBlockRenderDataType::Cube(ClientBlockCubeRenderData {
-                front: front.to_string(),
-                back: back.to_string(),
-                right: right.to_string(),
-                left: left.to_string(),
-                up: up.to_string(),
-                down: down.to_string(),
-            });
-        this.clone()
+    ) -> Self {
+        Self::new(ClientBlockRenderDataType::Cube(ClientBlockCubeRenderData {
+            front: front.to_string(),
+            back: back.to_string(),
+            right: right.to_string(),
+            left: left.to_string(),
+            up: up.to_string(),
+            down: down.to_string(),
+        }))
     }
-    pub fn client_type_static(
-        this: &mut Arc<Mutex<Self>>,
-        model: &str,
-        texture: &str,
-    ) -> Arc<Mutex<Self>> {
-        this.lock().client.block_type =
-            ClientBlockRenderDataType::Static(ClientBlockStaticRenderData {
+    pub fn create_static(model: &str, texture: &str) -> Self {
+        Self::new(ClientBlockRenderDataType::Static(
+            ClientBlockStaticRenderData {
                 model: model.to_string(),
                 texture: texture.to_string(),
-            });
-        this.clone()
+            },
+        ))
     }
-    pub fn client_type_foliage(
-        this: &mut Arc<Mutex<Self>>,
+    pub fn create_foliage(
         texture_1: &str,
         texture_2: &str,
         texture_3: &str,
         texture_4: &str,
-    ) -> Arc<Mutex<Self>> {
-        this.lock().client.block_type =
-            ClientBlockRenderDataType::Foliage(ClientBlockFoliageRenderData {
+    ) -> Self {
+        Self::new(ClientBlockRenderDataType::Foliage(
+            ClientBlockFoliageRenderData {
                 texture_1: texture_1.to_string(),
                 texture_2: texture_2.to_string(),
                 texture_3: texture_3.to_string(),
                 texture_4: texture_4.to_string(),
-            });
-        this.clone()
+            },
+        ))
     }
-    pub fn client_fluid(this: &mut Arc<Mutex<Self>>, fluid: bool) -> Arc<Mutex<Self>> {
-        this.lock().client.fluid = fluid;
-        this.clone()
+    pub fn new(block_type: ClientBlockRenderDataType) -> Self {
+        ModClientBlockData {
+            client: ClientBlockData {
+                block_type,
+                dynamic: None,
+                transparent: false,
+                selectable: true,
+                fluid: false,
+                no_collide: false,
+                render_data: 0,
+            },
+        }
     }
-    pub fn client_transparent(this: &mut Arc<Mutex<Self>>, transparent: bool) -> Arc<Mutex<Self>> {
-        this.lock().client.transparent = transparent;
-        this.clone()
+    pub fn no_collide(&mut self) -> Self {
+        self.client.no_collide = true;
+        self.clone()
     }
-    pub fn client_selectable(this: &mut Arc<Mutex<Self>>, selectable: bool) -> Arc<Mutex<Self>> {
-        this.lock().client.selectable = selectable;
-        this.clone()
+    pub fn fluid(&mut self, fluid: bool) -> Self {
+        self.client.fluid = fluid;
+        self.clone()
     }
-    pub fn client_render_data(this: &mut Arc<Mutex<Self>>, render_data: i64) -> Arc<Mutex<Self>> {
-        this.lock().client.render_data = render_data as u8;
-        this.clone()
+    pub fn transparent(&mut self, transparent: bool) -> Self {
+        self.client.transparent = transparent;
+        self.clone()
     }
-    pub fn client_dynamic(
-        this: &mut Arc<Mutex<Self>>,
-        model: &str,
-        texture: &str,
-    ) -> Arc<Mutex<Self>> {
-        this.lock().client.dynamic = Some(ClientBlockDynamicData {
+    pub fn selectable(&mut self, selectable: bool) -> Self {
+        self.client.selectable = selectable;
+        self.clone()
+    }
+    pub fn render_data(&mut self, render_data: i64) -> Self {
+        self.client.render_data = render_data as u8;
+        self.clone()
+    }
+    pub fn rotation(&mut self, _face: HorizontalFace) -> Self {
+        todo!();
+        //self.clone()
+    }
+    pub fn dynamic(&mut self, model: &str, texture: &str) -> Self {
+        self.client.dynamic = Some(ClientBlockDynamicData {
             model: model.to_string(),
             texture: texture.to_string(),
             animations: Vec::new(),
             items: Vec::new(),
         });
-        this.clone()
+        self.clone()
     }
-    pub fn client_dynamic_add_animation(
-        this: &mut Arc<Mutex<Self>>,
-        animation: &str,
-    ) -> Arc<Mutex<Self>> {
+    pub fn dynamic_add_animation(&mut self, animation: &str) -> Self {
         //todo: result
-        if let Some(dynamic) = &mut this.lock().client.dynamic {
+        if let Some(dynamic) = &mut self.client.dynamic {
             dynamic.animations.push(animation.to_string());
         }
-        this.clone()
+        self.clone()
     }
-    pub fn client_dynamic_add_item(this: &mut Arc<Mutex<Self>>, item: &str) -> Arc<Mutex<Self>> {
+    pub fn dynamic_add_item(&mut self, item: &str) -> Self {
         //todo: result
-        if let Some(dynamic) = &mut this.lock().client.dynamic {
+        if let Some(dynamic) = &mut self.client.dynamic {
             dynamic.items.push(item.to_string());
         }
-        this.clone()
+        self.clone()
     }
 }
-
 #[derive(Clone)]
 pub struct ItemBuilder {
     pub id: Identifier,
@@ -1004,7 +1015,7 @@ enum ContentType {
     Model,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ScriptCallback {
     function: FnPtr,
 }
@@ -1014,12 +1025,16 @@ impl ScriptCallback {
     pub fn new(function: FnPtr) -> Self {
         Self { function }
     }
-    pub fn call(&self, engine: &Engine, args: impl FuncArgs) {
-        if let Err(error) =
-            self.function
-                .call::<()>(engine, Self::AST.get_or_init(|| AST::empty()), args)
+    pub fn call(&self, engine: &Engine, args: impl FuncArgs) -> Dynamic {
+        match self
+            .function
+            .call::<Dynamic>(engine, Self::AST.get_or_init(|| AST::empty()), args)
         {
-            println!("callback error: {error:#?}");
+            Ok(ret) => ret,
+            Err(error) => {
+                println!("callback error: {error:#?}");
+                Dynamic::UNIT
+            }
         }
     }
 }

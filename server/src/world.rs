@@ -1237,7 +1237,7 @@ impl Entity {
             *self.teleport.lock() = None;
         }
         if let Some(ticker) = &*self.entity_type.ticker.lock() {
-            ticker.call(&self.server.engine, (self.this.upgrade().unwrap(),));
+            let _ = ticker.call(&self.server.engine, (self.this.upgrade().unwrap(),));
         }
         if self.is_player() {
             let messages = self.connection.lock().as_mut().unwrap().receive_messages();

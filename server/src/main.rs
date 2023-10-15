@@ -29,8 +29,8 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use crate::mods::ClientModItemModel;
-use crate::registry::{BlockStatePropertyStorage, RecipeManager};
+use crate::mods::{ClientModItemModel, ModClientBlockData};
+use crate::registry::RecipeManager;
 use block_byte_common::content::{ClientEntityData, ClientItemData, ClientItemModel};
 use block_byte_common::Position;
 use crossbeam_channel::Receiver;
@@ -148,10 +148,16 @@ impl Server {
                             machine_data: block_data.machine_data.clone(),
                             breaking_data: block_data.breaking_data.clone(),
                             loottable: block_data.loot.clone(),
-                            properties: BlockStatePropertyStorage::new(),
+                            properties: block_data.properties.clone(),
                         })
                     },
-                    |_, _| block_data.client.clone(),
+                    |state, block| {
+                        block_data
+                            .client
+                            .call(&loaded_mods.8, (block.properties.dump_properties(state),))
+                            .cast::<ModClientBlockData>()
+                            .client
+                    },
                 )
                 .unwrap();
         }
@@ -329,7 +335,7 @@ impl Server {
     pub fn call_event(&self, id: Identifier, args: impl FuncArgs + Clone) {
         if let Some(event_list) = self.events.get(&id) {
             for event in event_list {
-                event.call(&self.engine, args.clone());
+                let _ = event.call(&self.engine, args.clone());
             }
         }
     }
