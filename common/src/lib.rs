@@ -11,13 +11,40 @@ use std::ops;
 use std::ops::Neg;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HorizontalFace {
+    Front,
+    Back,
+    Left,
+    Right,
+}
+impl HorizontalFace {
+    const HORIZONTAL_FACES: [HorizontalFace; 4] = [
+        HorizontalFace::Front,
+        HorizontalFace::Back,
+        HorizontalFace::Left,
+        HorizontalFace::Right,
+    ];
+    pub fn all() -> &'static [HorizontalFace; 4] {
+        &HorizontalFace::HORIZONTAL_FACES
+    }
+    pub fn to_face(&self) -> Face {
+        match self {
+            HorizontalFace::Front => Face::Front,
+            HorizontalFace::Back => Face::Back,
+            HorizontalFace::Left => Face::Left,
+            HorizontalFace::Right => Face::Right,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Face {
-    Front = 0,
-    Back = 1,
-    Up = 2,
-    Down = 3,
-    Left = 4,
-    Right = 5,
+    Front,
+    Back,
+    Up,
+    Down,
+    Left,
+    Right,
 }
 impl Face {
     const FACES: [Face; 6] = [
@@ -51,6 +78,15 @@ impl Face {
             Self::Back => Self::Front,
             Self::Left => Self::Right,
             Self::Right => Self::Left,
+        }
+    }
+    pub fn to_horizontal_face(&self) -> Option<HorizontalFace> {
+        match self {
+            Face::Front => Some(HorizontalFace::Front),
+            Face::Back => Some(HorizontalFace::Back),
+            Face::Left => Some(HorizontalFace::Left),
+            Face::Right => Some(HorizontalFace::Right),
+            _ => None,
         }
     }
 }

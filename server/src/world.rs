@@ -1537,7 +1537,7 @@ impl Entity {
                             let block_state = world.get_block_load(&position).get_block_state();
                             let block_state =
                                 world.server.block_registry.state_by_ref(&block_state);
-                            let block_tool = &block_state.breaking_data;
+                            let block_tool = &block_state.parent.breaking_data;
                             let item = self.get_hand_item();
                             let tool_data = item
                                 .as_ref()

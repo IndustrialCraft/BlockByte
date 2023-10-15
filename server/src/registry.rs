@@ -1,3 +1,5 @@
+use std::ops::RangeInclusive;
+use std::str::FromStr;
 use std::{
     collections::{hash_map::Keys, HashMap},
     hash::BuildHasherDefault,
@@ -8,11 +10,11 @@ use std::{
 use block_byte_common::content::{
     ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData,
 };
-use block_byte_common::{BlockPosition, Face, Position};
+use block_byte_common::{BlockPosition, Face, HorizontalFace, Position};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rand::{thread_rng, Rng};
-use rhai::Dynamic;
+use rhai::{Dynamic, Map};
 use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
 
@@ -39,46 +41,60 @@ impl BlockRegistry {
             id_generator: 0,
         };
         block_registry
-            .register(Identifier::new("bb", "air"), |id| {
-                let block = Arc::new(Block {
-                    id: Identifier::new("bb", "air"),
-                    default_state: id,
-                    data_container: false,
-                    item_model_mapping: ItemModelMapping {
-                        mapping: HashMap::new(),
-                    },
-                    machine_data: None,
-                });
-                let state = vec![BlockState {
-                    state_id: id,
-                    client_data: ClientBlockData {
-                        block_type: ClientBlockRenderDataType::Air,
-                        dynamic: None,
-                        fluid: false,
-                        render_data: 0,
-                        transparent: false,
-                        selectable: false,
-                        no_collide: true,
-                    },
-                    parent: block.clone(),
-                    breaking_data: (0., None),
-                    loottable: None,
-                    collidable: false,
-                }];
-                (block, state)
-            })
+            .register(
+                Identifier::new("bb", "air"),
+                |default_state, id| {
+                    Arc::new(Block {
+                        id,
+                        default_state,
+                        data_container: false,
+                        item_model_mapping: ItemModelMapping {
+                            mapping: HashMap::new(),
+                        },
+                        machine_data: None,
+                        breaking_data: (0., None),
+                        loottable: None,
+                        properties: BlockStatePropertyStorage::new(),
+                    })
+                },
+                |_, _| ClientBlockData {
+                    block_type: ClientBlockRenderDataType::Air,
+                    dynamic: None,
+                    fluid: false,
+                    render_data: 0,
+                    transparent: false,
+                    selectable: false,
+                    no_collide: true,
+                },
+            )
             .expect("couldn't register air");
         block_registry
     }
-    pub fn register<F>(&mut self, id: Identifier, creator: F) -> Result<u32, ()>
+    pub fn register<F, T>(
+        &mut self,
+        id: Identifier,
+        block_creator: F,
+        state_creator: T,
+    ) -> Result<u32, ()>
     where
-        F: FnOnce(u32) -> (Arc<Block>, Vec<BlockState>),
+        F: FnOnce(u32, Identifier) -> Arc<Block>,
+        T: Fn(u32, &Block) -> ClientBlockData,
     {
         if self.blocks.get(&id).is_some() {
             return Err(());
         }
         let numeric_id = self.id_generator;
-        let (block, mut block_states) = creator.call_once((self.id_generator,));
+        let block = block_creator.call_once((self.id_generator, id.clone()));
+        let mut block_states = Vec::new();
+        for i in 0..block.properties.get_total_states() {
+            let client_data = state_creator.call((i, &block));
+            block_states.push(BlockState {
+                parent: block.clone(),
+                state_id: i,
+                collidable: !client_data.no_collide,
+                client_data,
+            });
+        }
         self.blocks.insert(id, block);
         self.id_generator += block_states.len() as u32;
         self.states.append(&mut block_states);
@@ -98,12 +114,60 @@ impl BlockRegistry {
     }
 }
 
+pub struct BlockStatePropertyStorage {
+    pub properties: Vec<(BlockStateProperty, u32)>,
+    pub property_names: HashMap<String, u32>,
+    pub total_states: u32,
+}
+impl BlockStatePropertyStorage {
+    pub fn new() -> Self {
+        BlockStatePropertyStorage {
+            properties: Vec::new(),
+            property_names: HashMap::new(),
+            total_states: 1,
+        }
+    }
+    pub fn register_property(&mut self, name: String, property: BlockStateProperty) {
+        self.property_names
+            .insert(name, self.properties.len() as u32);
+        let num_states = property.get_num_states();
+        self.properties.push((property, self.total_states));
+        self.total_states *= num_states;
+    }
+    pub fn dump_properties(&self, state: u32) -> Dynamic {
+        let mut map = Map::new();
+        for (name, i) in &self.property_names {
+            map.insert(name.into(), self.get_from_state(state, *i));
+        }
+        Dynamic::from_map(map)
+    }
+    pub fn get_from_state(&self, state: u32, property: u32) -> Dynamic {
+        let (property, before_states) = self.properties.get(property as usize).unwrap();
+        let state = (state / before_states) % property.get_num_states();
+        property.from_id_to_value(state)
+    }
+    pub fn set_state(&self, state: u32, property: u32, value: Dynamic) -> Result<u32, u32> {
+        let (property, before_states) = self.properties.get(property as usize).unwrap();
+        let new_state =
+            state - (((state / before_states) % property.get_num_states()) * before_states);
+        match property.from_value_to_id(value) {
+            Some(id) => Ok(new_state + (id * before_states)),
+            None => Err(state),
+        }
+    }
+    pub fn get_total_states(&self) -> u32 {
+        self.total_states
+    }
+}
 pub struct Block {
     pub id: Identifier,
     pub default_state: u32,
     pub data_container: bool,
     pub machine_data: Option<BlockMachineData>,
     pub item_model_mapping: ItemModelMapping,
+    pub breaking_data: (f32, Option<(ToolType, f32)>),
+    pub loottable: Option<Identifier>,
+    pub properties: BlockStatePropertyStorage,
 }
 #[derive(Clone, Debug)]
 pub struct BlockMachineData {
@@ -116,6 +180,71 @@ impl Block {
     pub fn get_default_state_ref(&self) -> BlockStateRef {
         BlockStateRef {
             state_id: self.default_state,
+        }
+    }
+}
+
+pub enum BlockStateProperty {
+    Face,
+    HorizontalFace,
+    Number(RangeInclusive<i32>),
+    String(Vec<String>),
+    Bool,
+}
+impl BlockStateProperty {
+    pub fn get_num_states(&self) -> u32 {
+        match self {
+            BlockStateProperty::Face => 6,
+            BlockStateProperty::HorizontalFace => 4,
+            BlockStateProperty::Number(range) => (range.end() - range.start() + 1) as u32,
+            BlockStateProperty::String(list) => list.len() as u32,
+            BlockStateProperty::Bool => 2,
+        }
+    }
+    pub fn from_value_to_id(&self, value: Dynamic) -> Option<u32> {
+        match self {
+            BlockStateProperty::Face => {
+                let face = value.try_cast::<Face>();
+                face.map(|face| Face::all().iter().position(|f| *f == face).unwrap() as u32)
+            }
+            BlockStateProperty::HorizontalFace => {
+                let face = value.try_cast::<HorizontalFace>();
+                face.map(|face| {
+                    HorizontalFace::all()
+                        .iter()
+                        .position(|f| *f == face)
+                        .unwrap() as u32
+                })
+            }
+            BlockStateProperty::Number(range) => value.as_int().ok().and_then(|number| {
+                let number = number as i32;
+                if range.contains(&number) {
+                    Some((number - range.start()) as u32)
+                } else {
+                    None
+                }
+            }),
+            BlockStateProperty::String(list) => {
+                value.into_immutable_string().ok().and_then(|text| {
+                    list.iter()
+                        .position(|t| t.as_str() == text.as_str())
+                        .map(|pos| pos as u32)
+                })
+            }
+            BlockStateProperty::Bool => value.as_bool().ok().map(|value| if value { 1 } else { 0 }),
+        }
+    }
+    pub fn from_id_to_value(&self, id: u32) -> Dynamic {
+        match self {
+            BlockStateProperty::Face => Dynamic::from(Face::all()[id as usize]),
+            BlockStateProperty::HorizontalFace => Dynamic::from(HorizontalFace::all()[id as usize]),
+            BlockStateProperty::Number(range) => {
+                Dynamic::from_int((id as i32 + range.start()) as i64)
+            }
+            BlockStateProperty::String(list) => {
+                Dynamic::from_str(list.get(id as usize).unwrap().as_str()).unwrap()
+            }
+            BlockStateProperty::Bool => Dynamic::from_bool(id == 1),
         }
     }
 }
@@ -148,8 +277,6 @@ impl BlockStateRef {
 pub struct BlockState {
     pub state_id: u32,
     pub client_data: ClientBlockData,
-    pub breaking_data: (f32, Option<(ToolType, f32)>),
-    pub loottable: Option<Identifier>,
     pub parent: Arc<Block>,
     pub collidable: bool,
 }
@@ -162,11 +289,11 @@ impl BlockState {
                 self.get_ref(),
             ))
         } else {
-            BlockData::Simple(self.state_id)
+            BlockData::Simple(self.get_full_id())
         }
     }
     pub fn get_full_id(&self) -> u32 {
-        self.state_id
+        self.state_id + self.parent.default_state
     }
     pub fn get_ref(&self) -> BlockStateRef {
         BlockStateRef {
@@ -174,7 +301,7 @@ impl BlockState {
         }
     }
     pub fn on_break(&self, location: ChunkBlockLocation, player: &Entity) {
-        if let Some(loottable) = &self.loottable {
+        if let Some(loottable) = &self.parent.loottable {
             let loottable = player.server.loot_tables.get(loottable).unwrap();
             loottable.generate_items(
                 |item| {

@@ -30,7 +30,7 @@ use std::{
 };
 
 use crate::mods::ClientModItemModel;
-use crate::registry::RecipeManager;
+use crate::registry::{BlockStatePropertyStorage, RecipeManager};
 use block_byte_common::content::{ClientEntityData, ClientItemData, ClientItemModel};
 use block_byte_common::Position;
 use crossbeam_channel::Receiver;
@@ -41,8 +41,7 @@ use mods::{ModManager, ScriptCallback};
 use net::PlayerConnection;
 use parking_lot::Mutex;
 use registry::{
-    Block, BlockRegistry, BlockState, EntityRegistry, EntityType, Item, ItemModelMapping,
-    ItemRegistry,
+    Block, BlockRegistry, EntityRegistry, EntityType, Item, ItemModelMapping, ItemRegistry,
 };
 use rhai::{Engine, FuncArgs};
 use splines::Spline;
@@ -132,30 +131,28 @@ impl Server {
         for block_data in &loaded_mods.1 {
             block_registry
                 .borrow_mut()
-                .register(block_data.id.clone(), |id| {
-                    let block = Arc::new(Block {
-                        id: block_data.id.clone(),
-                        default_state: id,
-                        data_container: block_data.data_container,
-                        item_model_mapping: {
-                            let mut mapping = ItemModelMapping {
-                                mapping: HashMap::new(),
-                            };
-                            mapping.mapping.insert(0, 0);
-                            mapping
-                        },
-                        machine_data: block_data.machine_data.clone(),
-                    });
-                    let state = vec![BlockState {
-                        state_id: id,
-                        client_data: block_data.client.clone(),
-                        parent: block.clone(),
-                        breaking_data: block_data.breaking_data.clone(),
-                        loottable: block_data.loot.clone(),
-                        collidable: !block_data.no_collide,
-                    }];
-                    (block, state)
-                })
+                .register(
+                    block_data.id.clone(),
+                    |default_state, id| {
+                        Arc::new(Block {
+                            id,
+                            default_state,
+                            data_container: block_data.data_container,
+                            item_model_mapping: {
+                                let mut mapping = ItemModelMapping {
+                                    mapping: HashMap::new(),
+                                };
+                                mapping.mapping.insert(0, 0);
+                                mapping
+                            },
+                            machine_data: block_data.machine_data.clone(),
+                            breaking_data: block_data.breaking_data.clone(),
+                            loottable: block_data.loot.clone(),
+                            properties: BlockStatePropertyStorage::new(),
+                        })
+                    },
+                    |_, _| block_data.client.clone(),
+                )
                 .unwrap();
         }
         for item_data in loaded_mods.2 {
