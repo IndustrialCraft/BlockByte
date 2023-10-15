@@ -177,9 +177,9 @@ pub struct BlockMachineData {
 }
 
 impl Block {
-    pub fn get_default_state_ref(&self) -> BlockStateRef {
+    pub fn get_state_ref(&self, state_id: u32) -> BlockStateRef {
         BlockStateRef {
-            state_id: self.default_state,
+            state_id: self.default_state + state_id,
         }
     }
 }
@@ -407,7 +407,7 @@ impl Item {
                         if !player.entity_data.lock().creative {
                             item.add_count(-1);
                         }
-                        Some(place.get_default_state_ref())
+                        Some(place.get_state_ref(0)) //todo: place correct state
                     } else {
                         None
                     }

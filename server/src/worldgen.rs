@@ -260,19 +260,19 @@ impl Biome {
             top_block: block_registry
                 .block_by_identifier(&top_block)
                 .unwrap()
-                .get_default_state_ref(),
+                .get_state_ref(0), //todo: handle states
             middle_block: block_registry
                 .block_by_identifier(&middle_block)
                 .unwrap()
-                .get_default_state_ref(),
+                .get_state_ref(0), //todo: handle states
             bottom_block: block_registry
                 .block_by_identifier(&bottom_block)
                 .unwrap()
-                .get_default_state_ref(),
+                .get_state_ref(0), //todo: handle states
             water_block: block_registry
                 .block_by_identifier(&water_block)
                 .unwrap()
-                .get_default_state_ref(),
+                .get_state_ref(0), //todo: handle states
             land_noise_spline,
             height_spline,
             temperature_noise_spline,

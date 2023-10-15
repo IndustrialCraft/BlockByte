@@ -388,14 +388,14 @@ impl Chunk {
         let block_palette: Vec<_> = chunk_save_data
             .palette
             .iter()
-            .map(|id| block_registry.block_by_identifier(&id).unwrap())
+            .map(|id| (block_registry.block_by_identifier(&id.0).unwrap(), id.1))
             .collect();
         let blocks = array_init(|x| {
             array_init(|y| {
                 array_init(|z| {
                     let block_id = chunk_save_data.blocks[x][y][z];
                     let block = block_palette.get(block_id as usize).unwrap();
-                    let block_data = block.get_default_state_ref().create_block_data(
+                    let block_data = block.0.get_state_ref(block.1).create_block_data(
                         self,
                         BlockPosition {
                             x: (self.position.x * 16) + x as i32,
@@ -601,9 +601,10 @@ impl Chunk {
                                 BlockData::Data(block) => (block.state, Some(block.serialize())),
                             };
                             let block = block_registry.state_by_ref(&block_state_ref);
-                            let block_id = &block.parent.id; //todo: save state
                             let block_map_len = block_map.len();
-                            let numeric_id = *block_map.entry(block_id).or_insert(block_map_len);
+                            let numeric_id = *block_map
+                                .entry((&block.parent.id, block.state_id))
+                                .or_insert(block_map_len);
                             blocks_save[x][y][z] = numeric_id as u16;
                             if let Some(serialized_block) = serialized_block {
                                 block_data.insert((x as u8, y as u8, z as u8), serialized_block);
@@ -633,7 +634,7 @@ impl Chunk {
                     palette: {
                         let mut block_map: Vec<_> = block_map.iter().collect();
                         block_map.sort_by(|first, second| first.1.cmp(second.1));
-                        block_map.iter().map(|e| (*e.0).clone()).collect()
+                        block_map.iter().map(|e| (e.0 .0.clone(), e.0 .1)).collect()
                     },
                     block_data,
                     entities,
@@ -670,7 +671,7 @@ impl Hash for Chunk {
 }
 #[derive(Serialize, Deserialize)]
 pub struct ChunkSaveData {
-    palette: Vec<Identifier>,
+    palette: Vec<(Identifier, u32)>,
     blocks: [[[u16; 16]; 16]; 16],
     block_data: HashMap<(u8, u8, u8), BlockSaveData>,
     entities: Vec<EntitySaveData>,
@@ -1938,7 +1939,7 @@ impl Structure {
                 block_registry
                     .block_by_identifier(&Identifier::parse(block["id"].as_str().unwrap()).unwrap())
                     .unwrap()
-                    .get_default_state_ref(),
+                    .get_state_ref(0), //todo: place correct state
             );
         }
         Structure { blocks, id }
