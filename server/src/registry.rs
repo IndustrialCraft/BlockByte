@@ -65,7 +65,7 @@ impl BlockRegistry {
                     transparent: false,
                     selectable: false,
                     no_collide: true,
-                    rotation: 0.
+                    rotation: 0.,
                 },
             )
             .expect("couldn't register air");
@@ -113,6 +113,36 @@ impl BlockRegistry {
     pub fn state_by_ref(&self, block_state_ref: &BlockStateRef) -> &BlockState {
         self.states.get(block_state_ref.state_id as usize).unwrap()
     }
+    pub fn state_from_string(&self, state: &str) -> Result<BlockStateRef, ()> {
+        //todo: better error handling
+        let (block, props) = if state.contains('{') {
+            let split = state.split_once('{').unwrap();
+            (
+                self.block_by_identifier(&Identifier::parse(split.0)?)
+                    .ok_or(())?,
+                Some(&split.1[0..split.1.len() - 1]),
+            )
+        } else {
+            (
+                self.block_by_identifier(&Identifier::parse(state)?)
+                    .ok_or(())?,
+                None,
+            )
+        };
+        let mut state = 0;
+        if let Some(props) = props {
+            for prop in props.split(",") {
+                let prop = prop.trim();
+                if let Some((name, value)) = prop.split_once("=") {
+                    state = block
+                        .properties
+                        .set_state_string(state, BlockStatePropertyKey::Name(name), value)
+                        .unwrap_or(state);
+                }
+            }
+        }
+        Ok(block.get_state_ref(state))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -139,17 +169,34 @@ impl BlockStatePropertyStorage {
     pub fn dump_properties(&self, state: u32) -> Dynamic {
         let mut map = Map::new();
         for (name, i) in &self.property_names {
-            map.insert(name.into(), self.get_from_state(state, *i));
+            map.insert(
+                name.into(),
+                self.get_from_state(state, BlockStatePropertyKey::Id(*i)),
+            );
         }
         Dynamic::from_map(map)
     }
-    pub fn get_from_state(&self, state: u32, property: u32) -> Dynamic {
-        let (property, before_states) = self.properties.get(property as usize).unwrap();
+    pub fn get_from_state(&self, state: u32, property: BlockStatePropertyKey) -> Dynamic {
+        let (property, before_states) = self
+            .properties
+            .get(match property.to_id(&self.property_names) {
+                Some(id) => id,
+                None => return Dynamic::UNIT,
+            })
+            .unwrap();
         let state = (state / before_states) % property.get_num_states();
         property.from_id_to_value(state)
     }
-    pub fn set_state(&self, state: u32, property: u32, value: Dynamic) -> Result<u32, u32> {
-        let (property, before_states) = self.properties.get(property as usize).unwrap();
+    pub fn set_state(
+        &self,
+        state: u32,
+        property: BlockStatePropertyKey,
+        value: Dynamic,
+    ) -> Result<u32, u32> {
+        let (property, before_states) = self
+            .properties
+            .get(property.to_id(&self.property_names).ok_or(state)?)
+            .unwrap();
         let new_state =
             state - (((state / before_states) % property.get_num_states()) * before_states);
         match property.from_value_to_id(value) {
@@ -157,8 +204,37 @@ impl BlockStatePropertyStorage {
             None => Err(state),
         }
     }
+    pub fn set_state_string(
+        &self,
+        state: u32,
+        property: BlockStatePropertyKey,
+        text: &str,
+    ) -> Result<u32, u32> {
+        let (property, before_states) = self
+            .properties
+            .get(property.to_id(&self.property_names).ok_or(state)?)
+            .unwrap();
+        let new_state =
+            state - (((state / before_states) % property.get_num_states()) * before_states);
+        match property.from_string_to_id(text) {
+            Some(id) => Ok(new_state + (id * before_states)),
+            None => Err(state),
+        }
+    }
     pub fn get_total_states(&self) -> u32 {
         self.total_states
+    }
+}
+pub enum BlockStatePropertyKey<'a> {
+    Id(u32),
+    Name(&'a str),
+}
+impl<'a> BlockStatePropertyKey<'a> {
+    pub fn to_id(&self, property_names: &HashMap<String, u32>) -> Option<usize> {
+        match self {
+            BlockStatePropertyKey::Id(id) => Some(*id as usize),
+            BlockStatePropertyKey::Name(name) => property_names.get(*name).map(|id| *id as usize),
+        }
     }
 }
 pub struct Block {
@@ -180,7 +256,7 @@ pub struct BlockMachineData {
 
 impl Block {
     pub fn get_state_ref(&self, state_id: u32) -> BlockStateRef {
-        if state_id >= self.properties.get_total_states(){
+        if state_id >= self.properties.get_total_states() {
             panic!();
         }
         BlockStateRef {
@@ -239,6 +315,55 @@ impl BlockStateProperty {
             BlockStateProperty::Bool => value.as_bool().ok().map(|value| if value { 1 } else { 0 }),
         }
     }
+    pub fn from_string_to_id(&self, text: &str) -> Option<u32> {
+        match self {
+            BlockStateProperty::Face => {
+                let face = match text {
+                    "front" => Face::Front,
+                    "back" => Face::Back,
+                    "left" => Face::Left,
+                    "right" => Face::Right,
+                    "up" => Face::Up,
+                    "down" => Face::Down,
+                    _ => return None,
+                };
+                Face::all()
+                    .iter()
+                    .position(|f| *f == face)
+                    .map(|id| id as u32)
+            }
+            BlockStateProperty::HorizontalFace => {
+                let face = match text {
+                    "front" => HorizontalFace::Front,
+                    "back" => HorizontalFace::Back,
+                    "left" => HorizontalFace::Left,
+                    "right" => HorizontalFace::Right,
+                    _ => return None,
+                };
+                HorizontalFace::all()
+                    .iter()
+                    .position(|f| *f == face)
+                    .map(|id| id as u32)
+            }
+            BlockStateProperty::Number(range) => text.parse().ok().and_then(|number: u32| {
+                let number = number as i32;
+                if range.contains(&number) {
+                    Some((number - range.start()) as u32)
+                } else {
+                    None
+                }
+            }),
+            BlockStateProperty::String(list) => list
+                .iter()
+                .position(|t| t.as_str() == text)
+                .map(|pos| pos as u32),
+            BlockStateProperty::Bool => match text {
+                "true" => Some(1),
+                "false" => Some(0),
+                _ => None,
+            },
+        }
+    }
     pub fn from_id_to_value(&self, id: u32) -> Dynamic {
         match self {
             BlockStateProperty::Face => Dynamic::from(Face::all()[id as usize]),
@@ -254,7 +379,7 @@ impl BlockStateProperty {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct BlockStateRef {
     state_id: u32,
 }

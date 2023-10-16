@@ -26,7 +26,7 @@ use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{object, JsonValue};
 use parking_lot::Mutex;
-use rand::{Rng, thread_rng};
+use rand::Rng;
 use rhai::{Array, Dynamic};
 use serde::Deserialize;
 use uuid::Uuid;
@@ -1924,26 +1924,28 @@ pub trait Animatable {
 #[derive(Clone)]
 pub struct Structure {
     id: Identifier,
-    blocks: HashMap<BlockPosition, (BlockStateRef,f32)>,
+    blocks: Vec<(BlockPosition, (BlockStateRef, f32))>,
 }
 
 impl Structure {
     pub fn from_json(id: Identifier, json: JsonValue, block_registry: &BlockRegistry) -> Self {
-        let mut blocks = HashMap::new();
+        let mut blocks = Vec::new();
         for block in json["blocks"].members() {
-            blocks.insert(
+            blocks.push((
                 BlockPosition {
                     x: block["x"].as_i32().unwrap(),
                     y: block["y"].as_i32().unwrap(),
                     z: block["z"].as_i32().unwrap(),
                 },
                 {
-                    let block_resolved = block_registry
-                    .block_by_identifier(&Identifier::parse(block["id"].as_str().unwrap()).unwrap())
-                    .unwrap();
-                    (block_resolved.get_state_ref(block["state"].as_u32().unwrap_or(0)), block["chance"].as_f32().unwrap_or(1.))
+                    (
+                        block_registry
+                            .state_from_string(block["id"].as_str().unwrap())
+                            .unwrap(),
+                        block["chance"].as_f32().unwrap_or(1.),
+                    )
                 }, //todo: place correct state
-            );
+            ));
         }
         Structure { blocks, id }
     }
@@ -1964,14 +1966,15 @@ impl Structure {
             y: first.y.max(second.y),
             z: first.z.max(second.z),
         };
-        let mut blocks = HashMap::new();
+        let mut blocks = Vec::new();
         for x in fixed_first.x..=fixed_second.x {
             for y in fixed_first.y..=fixed_second.y {
                 for z in fixed_first.z..=fixed_second.z {
                     let block_position = BlockPosition { x, y, z };
                     if let Some(block) = world.get_block(&block_position) {
                         if !block.get_block_state().is_air() {
-                            blocks.insert(block_position.add(-origin), (block.get_block_state(),1.));
+                            blocks
+                                .push((block_position.add(-origin), (block.get_block_state(), 1.)));
                         }
                     }
                 }
