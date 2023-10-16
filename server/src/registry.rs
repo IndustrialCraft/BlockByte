@@ -65,6 +65,7 @@ impl BlockRegistry {
                     transparent: false,
                     selectable: false,
                     no_collide: true,
+                    rotation: 0.
                 },
             )
             .expect("couldn't register air");
@@ -179,6 +180,9 @@ pub struct BlockMachineData {
 
 impl Block {
     pub fn get_state_ref(&self, state_id: u32) -> BlockStateRef {
+        if state_id >= self.properties.get_total_states(){
+            panic!();
+        }
         BlockStateRef {
             state_id: self.default_state + state_id,
         }

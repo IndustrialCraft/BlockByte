@@ -18,6 +18,7 @@ pub struct ClientBlockData {
     pub transparent: bool,
     pub selectable: bool,
     pub no_collide: bool,
+    pub rotation: f32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

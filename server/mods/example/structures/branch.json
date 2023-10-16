@@ -4,5 +4,29 @@
         "y":0, 
         "z":0, 
         "id":"example:branch"
+    },
+    {
+        "x":0,
+        "y":0,
+        "z":0,
+        "id":"example:branch",
+        "state": 1,
+        "chance":0.5
+    },
+    {
+        "x":0,
+        "y":0,
+        "z":0,
+        "id":"example:branch",
+        "state": 2,
+        "chance": 0.33
+    },
+    {
+        "x":0,
+        "y":0,
+        "z":0,
+        "id":"example:branch",
+        "state": 3,
+        "chance": 0.25
     }
 ]}

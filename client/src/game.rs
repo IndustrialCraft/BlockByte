@@ -3,7 +3,7 @@ use crate::game::RaycastResult::{Block, Entity};
 use crate::render::{FaceVerticesExtension, Vertex};
 use block_byte_common::messages::MovementType;
 use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position, Vec3, AABB};
-use cgmath::{ElementWise, InnerSpace, Matrix4, Point3, SquareMatrix, Vector3};
+use cgmath::{Deg, ElementWise, InnerSpace, Matrix4, Point3, Vector3};
 use log::warn;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -344,7 +344,7 @@ impl Chunk {
                         }
                         BlockRenderDataType::Static(model) => {
                             model.model.add_vertices(
-                                Matrix4::identity(),
+                                Matrix4::from_angle_y(Deg(block.rotation)),
                                 None,
                                 None,
                                 &mut |position, coords| {

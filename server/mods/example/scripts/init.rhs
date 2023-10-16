@@ -1,6 +1,6 @@
 create_block("example:stone", |p|{
     create_cube("example:stone","example:stone","example:stone","example:stone","example:stone","example:stone")
-}).register_item("example:stone_block","Stone Block").breaking_tool(ToolType::Pickaxe,1.).add_property_horizontal_face("facing").register();
+}).register_item("example:stone_block","Stone Block").breaking_tool(ToolType::Pickaxe,1.).register();
 create_block("example:water", |p|{
     create_cube("example:water","example:water","example:water","example:water","example:water","example:water").transparent(true).render_data(1).fluid(true)
 }).register();
@@ -38,8 +38,8 @@ create_block("example:grass_foliage", |p|{
     create_foliage("example:grass_foliage","example:grass_foliage","example:grass_foliage","example:grass_foliage").render_data(2).no_collide()
 }).loot("example:grass_foliage").register();
 create_block("example:branch", |p|{
-    create_static("example:branch","example:log_side").no_collide()
-}).loot("example:branch").register();
+    create_static("example:branch","example:log_side").no_collide().rotation(p.facing)
+}).loot("example:branch").add_property_horizontal_face("facing").register();
 create_block("example:campfire", |p|{
     create_air().dynamic("example:campfire","example:campfire").dynamic_add_item("main")
 }).machine("example:campfire",1.,1).register_item("example:campfire", "Campfire").data_container().register();

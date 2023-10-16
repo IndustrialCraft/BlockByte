@@ -26,6 +26,7 @@ use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{object, JsonValue};
 use parking_lot::Mutex;
+use rand::{Rng, thread_rng};
 use rhai::{Array, Dynamic};
 use serde::Deserialize;
 use uuid::Uuid;
@@ -1923,7 +1924,7 @@ pub trait Animatable {
 #[derive(Clone)]
 pub struct Structure {
     id: Identifier,
-    blocks: HashMap<BlockPosition, BlockStateRef>,
+    blocks: HashMap<BlockPosition, (BlockStateRef,f32)>,
 }
 
 impl Structure {
@@ -1936,10 +1937,12 @@ impl Structure {
                     y: block["y"].as_i32().unwrap(),
                     z: block["z"].as_i32().unwrap(),
                 },
-                block_registry
+                {
+                    let block_resolved = block_registry
                     .block_by_identifier(&Identifier::parse(block["id"].as_str().unwrap()).unwrap())
-                    .unwrap()
-                    .get_state_ref(0), //todo: place correct state
+                    .unwrap();
+                    (block_resolved.get_state_ref(block["state"].as_u32().unwrap_or(0)), block["chance"].as_f32().unwrap_or(1.))
+                }, //todo: place correct state
             );
         }
         Structure { blocks, id }
@@ -1968,7 +1971,7 @@ impl Structure {
                     let block_position = BlockPosition { x, y, z };
                     if let Some(block) = world.get_block(&block_position) {
                         if !block.get_block_state().is_air() {
-                            blocks.insert(block_position.add(-origin), block.get_block_state());
+                            blocks.insert(block_position.add(-origin), (block.get_block_state(),1.));
                         }
                     }
                 }
@@ -1979,11 +1982,13 @@ impl Structure {
     pub fn export(&self, block_registry: &BlockRegistry) -> JsonValue {
         let mut blocks = Vec::new();
         for (position, block) in &self.blocks {
+            let state = block_registry.state_by_ref(&block.0);
             blocks.push(object! {
                 x:position.x,
                 y:position.y,
                 z:position.z,
-                id:block_registry.state_by_ref(block).parent.id.to_string()
+                id:state.parent.id.to_string(),
+                state: state.state_id
             });
         }
         object! {
@@ -1995,7 +2000,9 @@ impl Structure {
         F: FnMut(BlockPosition, BlockStateRef),
     {
         for (block_position, block) in &self.blocks {
-            placer.call_mut((block_position.clone() + position, block.clone()));
+            if rand::thread_rng().gen_bool(block.1 as f64) {
+                placer.call_mut((block_position.clone() + position, block.0.clone()));
+            }
         }
     }
     pub fn get_chunks(&self, position: BlockPosition) -> HashSet<ChunkPosition> {

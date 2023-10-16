@@ -778,6 +778,7 @@ impl ModClientBlockData {
                 fluid: false,
                 no_collide: false,
                 render_data: 0,
+                rotation: 0.,
             },
         }
     }
@@ -801,9 +802,14 @@ impl ModClientBlockData {
         self.client.render_data = render_data as u8;
         self.clone()
     }
-    pub fn rotation(&mut self, _face: HorizontalFace) -> Self {
-        todo!();
-        //self.clone()
+    pub fn rotation(&mut self, face: HorizontalFace) -> Self {
+        self.client.rotation = match face{
+            HorizontalFace::Front => 0.,
+            HorizontalFace::Right => 90.,
+            HorizontalFace::Back => 180.,
+            HorizontalFace::Left => 270.
+        };
+        self.clone()
     }
     pub fn dynamic(&mut self, model: &str, texture: &str) -> Self {
         self.client.dynamic = Some(ClientBlockDynamicData {

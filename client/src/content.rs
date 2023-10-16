@@ -164,6 +164,7 @@ impl BlockRegistry {
             selectable: block_data.selectable,
             transparent: block_data.transparent,
             no_collide: block_data.no_collide,
+            rotation: block_data.rotation
         });
     }
 }
@@ -175,6 +176,7 @@ pub struct BlockData {
     pub transparent: bool,
     pub selectable: bool,
     pub no_collide: bool,
+    pub rotation: f32
 }
 impl BlockData {
     pub fn is_face_full(&self, _face: Face) -> bool {
