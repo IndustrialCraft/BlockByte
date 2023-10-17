@@ -90,7 +90,7 @@ create_item("example:cut_grass").client_name("Cut Grass").client_model_texture("
 create_item("example:grass_twine").client_name("Grass Twine").client_model_texture("example:grass_twine").register();
 create_item("example:stick").client_name("Stick").client_model_texture("example:stick").register();
 
-create_biome("example:forest", "example:grass","example:dirt","example:stone","example:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.1, "example:grass_foliage").add_structure(0.02, "example:rock").add_structure(0.02, "example:branch").add_structure(0.0002, "example:malachite_chunk").add_structure(0.02, "example:tree").register();
+create_biome("example:forest", "example:grass","example:dirt","example:stone","example:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.2, "example:grass_foliage").add_structure(0.02, "example:rock").add_structure(0.02, "example:branch").add_structure(0.0002, "example:malachite_chunk").add_structure(0.02, "example:tree").register();
 create_biome("example:ocean", "example:sand","example:sand","example:stone","example:water").spline_add_height(-1., 1.).spline_add_height(0., 0.).register();
 
 create_entity("bb:player").client_model("example:player","example:player").client_add_item("main_hand").client_hitbox(0.6, 1.7, 0.6).register();
