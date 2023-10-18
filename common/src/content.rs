@@ -81,6 +81,7 @@ pub struct ClientEntityData {
     pub hitbox_d: f64,
     pub animations: Vec<String>,
     pub items: Vec<String>,
+    pub viewmodel: Option<(String, String)>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

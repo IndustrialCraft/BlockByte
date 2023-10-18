@@ -446,6 +446,7 @@ impl RenderState {
         gui: &mut GUIRenderer,
         item_registry: &ItemRegistry,
         entity_registry: &EntityRegistry,
+        viewmodel: Option<&Model>,
     ) -> Result<(), wgpu::SurfaceError> {
         self.camera_uniform
             .update_view_proj(camera, self.size.width as f32 / self.size.height as f32);
@@ -546,6 +547,33 @@ impl RenderState {
                     ),
                     entity.animation,
                     Some((&entity.items, item_registry)),
+                    &mut |position, coords| {
+                        vertices.push(Vertex {
+                            position: [position.x as f32, position.y as f32, position.z as f32],
+                            tex_coords: [coords.0, coords.1],
+                        })
+                    },
+                );
+            }
+            if let Some(viewmodel) = viewmodel {
+                let eye = camera.get_eye();
+                viewmodel.add_vertices(
+                    Model::create_matrix_trs(
+                        &Vec3 {
+                            x: eye.x as f32,
+                            y: eye.y as f32,
+                            z: eye.z as f32,
+                        },
+                        &Vec3 {
+                            x: 0.,
+                            y: (camera.yaw_deg + 180.).to_radians(),
+                            z: 0.,
+                        },
+                        &Vec3::ZERO,
+                        &Vec3::ONE,
+                    ),
+                    None,
+                    None,
                     &mut |position, coords| {
                         vertices.push(Vertex {
                             position: [position.x as f32, position.y as f32, position.z as f32],

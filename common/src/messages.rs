@@ -26,6 +26,7 @@ pub enum NetworkMessageS2C {
     PlayerAbilities(f32, MovementType),
     TeleportPlayer(Position, f32),
     BlockAnimation(BlockPosition, u32),
+    ControllingEntity(u32),
 }
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MovementType {

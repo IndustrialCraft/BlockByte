@@ -8,6 +8,8 @@
     trait_alias
 )]
 
+extern crate core;
+
 mod inventory;
 mod mods;
 mod net;
@@ -233,6 +235,7 @@ impl Server {
                         hitbox_d: 0.5,
                         animations: vec![],
                         items: vec!["main".to_string()],
+                        viewmodel: None,
                     },
                     ticker: Mutex::new(None),
                     item_model_mapping: ItemModelMapping {

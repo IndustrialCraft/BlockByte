@@ -164,7 +164,7 @@ impl BlockRegistry {
             selectable: block_data.selectable,
             transparent: block_data.transparent,
             no_collide: block_data.no_collide,
-            rotation: block_data.rotation
+            rotation: block_data.rotation,
         });
     }
 }
@@ -176,7 +176,7 @@ pub struct BlockData {
     pub transparent: bool,
     pub selectable: bool,
     pub no_collide: bool,
-    pub rotation: f32
+    pub rotation: f32,
 }
 impl BlockData {
     pub fn is_face_full(&self, _face: Face) -> bool {
@@ -353,6 +353,17 @@ impl EntityRegistry {
             hitbox_w: entity_data.hitbox_w,
             hitbox_h: entity_data.hitbox_h,
             hitbox_d: entity_data.hitbox_d,
+            viewmodel: entity_data.viewmodel.as_ref().map(|viewmodel| {
+                Model::new(
+                    models
+                        .get(viewmodel.0.as_str())
+                        .unwrap_or(models.get("missing").unwrap())
+                        .clone(),
+                    texture_atlas.get(viewmodel.1.as_str()),
+                    Vec::new(),
+                    Vec::new(),
+                )
+            }),
         });
     }
 }
@@ -361,4 +372,5 @@ pub struct EntityData {
     pub hitbox_w: f64,
     pub hitbox_h: f64,
     pub hitbox_d: f64,
+    pub viewmodel: Option<Model>,
 }

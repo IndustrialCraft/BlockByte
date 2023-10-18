@@ -221,6 +221,7 @@ impl ModManager {
             .register_type_with_name::<EntityBuilder>("EntityBuilder")
             .register_fn("create_entity", EntityBuilder::new)
             .register_fn("client_model", EntityBuilder::client_model)
+            .register_fn("client_viewmodel", EntityBuilder::client_viewmodel)
             .register_fn("client_hitbox", EntityBuilder::client_hitbox)
             .register_fn("client_add_animation", EntityBuilder::client_add_animation)
             .register_fn("client_add_item", EntityBuilder::client_add_item)
@@ -803,11 +804,11 @@ impl ModClientBlockData {
         self.clone()
     }
     pub fn rotation(&mut self, face: HorizontalFace) -> Self {
-        self.client.rotation = match face{
+        self.client.rotation = match face {
             HorizontalFace::Front => 0.,
             HorizontalFace::Right => 90.,
             HorizontalFace::Back => 180.,
-            HorizontalFace::Left => 270.
+            HorizontalFace::Left => 270.,
         };
         self.clone()
     }
@@ -943,9 +944,18 @@ impl EntityBuilder {
                 hitbox_d: 1.,
                 animations: Vec::new(),
                 items: Vec::new(),
+                viewmodel: None,
             },
             ticker: None,
         }))
+    }
+    pub fn client_viewmodel(
+        this: &mut Arc<Mutex<Self>>,
+        model: &str,
+        texture: &str,
+    ) -> Arc<Mutex<Self>> {
+        this.lock().client.viewmodel = Some((model.to_string(), texture.to_string()));
+        this.clone()
     }
     pub fn tick(this: &mut Arc<Mutex<Self>>, callback: FnPtr) -> Arc<Mutex<Self>> {
         this.lock().ticker = Some(callback);

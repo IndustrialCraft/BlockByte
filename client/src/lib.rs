@@ -96,6 +96,8 @@ pub async fn run() {
 
     let mut block_breaking_manager = BlockBreakingManager::new();
 
+    let mut player_entity_type = None;
+
     let text_input_channel = spawn_stdin_channel();
     #[allow(deprecated)]
     event_loop.run(move |event, _, control_flow| match event {
@@ -471,6 +473,9 @@ pub async fn run() {
                             }
                         }
                     }
+                    NetworkMessageS2C::ControllingEntity(id) => {
+                        player_entity_type = Some(id);
+                    }
                 }
             }
             match render_state.render(
@@ -479,6 +484,10 @@ pub async fn run() {
                 &mut gui,
                 &item_registry,
                 &entity_registry,
+                player_entity_type
+                    .as_ref()
+                    .map(|id| entity_registry.get_entity(*id))
+                    .and_then(|entity| entity.viewmodel.as_ref()),
             ) {
                 Ok(_) => {}
                 Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {

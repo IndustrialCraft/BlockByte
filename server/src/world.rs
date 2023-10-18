@@ -902,6 +902,11 @@ impl Entity {
             .ok();
 
         if entity.is_player() {
+            entity
+                .try_send_message(&NetworkMessageS2C::ControllingEntity(
+                    entity.entity_type.client_id,
+                ))
+                .unwrap();
             entity.inventory.add_viewer(GuiInventoryViewer {
                 slot_range: 0..9,
                 slots: {
