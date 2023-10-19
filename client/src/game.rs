@@ -22,6 +22,7 @@ pub struct ClientPlayer {
     speed: f32,
     movement_type: MovementType,
     block_registry: Rc<BlockRegistry>,
+    pub(crate) hitbox: Option<(f64, f64, f64, f64)>,
 }
 impl ClientPlayer {
     const UP: Vector3<f32> = Vector3 {
@@ -192,30 +193,38 @@ impl ClientPlayer {
             self.velocity.y = 0.;
         }
 
-        self.shifting_animation += (if self.shifting { 1. } else { -1. }) * delta_time * 4.;
-        self.shifting_animation = self.shifting_animation.clamp(0., 0.5);
+        if let Some(hitbox) = &self.hitbox {
+            self.shifting_animation += (if self.shifting { 1. } else { -1. }) * delta_time * 4.;
+            self.shifting_animation = self
+                .shifting_animation
+                .clamp(0., (hitbox.1 - hitbox.3) as f32);
+        }
     }
     fn collides_at(&self, position: Position, world: &World) -> bool {
         if self.movement_type == MovementType::NoClip {
             return false;
         }
-        let bounding_box = AABB {
-            x: position.x,
-            y: position.y,
-            z: position.z,
-            w: 0.6,
-            h: 1.95 - if self.shifting { 0.5 } else { 0. },
-            d: 0.6,
-        };
-        for block_pos in bounding_box.iter_blocks() {
-            if world.get_block(block_pos).map_or(true, |block| {
-                let block = self.block_registry.get_block(block);
-                !block.fluid && !block.no_collide
-            }) {
-                return true;
+        return if let Some(hitbox) = &self.hitbox {
+            let bounding_box = AABB {
+                x: position.x,
+                y: position.y,
+                z: position.z,
+                w: hitbox.0,
+                h: if self.shifting { hitbox.3 } else { hitbox.1 },
+                d: hitbox.2,
+            };
+            for block_pos in bounding_box.iter_blocks() {
+                if world.get_block(block_pos).map_or(true, |block| {
+                    let block = self.block_registry.get_block(block);
+                    !block.fluid && !block.no_collide
+                }) {
+                    return true;
+                }
             }
-        }
-        return false;
+            false
+        } else {
+            true
+        };
     }
     pub const fn at_position(position: Position, block_registry: Rc<BlockRegistry>) -> Self {
         Self {
@@ -233,6 +242,7 @@ impl ClientPlayer {
             speed: 1.,
             movement_type: MovementType::NoClip,
             block_registry,
+            hitbox: None,
         }
     }
     pub fn set_abilities(&mut self, speed: f32, movement_type: MovementType) {
@@ -240,7 +250,9 @@ impl ClientPlayer {
         self.movement_type = movement_type;
     }
     fn eye_height_diff(&self) -> f32 {
-        1.75 - self.shifting_animation
+        self.hitbox.as_ref().map(|hitbox| hitbox.1).unwrap_or(1.) as f32
+            - 0.25
+            - self.shifting_animation
     }
     pub fn create_view_matrix(&self) -> Matrix4<f32> {
         let eye = self.get_eye();

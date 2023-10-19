@@ -942,6 +942,7 @@ impl EntityBuilder {
                 hitbox_w: 1.,
                 hitbox_h: 1.,
                 hitbox_d: 1.,
+                hitbox_h_shifting: 0.75,
                 animations: Vec::new(),
                 items: Vec::new(),
                 viewmodel: None,
@@ -984,6 +985,7 @@ impl EntityBuilder {
             borrowed.client.hitbox_w = width;
             borrowed.client.hitbox_h = height;
             borrowed.client.hitbox_d = depth;
+            borrowed.client.hitbox_h_shifting = height * 0.75;
         }
         this.clone()
     }

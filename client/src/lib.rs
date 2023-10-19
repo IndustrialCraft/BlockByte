@@ -475,6 +475,15 @@ pub async fn run() {
                     }
                     NetworkMessageS2C::ControllingEntity(id) => {
                         player_entity_type = Some(id);
+                        camera.hitbox = player_entity_type.as_ref().map(|id| {
+                            let entity = entity_registry.get_entity(*id);
+                            (
+                                entity.hitbox_w,
+                                entity.hitbox_h,
+                                entity.hitbox_d,
+                                entity.hitbox_h_shifting,
+                            )
+                        });
                     }
                 }
             }

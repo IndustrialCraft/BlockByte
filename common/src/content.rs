@@ -79,6 +79,7 @@ pub struct ClientEntityData {
     pub hitbox_w: f64,
     pub hitbox_h: f64,
     pub hitbox_d: f64,
+    pub hitbox_h_shifting: f64,
     pub animations: Vec<String>,
     pub items: Vec<String>,
     pub viewmodel: Option<(String, String)>,

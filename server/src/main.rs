@@ -233,6 +233,7 @@ impl Server {
                         hitbox_w: 0.5,
                         hitbox_h: 0.1,
                         hitbox_d: 0.5,
+                        hitbox_h_shifting: 0.1,
                         animations: vec![],
                         items: vec!["main".to_string()],
                         viewmodel: None,

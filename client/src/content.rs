@@ -353,6 +353,7 @@ impl EntityRegistry {
             hitbox_w: entity_data.hitbox_w,
             hitbox_h: entity_data.hitbox_h,
             hitbox_d: entity_data.hitbox_d,
+            hitbox_h_shifting: entity_data.hitbox_h_shifting,
             viewmodel: entity_data.viewmodel.as_ref().map(|viewmodel| {
                 Model::new(
                     models
@@ -372,5 +373,6 @@ pub struct EntityData {
     pub hitbox_w: f64,
     pub hitbox_h: f64,
     pub hitbox_d: f64,
+    pub hitbox_h_shifting: f64,
     pub viewmodel: Option<Model>,
 }
