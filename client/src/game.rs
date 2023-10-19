@@ -3,7 +3,7 @@ use crate::game::RaycastResult::{Block, Entity};
 use crate::render::{FaceVerticesExtension, Vertex};
 use block_byte_common::messages::MovementType;
 use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position, Vec3, AABB};
-use cgmath::{Deg, ElementWise, InnerSpace, Matrix4, Point3, Vector3};
+use cgmath::{point3, Deg, ElementWise, InnerSpace, Matrix4, Point3, Vector3};
 use log::warn;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -251,7 +251,10 @@ impl ClientPlayer {
         };
         Matrix4::look_at_rh(eye, eye + self.make_front(), Self::UP)
     }
-    pub fn create_projection_matrix(&self, aspect: f32) -> Matrix4<f32> {
+    pub fn create_default_view_matrix() -> Matrix4<f32> {
+        Matrix4::look_at_rh(point3(0., 0., 0.), point3(0., 0., -1.), ClientPlayer::UP)
+    }
+    pub fn create_projection_matrix(aspect: f32) -> Matrix4<f32> {
         cgmath::perspective(cgmath::Deg(90.), aspect, 0.05, 500.)
     }
 }

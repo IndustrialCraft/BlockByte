@@ -449,7 +449,7 @@ impl RenderState {
         viewmodel: Option<&Model>,
     ) -> Result<(), wgpu::SurfaceError> {
         self.camera_uniform
-            .update_view_proj(camera, self.size.width as f32 / self.size.height as f32);
+            .load_view_proj_matrix(camera, self.size.width as f32 / self.size.height as f32);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -555,33 +555,6 @@ impl RenderState {
                     },
                 );
             }
-            if let Some(viewmodel) = viewmodel {
-                let eye = camera.get_eye();
-                viewmodel.add_vertices(
-                    Model::create_matrix_trs(
-                        &Vec3 {
-                            x: eye.x as f32,
-                            y: eye.y as f32,
-                            z: eye.z as f32,
-                        },
-                        &Vec3 {
-                            x: 0.,
-                            y: (camera.yaw_deg + 180.).to_radians(),
-                            z: 0.,
-                        },
-                        &Vec3::ZERO,
-                        &Vec3::ONE,
-                    ),
-                    None,
-                    None,
-                    &mut |position, coords| {
-                        vertices.push(Vertex {
-                            position: [position.x as f32, position.y as f32, position.z as f32],
-                            tex_coords: [coords.0, coords.1],
-                        })
-                    },
-                );
-            }
             let buffer = self.device.create_buffer_init(&BufferInitDescriptor {
                 label: Some("Model Buffer"),
                 usage: BufferUsages::VERTEX,
@@ -678,6 +651,74 @@ impl RenderState {
         }
         self.outline_renderer
             .render(&mut encoder, &view, &self.camera_bind_group);
+
+        self.queue.submit(iter::once(encoder.finish()));
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
+
+        let viewmodel = {
+            match viewmodel {
+                Some(viewmodel) => {
+                    let mut vertices = Vec::new();
+                    viewmodel.add_vertices(
+                        Model::create_matrix_trs(&Vec3::ZERO, &Vec3::ZERO, &Vec3::ZERO, &Vec3::ONE),
+                        None,
+                        None,
+                        &mut |position, coords| {
+                            vertices.push(Vertex {
+                                position: [position.x as f32, position.y as f32, position.z as f32],
+                                tex_coords: [coords.0, coords.1],
+                            })
+                        },
+                    );
+                    let buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+                        label: Some("ViewModel Buffer"),
+                        usage: BufferUsages::VERTEX,
+                        contents: bytemuck::cast_slice(vertices.as_slice()),
+                    });
+                    Some((buffer, vertices.len() as u32))
+                }
+                None => None,
+            }
+        };
+        if let Some(viewmodel) = &viewmodel {
+            self.camera_uniform
+                .load_viewmodel_matrix(self.size.width as f32 / self.size.height as f32);
+            self.queue.write_buffer(
+                &self.camera_buffer,
+                0,
+                bytemuck::cast_slice(&[self.camera_uniform]),
+            );
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("ViewModel Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.2,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.),
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
+            });
+            render_pass.set_pipeline(&self.model_render_pipeline);
+            render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+
+            render_pass.set_vertex_buffer(0, viewmodel.0.slice(..));
+            render_pass.draw(0..viewmodel.1, 0..1);
+        }
+
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("GUI Render Pass"),
@@ -881,10 +922,16 @@ impl CameraUniform {
             view_proj: cgmath::Matrix4::identity().into(),
         }
     }
-    fn update_view_proj(&mut self, camera: &ClientPlayer, aspect_ratio: f32) {
+    fn load_view_proj_matrix(&mut self, camera: &ClientPlayer, aspect_ratio: f32) {
         self.view_proj = (Self::OPENGL_TO_WGPU_MATRIX
-            * camera.create_projection_matrix(aspect_ratio)
+            * ClientPlayer::create_projection_matrix(aspect_ratio)
             * camera.create_view_matrix())
+        .into();
+    }
+    fn load_viewmodel_matrix(&mut self, aspect_ratio: f32) {
+        self.view_proj = (Self::OPENGL_TO_WGPU_MATRIX
+            * ClientPlayer::create_projection_matrix(aspect_ratio)
+            * ClientPlayer::create_default_view_matrix())
         .into();
     }
     #[rustfmt::skip]
