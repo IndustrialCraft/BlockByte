@@ -20,7 +20,7 @@ use block_byte_common::messages::{
     MouseButton, MovementType, NetworkMessageC2S, NetworkMessageS2C,
 };
 use block_byte_common::{
-    BlockPosition, ChunkPosition, Color, KeyboardKey, KeyboardModifier, Position, Vec2, AABB,
+    BlockPosition, ChunkPosition, Color, Face, KeyboardKey, KeyboardModifier, Position, Vec2, AABB,
 };
 use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
@@ -159,16 +159,17 @@ impl World {
         }
         false
     }
-    pub fn set_block(&self, position: BlockPosition, block: BlockStateRef) {
+    pub fn set_block(&self, position: BlockPosition, block: BlockStateRef, update_neighbors: bool) {
         let chunk_offset = position.chunk_offset();
         self.load_chunk(position.to_chunk_pos()).set_block(
             chunk_offset.0,
             chunk_offset.1,
             chunk_offset.2,
             block,
+            update_neighbors,
         );
     }
-    pub fn break_block(&self, position: BlockPosition, player: &Entity) {
+    pub fn break_block(&self, position: BlockPosition, params: BlockBreakParameters) {
         let chunk_offset = position.chunk_offset();
         let chunk = self.load_chunk(position.to_chunk_pos());
         let block_state = self.server.block_registry.state_by_ref(
@@ -181,13 +182,14 @@ impl World {
                 position,
                 chunk: chunk.clone(),
             },
-            player,
+            params,
         );
         chunk.set_block(
             chunk_offset.0,
             chunk_offset.1,
             chunk_offset.2,
             BlockStateRef::from_state_id(0),
+            true,
         );
     }
     pub fn get_block_load(&self, position: &BlockPosition) -> BlockData {
@@ -204,7 +206,7 @@ impl World {
             .map(|chunk| chunk.get_block(chunk_offset.0, chunk_offset.1, chunk_offset.2))
     }
 
-    pub fn replace_block<F>(&self, position: BlockPosition, replacer: F)
+    pub fn replace_block<F>(&self, position: BlockPosition, replacer: F, update_neighbors: bool)
     where
         F: FnOnce(BlockData) -> Option<BlockStateRef>,
     {
@@ -213,7 +215,13 @@ impl World {
         let new_block =
             replacer.call_once((chunk.get_block(chunk_offset.0, chunk_offset.1, chunk_offset.2),));
         if let Some(new_block) = new_block {
-            chunk.set_block(chunk_offset.0, chunk_offset.1, chunk_offset.2, new_block);
+            chunk.set_block(
+                chunk_offset.0,
+                chunk_offset.1,
+                chunk_offset.2,
+                new_block,
+                update_neighbors,
+            );
         }
     }
     pub fn load_chunk(&self, position: ChunkPosition) -> Arc<Chunk> {
@@ -271,6 +279,20 @@ impl PartialEq for World {
         Weak::ptr_eq(&self.this, &other.this)
     }
 }
+
+pub struct BlockBreakParameters {
+    pub(crate) player: Option<Arc<Entity>>,
+    pub(crate) item: Option<ItemStack>,
+}
+impl BlockBreakParameters {
+    pub fn from_entity(entity: &Entity) -> Self {
+        BlockBreakParameters {
+            player: Some(entity.ptr()),
+            item: entity.get_hand_item(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub enum BlockData {
     Simple(u32),
@@ -290,6 +312,12 @@ impl BlockData {
             Self::Data(block) => block.state,
         }
     }
+    pub fn is_air(&self) -> bool {
+        match self {
+            BlockData::Simple(id) => *id == 0,
+            BlockData::Data(_) => false,
+        }
+    }
 }
 
 pub struct Chunk {
@@ -301,6 +329,7 @@ pub struct Chunk {
     unload_timer: AtomicU8,
     loading_stage: AtomicU8,
     ticking_blocks: Mutex<HashSet<(u8, u8, u8)>>,
+    scheduled_updates: Mutex<HashSet<(u8, u8, u8)>>,
     this: Weak<Chunk>,
 }
 
@@ -318,6 +347,7 @@ impl Chunk {
             viewers: Mutex::new(FxHashSet::default()),
             loading_stage: AtomicU8::new(0),
             ticking_blocks: Mutex::new(HashSet::new()),
+            scheduled_updates: Mutex::new(HashSet::new()),
             this: this.clone(),
         });
         let gen_chunk = chunk.clone();
@@ -377,6 +407,9 @@ impl Chunk {
         }));
         chunk
     }
+    pub fn schedule_update(&self, block: (u8, u8, u8)) {
+        self.scheduled_updates.lock().insert(block);
+    }
     pub fn load_from_save(
         &self,
         save_path: PathBuf,
@@ -427,13 +460,20 @@ impl Chunk {
             |block_position, block| {
                 if block_position.to_chunk_pos() == self.position {
                     let offset = block_position.chunk_offset();
-                    self.set_block(offset.0, offset.1, offset.2, block);
+                    self.set_block(offset.0, offset.1, offset.2, block, false);
                 }
             },
             position,
         );
     }
-    pub fn set_block(&self, offset_x: u8, offset_y: u8, offset_z: u8, block: BlockStateRef) {
+    pub fn set_block(
+        &self,
+        offset_x: u8,
+        offset_y: u8,
+        offset_z: u8,
+        block: BlockStateRef,
+        update_neighbors: bool,
+    ) {
         let block_position = BlockPosition {
             x: self.position.x * 16 + offset_x as i32,
             y: self.position.y * 16 + offset_y as i32,
@@ -469,6 +509,14 @@ impl Chunk {
             _ => {}
         }
         self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize] = block;
+        if update_neighbors {
+            for neighbor_face in Face::all() {
+                let neighbor_position = block_position.offset_by_face(*neighbor_face);
+                if let Some(chunk) = self.world.get_chunk(neighbor_position.to_chunk_pos()) {
+                    chunk.schedule_update(neighbor_position.chunk_offset());
+                }
+            }
+        }
     }
     pub fn get_block(&self, offset_x: u8, offset_y: u8, offset_z: u8) -> BlockData {
         self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize].clone()
@@ -566,17 +614,34 @@ impl Chunk {
                 )
                 .collect()
         };
+        let block_updates: Vec<_> = { self.scheduled_updates.lock().drain().collect() };
         if self.viewers.lock().len() > 0 {
             self.unload_timer
                 .store(0, std::sync::atomic::Ordering::Relaxed);
         }
-        if entities.len() > 0 || blocks.len() > 0 {
+        if entities.len() > 0 || blocks.len() > 0 || block_updates.len() > 0 {
+            let chunk = self.ptr();
             self.world.server.thread_pool.execute(Box::new(move || {
                 for entity in entities {
                     entity.tick();
                 }
                 for block in blocks {
                     block.tick();
+                }
+                for block_update in block_updates {
+                    let state = chunk.world.server.block_registry.state_by_ref(
+                        &chunk
+                            .get_block(block_update.0, block_update.1, block_update.2)
+                            .get_block_state(),
+                    );
+                    state.on_block_update(ChunkBlockLocation {
+                        chunk: chunk.clone(),
+                        position: BlockPosition {
+                            x: chunk.position.x * 16 + block_update.0 as i32,
+                            y: chunk.position.y * 16 + block_update.1 as i32,
+                            z: chunk.position.z * 16 + block_update.2 as i32,
+                        },
+                    })
                 }
             }));
         }
@@ -1581,7 +1646,7 @@ impl Entity {
                     }
                     NetworkMessageC2S::BreakBlock(block_position) => {
                         let world = &self.get_location().chunk.world;
-                        world.break_block(block_position, self);
+                        world.break_block(block_position, BlockBreakParameters::from_entity(self));
                     }
                     NetworkMessageC2S::RightClickBlock(block_position, face, shifting) => {
                         let hand_slot = self.entity_data.lock().get_hand_slot();

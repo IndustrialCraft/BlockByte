@@ -5,7 +5,7 @@ use block_byte_common::content::{
     ClientEntityData,
 };
 use block_byte_common::messages::MovementType;
-use block_byte_common::{BlockPosition, Color, HorizontalFace, Position};
+use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, Position};
 use image::io::Reader;
 use image::{ImageOutputFormat, Rgba, RgbaImage};
 use json::JsonValue;
@@ -157,6 +157,7 @@ impl ModManager {
                 "add_property_horizontal_face",
                 BlockBuilder::add_property_horizontal_face,
             )
+            .register_fn("add_property_face", BlockBuilder::add_property_face)
             .register_fn("breaking_tool", BlockBuilder::breaking_tool)
             .register_fn("loot", BlockBuilder::loot)
             .register_fn("machine", BlockBuilder::machine)
@@ -166,6 +167,7 @@ impl ModManager {
             .register_fn("create_static", ModClientBlockData::create_static)
             .register_fn("create_foliage", ModClientBlockData::create_foliage)
             .register_fn("fluid", ModClientBlockData::fluid)
+            .register_fn("hangs_on", ModClientBlockData::hangs_on)
             .register_fn("no_collide", ModClientBlockData::no_collide)
             .register_fn("transparent", ModClientBlockData::transparent)
             .register_fn("selectable", ModClientBlockData::selectable)
@@ -686,6 +688,12 @@ impl BlockBuilder {
             .register_property(name.to_string(), BlockStateProperty::HorizontalFace);
         this.clone()
     }
+    pub fn add_property_face(this: &mut Arc<Mutex<Self>>, name: &str) -> Arc<Mutex<Self>> {
+        this.lock()
+            .properties
+            .register_property(name.to_string(), BlockStateProperty::Face);
+        this.clone()
+    }
     pub fn machine(
         this: &mut Arc<Mutex<Self>>,
         recipe_type: &str,
@@ -723,7 +731,8 @@ impl BlockBuilder {
 }
 #[derive(Clone)]
 pub struct ModClientBlockData {
-    pub(crate) client: ClientBlockData,
+    pub client: ClientBlockData,
+    pub hangs_on: Option<Face>,
 }
 impl ModClientBlockData {
     pub fn create_air() -> Self {
@@ -781,7 +790,12 @@ impl ModClientBlockData {
                 render_data: 0,
                 rotation: 0.,
             },
+            hangs_on: None,
         }
+    }
+    pub fn hangs_on(&mut self, hangs_on: Face) -> Self {
+        self.hangs_on = Some(hangs_on);
+        self.clone()
     }
     pub fn no_collide(&mut self) -> Self {
         self.client.no_collide = true;

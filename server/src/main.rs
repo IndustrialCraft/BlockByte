@@ -158,7 +158,6 @@ impl Server {
                             .client
                             .call(&loaded_mods.8, (block.properties.dump_properties(state),))
                             .cast::<ModClientBlockData>()
-                            .client
                     },
                 )
                 .unwrap();

@@ -19,7 +19,9 @@ use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
 
 use crate::inventory::{LootTableGenerationParameters, Recipe};
+use crate::mods::ModClientBlockData;
 use crate::util::ChunkLocation;
+use crate::world::BlockBreakParameters;
 use crate::{
     inventory::ItemStack,
     mods::{ClientContentData, ScriptCallback},
@@ -57,15 +59,18 @@ impl BlockRegistry {
                         properties: BlockStatePropertyStorage::new(),
                     })
                 },
-                |_, _| ClientBlockData {
-                    block_type: ClientBlockRenderDataType::Air,
-                    dynamic: None,
-                    fluid: false,
-                    render_data: 0,
-                    transparent: false,
-                    selectable: false,
-                    no_collide: true,
-                    rotation: 0.,
+                |_, _| ModClientBlockData {
+                    client: ClientBlockData {
+                        block_type: ClientBlockRenderDataType::Air,
+                        dynamic: None,
+                        fluid: false,
+                        render_data: 0,
+                        transparent: false,
+                        selectable: false,
+                        no_collide: true,
+                        rotation: 0.,
+                    },
+                    hangs_on: None,
                 },
             )
             .expect("couldn't register air");
@@ -79,7 +84,7 @@ impl BlockRegistry {
     ) -> Result<u32, ()>
     where
         F: FnOnce(u32, Identifier) -> Arc<Block>,
-        T: Fn(u32, &Block) -> ClientBlockData,
+        T: Fn(u32, &Block) -> ModClientBlockData,
     {
         if self.blocks.get(&id).is_some() {
             return Err(());
@@ -92,8 +97,9 @@ impl BlockRegistry {
             block_states.push(BlockState {
                 parent: block.clone(),
                 state_id: i,
-                collidable: !client_data.no_collide,
-                client_data,
+                collidable: !client_data.client.no_collide,
+                client_data: client_data.client,
+                hangs_on: client_data.hangs_on,
             });
         }
         self.blocks.insert(id, block);
@@ -409,6 +415,7 @@ pub struct BlockState {
     pub client_data: ClientBlockData,
     pub parent: Arc<Block>,
     pub collidable: bool,
+    pub hangs_on: Option<Face>,
 }
 
 impl BlockState {
@@ -430,9 +437,29 @@ impl BlockState {
             state_id: self.get_full_id(),
         }
     }
-    pub fn on_break(&self, location: ChunkBlockLocation, player: &Entity) {
+    pub fn on_block_update(&self, location: ChunkBlockLocation) {
+        if let Some(hangs_on) = &self.hangs_on {
+            if let Some(block_data) = location
+                .chunk
+                .world
+                .get_block(&location.position.offset_by_face(*hangs_on))
+            {
+                if block_data.is_air() {
+                    location.chunk.world.break_block(
+                        location.position,
+                        BlockBreakParameters {
+                            player: None,
+                            item: None,
+                        },
+                    );
+                }
+            }
+        }
+    }
+    pub fn on_break(&self, location: ChunkBlockLocation, params: BlockBreakParameters) {
         if let Some(loottable) = &self.parent.loottable {
-            let loottable = player.server.loot_tables.get(loottable).unwrap();
+            let server = &location.chunk.world.server;
+            let loottable = server.loot_tables.get(loottable).unwrap();
             loottable.generate_items(
                 |item| {
                     for _ in 0..item.get_count() {
@@ -448,8 +475,7 @@ impl BlockState {
                                     z: location.position.z as f64 + 0.5,
                                 },
                             },
-                            player
-                                .server
+                            server
                                 .entity_registry
                                 .entity_by_identifier(&Identifier::new("bb", "item"))
                                 .unwrap(),
@@ -471,7 +497,7 @@ impl BlockState {
                     }
                 },
                 LootTableGenerationParameters {
-                    item: player.get_hand_item().as_ref(),
+                    item: params.item.as_ref(),
                 },
             );
         }
@@ -531,19 +557,23 @@ impl Item {
         if let Some(place) = &self.place_block {
             let block_position = block_position.offset_by_face(block_face);
             let world = player.get_location().chunk.world.clone();
-            world.replace_block(block_position, |block| match block {
-                BlockData::Simple(0) => {
-                    if !world.collides_entity_with_block(block_position) {
-                        if !player.entity_data.lock().creative {
-                            item.add_count(-1);
+            world.replace_block(
+                block_position,
+                |block| match block {
+                    BlockData::Simple(0) => {
+                        if !world.collides_entity_with_block(block_position) {
+                            if !player.entity_data.lock().creative {
+                                item.add_count(-1);
+                            }
+                            Some(place.get_state_ref(0)) //todo: place correct state
+                        } else {
+                            None
                         }
-                        Some(place.get_state_ref(0)) //todo: place correct state
-                    } else {
-                        None
                     }
-                }
-                _ => None,
-            });
+                    _ => None,
+                },
+                true,
+            );
             //let target_chunk = world.get_chunk(block_position.to_chunk_pos()).unwrap();
             /*target_chunk.announce_to_viewers(NetworkMessageS2C::BlockItem(
                 block_position,

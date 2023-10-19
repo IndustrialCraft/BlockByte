@@ -5,8 +5,8 @@ create_block("example:water", |p|{
     create_cube("example:water","example:water","example:water","example:water","example:water","example:water").transparent(true).render_data(1).fluid(true)
 }).register();
 create_block("example:log", |p|{
-    create_cube("example:log_side","example:log_side","example:log_side","example:log_side","example:log_base","example:log_base")
-}).breaking_tool(ToolType::Axe,1.).register_item("example:log_block","Log Block").register();
+    create_cube("example:log_side","example:log_side","example:log_side","example:log_side","example:log_base","example:log_base").hangs_on(p.hang_side)
+}).breaking_tool(ToolType::Axe,1.).register_item("example:log_block","Log Block").add_property_face("hang_side").loot("example:log").register();
 create_block("example:grass", |p|{
     create_cube("example:grass_side","example:grass_side","example:grass_side","example:grass_side","example:grass","example:dirt")
 }).register_item("example:grass_block","Grass Block").breaking_tool(ToolType::Shovel,1.).register();
