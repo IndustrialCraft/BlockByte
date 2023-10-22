@@ -1,5 +1,6 @@
 use crate::content::{BlockRegistry, BlockRenderDataType, EntityRegistry};
 use crate::game::RaycastResult::{Block, Entity};
+use crate::model::ModelInstanceData;
 use crate::render::{FaceVerticesExtension, Vertex};
 use block_byte_common::messages::MovementType;
 use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position, Vec3, AABB};
@@ -53,12 +54,13 @@ impl ClientPlayer {
         self.velocity += Vector3::new(x, y, z);
     }
     pub fn get_eye(&self) -> Position {
+        let hitbox = self.hitbox.unwrap_or((0., 0., 0., 0.));
         Position {
             x: self.position.x as f64,
             y: self.position.y as f64,
             z: self.position.z as f64,
         }
-        .add(0.3, self.eye_height_diff() as f64, 0.3)
+        .add(hitbox.0 / 2., self.eye_height_diff() as f64, hitbox.2 / 2.)
     }
     pub fn update_position(
         &mut self,
@@ -251,7 +253,7 @@ impl ClientPlayer {
     }
     fn eye_height_diff(&self) -> f32 {
         self.hitbox.as_ref().map(|hitbox| hitbox.1).unwrap_or(1.) as f32
-            - 0.25
+            - 0.15
             - self.shifting_animation
     }
     pub fn create_view_matrix(&self) -> Matrix4<f32> {
@@ -272,8 +274,7 @@ impl ClientPlayer {
 }
 pub struct DynamicBlockData {
     pub id: u32,
-    pub animation: Option<(u32, f32)>,
-    pub items: HashMap<String, u32>,
+    pub model_instance: ModelInstanceData,
 }
 pub struct Chunk {
     position: ChunkPosition,
@@ -360,7 +361,7 @@ impl Chunk {
                         BlockRenderDataType::Static(model) => {
                             model.model.add_vertices(
                                 Matrix4::from_angle_y(Deg(block.rotation)),
-                                None,
+                                &ModelInstanceData::new(),
                                 None,
                                 &mut |position, coords| {
                                     vertices.push(Vertex {
@@ -542,8 +543,7 @@ impl World {
                 .entry(block_position)
                 .or_insert_with(|| DynamicBlockData {
                     id: block_id,
-                    animation: None,
-                    items: HashMap::new(),
+                    model_instance: ModelInstanceData::new(),
                 }),
         )
     }
@@ -672,6 +672,5 @@ pub struct EntityData {
     pub type_id: u32,
     pub position: Position,
     pub rotation: f32,
-    pub animation: Option<(u32, f32)>,
-    pub items: HashMap<String, u32>,
+    pub model_instance: ModelInstanceData,
 }

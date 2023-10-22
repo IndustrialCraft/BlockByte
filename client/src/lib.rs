@@ -10,7 +10,7 @@ mod render;
 mod texture;
 
 use array_init::array_init;
-use block_byte_common::messages::{NetworkMessageC2S, NetworkMessageS2C};
+use block_byte_common::messages::{ClientModelTarget, NetworkMessageC2S, NetworkMessageS2C};
 use block_byte_common::{BlockPosition, Face, KeyboardKey, KeyboardModifier, Position, AABB};
 use cgmath::Point3;
 use std::collections::{HashMap, HashSet};
@@ -29,6 +29,7 @@ use winit::{
 
 use crate::game::{ClientPlayer, EntityData, RaycastResult, World};
 use crate::gui::GUIRenderer;
+use crate::model::ModelInstanceData;
 use crate::net::SocketConnection;
 use crate::render::RenderState;
 #[cfg(target_arch = "wasm32")]
@@ -306,7 +307,7 @@ pub async fn run() {
                 &render_state.queue,
             );
             for (_, dynamic_block_data) in &mut world.dynamic_blocks {
-                if let Some(animation) = dynamic_block_data.animation.as_mut() {
+                if let Some(animation) = dynamic_block_data.model_instance.animation.as_mut() {
                     animation.1 += dt;
                     animation.1 %= block_registry
                         .get_block(dynamic_block_data.id)
@@ -388,8 +389,10 @@ pub async fn run() {
                                 type_id,
                                 position,
                                 rotation,
-                                animation: Some((animation, 0.)),
-                                items: HashMap::new(),
+                                model_instance: ModelInstanceData {
+                                    items: HashMap::new(),
+                                    animation: Some((animation, 0.)),
+                                },
                             },
                         );
                     }
@@ -424,51 +427,58 @@ pub async fn run() {
                         camera.pitch_deg = rotation;
                         first_teleport = true;
                     }
-                    NetworkMessageS2C::BlockAnimation(position, animation) => {
-                        if let Some(block_data) = world.get_dynamic_block_data(position) {
-                            block_data.animation = Some((animation, 0.));
+                    NetworkMessageS2C::ModelAnimation(target, animation) => {
+                        let model_instance = match target {
+                            ClientModelTarget::Block(position) => world
+                                .get_dynamic_block_data(position)
+                                .map(|block| &mut block.model_instance),
+                            ClientModelTarget::Entity(id) => world
+                                .entities
+                                .get_mut(&id)
+                                .map(|entity| &mut entity.model_instance),
+                            ClientModelTarget::ViewModel => None,
+                        };
+                        if let Some(model_instance) = model_instance {
+                            model_instance.animation = Some((animation, 0.));
                         }
                     }
-                    NetworkMessageS2C::EntityAnimation(id, animation) => {
-                        if let Some(entity) = world.entities.get_mut(&id) {
-                            entity.animation = Some((animation, 0.));
-                        }
-                    }
-                    NetworkMessageS2C::EntityItem(id, slot, item) => {
-                        if let Some(entity) = world.entities.get_mut(&id) {
-                            let slot = entity_registry
-                                .get_entity(entity.type_id)
-                                .model
-                                .get_item_slot(slot)
-                                .unwrap();
-                            match item {
-                                Some(item) => {
-                                    entity.items.insert(slot.clone(), item);
-                                }
-                                None => {
-                                    entity.items.remove(slot);
-                                }
+                    NetworkMessageS2C::ModelItem(target, slot, item) => {
+                        let model_data = match target {
+                            ClientModelTarget::Block(position) => {
+                                let block_id = world.get_block(position);
+                                world.get_dynamic_block_data(position).map(|block| {
+                                    (
+                                        &mut block.model_instance,
+                                        block_registry
+                                            .get_block(block_id.unwrap())
+                                            .dynamic
+                                            .as_ref()
+                                            .and_then(|model| model.get_item_slot(slot))
+                                            .unwrap(),
+                                    )
+                                })
                             }
-                        }
-                    }
-                    NetworkMessageS2C::BlockItem(block_position, slot, item) => {
-                        let id = world.get_block(block_position).and_then(|block| {
-                            world
-                                .block_registry
-                                .get_block(block)
-                                .dynamic
-                                .as_ref()
-                                .and_then(|model| model.get_item_slot(slot))
-                                .cloned()
-                        });
-                        if let Some(dynamic) = world.get_dynamic_block_data(block_position) {
-                            let id = id.unwrap();
+                            ClientModelTarget::Entity(id) => {
+                                world.entities.get_mut(&id).map(|entity| {
+                                    (
+                                        &mut entity.model_instance,
+                                        entity_registry
+                                            .get_entity(entity.type_id)
+                                            .model
+                                            .get_item_slot(slot)
+                                            .unwrap(),
+                                    )
+                                })
+                            }
+                            ClientModelTarget::ViewModel => None,
+                        };
+                        if let Some((model_instance, slot)) = model_data {
                             match item {
                                 Some(item) => {
-                                    dynamic.items.insert(id, item);
+                                    model_instance.items.insert(slot.clone(), item);
                                 }
                                 None => {
-                                    dynamic.items.remove(&id);
+                                    model_instance.items.remove(slot);
                                 }
                             }
                         }

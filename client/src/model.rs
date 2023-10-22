@@ -44,8 +44,8 @@ impl Model {
     pub fn add_vertices<F>(
         &self,
         base_matrix: Matrix4<f32>,
-        animation: Option<(u32, f32)>,
-        items: Option<(&HashMap<String, u32>, &ItemRegistry)>,
+        instance: &ModelInstanceData,
+        item_registry: Option<&ItemRegistry>,
         vertex_consumer: &mut F,
     ) where
         F: FnMut(Position, (f32, f32)),
@@ -53,8 +53,8 @@ impl Model {
         self.add_bone(
             &self.data.root_bone,
             base_matrix,
-            animation,
-            items,
+            instance,
+            item_registry,
             vertex_consumer,
         );
     }
@@ -62,13 +62,14 @@ impl Model {
         &self,
         bone: &ModelBone,
         parent_transform: Matrix4<f32>,
-        animation: Option<(u32, f32)>,
-        items: Option<(&HashMap<String, u32>, &ItemRegistry)>,
+        instance: &ModelInstanceData,
+        item_registry: Option<&ItemRegistry>,
         vertex_consumer: &mut F,
     ) where
         F: FnMut(Position, (f32, f32)),
     {
-        let (translate, rotate, scale) = animation
+        let (translate, rotate, scale) = instance
+            .animation
             .and_then(|(animation, time)| {
                 self.animations
                     .get(animation as usize)
@@ -79,14 +80,25 @@ impl Model {
         let transform =
             parent_transform * Self::create_matrix_trs(&translate, &rotate, &bone.origin, &scale);
         for child_bone in &bone.child_bones {
-            self.add_bone(child_bone, transform, animation, items, vertex_consumer);
+            self.add_bone(
+                child_bone,
+                transform,
+                instance,
+                item_registry,
+                vertex_consumer,
+            );
         }
         for child_cube_element in &bone.cube_elements {
             self.add_cube_element(child_cube_element, transform, vertex_consumer);
         }
-        if let Some(items) = items {
+        if let Some(item_registry) = item_registry {
             for child_item_element in &bone.item_elements {
-                self.add_item_element(child_item_element, transform, items, vertex_consumer);
+                self.add_item_element(
+                    child_item_element,
+                    transform,
+                    (&instance.items, item_registry),
+                    vertex_consumer,
+                );
             }
         }
     }
@@ -253,5 +265,17 @@ impl Model {
             .animations
             .get(*index as usize)
             .map(|animation| animation.1)
+    }
+}
+pub struct ModelInstanceData {
+    pub animation: Option<(u32, f32)>,
+    pub items: HashMap<String, u32>,
+}
+impl ModelInstanceData {
+    pub fn new() -> Self {
+        ModelInstanceData {
+            animation: None,
+            items: HashMap::new(),
+        }
     }
 }

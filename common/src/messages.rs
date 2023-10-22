@@ -16,17 +16,21 @@ pub enum NetworkMessageS2C {
     GuiEditElement(String, GUIElementEdit),
     SetCursorLock(bool),
     BlockBreakTimeResponse(u32, f32),
-    EntityItem(u32, u32, Option<u32>),
-    BlockItem(BlockPosition, u32, Option<u32>),
     Knockback(f32, f32, f32, bool),
     FluidSelectable(bool),
     PlaySound(String, Position, f32, f32, bool),
-    EntityAnimation(u32, u32),
     ChatMessage(String),
     PlayerAbilities(f32, MovementType),
     TeleportPlayer(Position, f32),
-    BlockAnimation(BlockPosition, u32),
+    ModelItem(ClientModelTarget, u32, Option<u32>),
+    ModelAnimation(ClientModelTarget, u32),
     ControllingEntity(u32),
+}
+#[derive(Serialize, Deserialize)]
+pub enum ClientModelTarget {
+    Block(BlockPosition),
+    Entity(u32),
+    ViewModel,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MovementType {

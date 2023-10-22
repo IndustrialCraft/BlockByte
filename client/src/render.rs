@@ -1,7 +1,7 @@
 use crate::content::{EntityRegistry, ItemRegistry};
 use crate::game::{ClientPlayer, World};
 use crate::gui::GUIRenderer;
-use crate::model::Model;
+use crate::model::{Model, ModelInstanceData};
 use crate::texture;
 use crate::texture::Texture;
 use block_byte_common::{Face, Position, TexCoords, Vec3, AABB};
@@ -514,8 +514,8 @@ impl RenderState {
                     .unwrap();
                 dynamic_data.add_vertices(
                     Matrix4::identity(),
-                    dynamic_block_data.animation,
-                    Some((&dynamic_block_data.items, item_registry)),
+                    &dynamic_block_data.model_instance,
+                    Some(item_registry),
                     &mut |position, coords| {
                         vertices.push(Vertex {
                             position: [
@@ -545,8 +545,8 @@ impl RenderState {
                         &Vec3::ZERO,
                         &Vec3::ONE,
                     ),
-                    entity.animation,
-                    Some((&entity.items, item_registry)),
+                    &entity.model_instance,
+                    Some(item_registry),
                     &mut |position, coords| {
                         vertices.push(Vertex {
                             position: [position.x as f32, position.y as f32, position.z as f32],
@@ -665,7 +665,7 @@ impl RenderState {
                     let mut vertices = Vec::new();
                     viewmodel.add_vertices(
                         Model::create_matrix_trs(&Vec3::ZERO, &Vec3::ZERO, &Vec3::ZERO, &Vec3::ONE),
-                        None,
+                        &ModelInstanceData::new(),
                         None,
                         &mut |position, coords| {
                             vertices.push(Vertex {

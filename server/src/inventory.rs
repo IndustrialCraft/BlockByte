@@ -6,7 +6,7 @@ use std::{
 use block_byte_common::gui::{
     GUIComponent, GUIComponentEdit, GUIElement, GUIElementEdit, PositionAnchor,
 };
-use block_byte_common::messages::{MouseButton, NetworkMessageS2C};
+use block_byte_common::messages::{ClientModelTarget, MouseButton, NetworkMessageS2C};
 use block_byte_common::{Color, Position, Vec2};
 use fxhash::FxHashMap;
 use json::{object, JsonValue};
@@ -162,21 +162,22 @@ impl Inventory {
         match &self.owner.upgrade().unwrap() {
             InventoryWrapper::Entity(entity) => {
                 if let Some(mapping) = entity.entity_type.item_model_mapping.mapping.get(&index) {
-                    entity.get_location().chunk.announce_to_viewers(
-                        &NetworkMessageS2C::EntityItem(
-                            entity.client_id,
+                    entity
+                        .get_location()
+                        .chunk
+                        .announce_to_viewers(&NetworkMessageS2C::ModelItem(
+                            ClientModelTarget::Entity(entity.client_id),
                             *mapping,
                             item.as_ref().map(|item| item.item_type.client_id),
-                        ),
-                    );
+                        ));
                 }
             }
             InventoryWrapper::Block(block) => {
                 let chunk = block.chunk.upgrade().unwrap();
                 let block_type = chunk.world.server.block_registry.state_by_ref(&block.state);
                 if let Some(mapping) = block_type.parent.item_model_mapping.mapping.get(&index) {
-                    chunk.announce_to_viewers(&NetworkMessageS2C::BlockItem(
-                        block.position,
+                    chunk.announce_to_viewers(&NetworkMessageS2C::ModelItem(
+                        ClientModelTarget::Block(block.position),
                         *mapping,
                         item.as_ref().map(|item| item.item_type.client_id),
                     ));

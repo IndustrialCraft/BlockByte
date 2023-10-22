@@ -17,7 +17,7 @@ use atomic_counter::{AtomicCounter, RelaxedCounter};
 use bitcode::__private::Serialize;
 use block_byte_common::gui::{GUIComponent, GUIElement, GUIElementEdit, PositionAnchor};
 use block_byte_common::messages::{
-    MouseButton, MovementType, NetworkMessageC2S, NetworkMessageS2C,
+    ClientModelTarget, MouseButton, MovementType, NetworkMessageC2S, NetworkMessageS2C,
 };
 use block_byte_common::{
     BlockPosition, ChunkPosition, Color, Face, KeyboardKey, KeyboardModifier, Position, Vec2, AABB,
@@ -1119,8 +1119,8 @@ impl Entity {
             animation_controller.animation_start_time,
         ));
         for (inventory_index, model_index) in &self.entity_type.item_model_mapping.mapping {
-            messages.push(NetworkMessageS2C::EntityItem(
-                self.client_id,
+            messages.push(NetworkMessageS2C::ModelItem(
+                ClientModelTarget::Entity(self.client_id),
                 *model_index,
                 self.inventory
                     .get_full_view()
@@ -1813,15 +1813,15 @@ impl Animatable for Entity {
     fn send_animation_to_viewers(&self, animation: u32) {
         self.get_location()
             .chunk
-            .announce_to_viewers(&NetworkMessageS2C::EntityAnimation(
-                self.client_id,
+            .announce_to_viewers(&NetworkMessageS2C::ModelAnimation(
+                ClientModelTarget::Entity(self.client_id),
                 animation,
             ));
     }
     fn send_animation_to(&self, viewer: &Entity, animation: u32) {
         viewer
-            .try_send_message(&NetworkMessageS2C::EntityAnimation(
-                self.client_id,
+            .try_send_message(&NetworkMessageS2C::ModelAnimation(
+                ClientModelTarget::Entity(self.client_id),
                 animation,
             ))
             .ok();
@@ -2128,8 +2128,8 @@ impl WorldBlock {
         self.animation_controller.sync_to(player);
         for (inventory_index, model_index) in &self.block.item_model_mapping.mapping {
             player
-                .try_send_message(&NetworkMessageS2C::BlockItem(
-                    self.position,
+                .try_send_message(&NetworkMessageS2C::ModelItem(
+                    ClientModelTarget::Block(self.position),
                     *model_index,
                     self.inventory
                         .get_full_view()
@@ -2217,8 +2217,8 @@ impl WorldBlock {
         self.animation_controller.resync();
         let chunk = self.chunk.upgrade().unwrap();
         for (inventory_index, model_index) in &self.block.item_model_mapping.mapping {
-            chunk.announce_to_viewers(&NetworkMessageS2C::BlockItem(
-                self.position,
+            chunk.announce_to_viewers(&NetworkMessageS2C::ModelItem(
+                ClientModelTarget::Block(self.position),
                 *model_index,
                 self.inventory
                     .get_full_view()
@@ -2238,11 +2238,17 @@ impl Animatable for WorldBlock {
         self.chunk
             .upgrade()
             .unwrap()
-            .announce_to_viewers(&NetworkMessageS2C::BlockAnimation(self.position, animation));
+            .announce_to_viewers(&NetworkMessageS2C::ModelAnimation(
+                ClientModelTarget::Block(self.position),
+                animation,
+            ));
     }
     fn send_animation_to(&self, viewer: &Entity, animation: u32) {
         viewer
-            .try_send_message(&NetworkMessageS2C::BlockAnimation(self.position, animation))
+            .try_send_message(&NetworkMessageS2C::ModelAnimation(
+                ClientModelTarget::Block(self.position),
+                animation,
+            ))
             .ok();
     }
 }
