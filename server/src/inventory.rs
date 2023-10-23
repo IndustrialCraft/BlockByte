@@ -171,6 +171,9 @@ impl Inventory {
                             item.as_ref().map(|item| item.item_type.client_id),
                         ));
                 }
+                if index == entity.entity_data.get_hand_slot() {
+                    entity.sync_main_hand_viewmodel(item.as_ref());
+                }
             }
             InventoryWrapper::Block(block) => {
                 let chunk = block.chunk.upgrade().unwrap();
@@ -243,7 +246,7 @@ impl Inventory {
         item.as_ref()
             .map(|item| object! {item:item.item_type.client_id, count:item.item_count})
     }
-    pub fn set_cursor(entity_data: &mut EntityData) {
+    pub fn set_cursor(entity_data: &EntityData) {
         let item = entity_data.get_inventory_hand();
         let player = entity_data.player.upgrade().unwrap();
         if item.is_some() {
@@ -300,9 +303,8 @@ impl Inventory {
             .map(|handler| handler.call((self, player, id, button, shifting)))
             .unwrap_or(InteractionResult::Ignored);
         if let InteractionResult::Ignored = result {
-            let mut player_data = player.entity_data.lock();
             if button == MouseButton::Left {
-                let mut hand = player_data.get_inventory_hand().clone();
+                let mut hand = player.entity_data.get_inventory_hand().clone();
                 let mut slot = self.get_full_view().get_item(id).unwrap().clone();
                 match (hand.as_mut(), slot.as_mut()) {
                     (Some(hand), Some(slot)) => {
@@ -320,7 +322,7 @@ impl Inventory {
                     }
                     _ => {}
                 }
-                player_data.set_inventory_hand(slot);
+                player.entity_data.set_inventory_hand(slot);
                 self.get_full_view().set_item(id, hand).unwrap();
             }
         }
@@ -332,8 +334,7 @@ impl Inventory {
             .map(|handler| handler.call((self, player, id, x, y, shifting)))
             .unwrap_or(InteractionResult::Ignored);
         if let InteractionResult::Ignored = result {
-            let mut player_data = player.entity_data.lock();
-            player_data.modify_inventory_hand(|first| {
+            player.entity_data.modify_inventory_hand(|first| {
                 self.get_full_view()
                     .modify_item(id, |second| {
                         let (first, second) = if y < 0 {
@@ -482,17 +483,20 @@ impl<'a> InventoryView<'a> {
     }
     pub fn set_item(&self, index: u32, item: Option<ItemStack>) -> Result<(), ()> {
         let index = self.map_slot(index)?;
-        self.inventory.items.lock()[index as usize] = match item {
-            Some(item) => {
-                if item.item_count == 0 {
-                    None
-                } else {
-                    Some(item)
+        {
+            self.inventory.items.lock()[index as usize] = match item {
+                Some(item) => {
+                    if item.item_count == 0 {
+                        None
+                    } else {
+                        Some(item)
+                    }
                 }
-            }
-            None => None,
-        };
+                None => None,
+            };
+        }
         self.inventory.sync_slot(index);
+
         if let Some(handler) = self.inventory.set_item_handler.as_ref() {
             handler.call((self.inventory, index));
         }

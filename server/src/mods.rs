@@ -224,8 +224,14 @@ impl ModManager {
             .register_fn("create_entity", EntityBuilder::new)
             .register_fn("client_model", EntityBuilder::client_model)
             .register_fn("client_viewmodel", EntityBuilder::client_viewmodel)
-            .register_fn("client_viewmodel_add_item", EntityBuilder::client_viewmodel_add_item)
-            .register_fn("client_viewmodel_add_animation", EntityBuilder::client_viewmodel_add_animation)
+            .register_fn(
+                "client_viewmodel_add_item",
+                EntityBuilder::client_viewmodel_add_item,
+            )
+            .register_fn(
+                "client_viewmodel_add_animation",
+                EntityBuilder::client_viewmodel_add_animation,
+            )
             .register_fn("client_hitbox", EntityBuilder::client_hitbox)
             .register_fn("client_add_animation", EntityBuilder::client_add_animation)
             .register_fn("client_add_item", EntityBuilder::client_add_item)
@@ -971,15 +977,35 @@ impl EntityBuilder {
         model: &str,
         texture: &str,
     ) -> Arc<Mutex<Self>> {
-        this.lock().client.viewmodel = Some((model.to_string(), texture.to_string(), Vec::new(), Vec::new()));
+        this.lock().client.viewmodel = Some((
+            model.to_string(),
+            texture.to_string(),
+            Vec::new(),
+            Vec::new(),
+        ));
         this.clone()
     }
-    pub fn client_viewmodel_add_animation(this: &mut Arc<Mutex<Self>>, animation: &str) -> Arc<Mutex<Self>> {
-        this.lock().client.viewmodel.as_mut().unwrap().2.push(animation.to_string());
+    pub fn client_viewmodel_add_animation(
+        this: &mut Arc<Mutex<Self>>,
+        animation: &str,
+    ) -> Arc<Mutex<Self>> {
+        this.lock()
+            .client
+            .viewmodel
+            .as_mut()
+            .unwrap()
+            .2
+            .push(animation.to_string());
         this.clone()
     }
     pub fn client_viewmodel_add_item(this: &mut Arc<Mutex<Self>>, item: &str) -> Arc<Mutex<Self>> {
-        this.lock().client.viewmodel.as_mut().unwrap().3.push(item.to_string());
+        this.lock()
+            .client
+            .viewmodel
+            .as_mut()
+            .unwrap()
+            .3
+            .push(item.to_string());
         this.clone()
     }
     pub fn tick(this: &mut Arc<Mutex<Self>>, callback: FnPtr) -> Arc<Mutex<Self>> {
@@ -1088,13 +1114,13 @@ pub struct PlayerAbilitiesWrapper {
 
 impl PlayerAbilitiesWrapper {
     pub fn set_speed(&mut self, speed: f64) {
-        self.entity.entity_data.lock().set_speed(speed as f32);
+        self.entity.entity_data.set_speed(speed as f32);
     }
     pub fn set_movement_type(&mut self, move_type: MovementType) {
-        self.entity.entity_data.lock().set_move_type(move_type);
+        self.entity.entity_data.set_move_type(move_type);
     }
     pub fn set_creative(&mut self, creative: bool) {
-        self.entity.entity_data.lock().creative = creative;
+        *self.entity.entity_data.creative.lock() = creative;
     }
 }
 

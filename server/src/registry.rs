@@ -562,7 +562,7 @@ impl Item {
                 |block| match block {
                     BlockData::Simple(0) => {
                         if !world.collides_entity_with_block(block_position) {
-                            if !player.entity_data.lock().creative {
+                            if !*player.entity_data.creative.lock() {
                                 item.add_count(-1);
                             }
                             Some(place.get_state_ref(0)) //todo: place correct state

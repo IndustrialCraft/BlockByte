@@ -801,41 +801,42 @@ impl UserData {
 
 pub struct EntityData {
     pub player: Weak<Entity>,
-    slot: u32,
-    speed: f32,
-    move_type: MovementType,
-    pub creative: bool,
-    hand_item: Option<ItemStack>,
+    slot: Mutex<u32>,
+    speed: Mutex<f32>,
+    move_type: Mutex<MovementType>,
+    pub creative: Mutex<bool>,
+    hand_item: Mutex<Option<ItemStack>>,
 }
 
 impl EntityData {
     pub fn new(player: Weak<Entity>) -> Self {
         EntityData {
             player,
-            slot: u32::MAX,
-            speed: 1.,
-            move_type: MovementType::Normal,
-            creative: false,
-            hand_item: None,
+            slot: Mutex::new(u32::MAX),
+            speed: Mutex::new(1.),
+            move_type: Mutex::new(MovementType::Normal),
+            creative: Mutex::new(false),
+            hand_item: Mutex::new(None),
         }
     }
 
-    pub fn modify_inventory_hand<F>(&mut self, function: F)
+    pub fn modify_inventory_hand<F>(&self, function: F)
     where
         F: FnOnce(&mut Option<ItemStack>),
     {
-        function.call_once((&mut self.hand_item,));
-        let set_as_empty = match &self.hand_item {
+        let mut hand_item = self.hand_item.lock();
+        function.call_once((&mut *hand_item,));
+        let set_as_empty = match &*hand_item {
             Some(item) => item.get_count() == 0,
             None => true,
         };
         if set_as_empty {
-            self.hand_item = None;
+            *hand_item = None;
         }
         Inventory::set_cursor(self);
     }
-    pub fn set_inventory_hand(&mut self, item: Option<ItemStack>) {
-        self.hand_item = match item {
+    pub fn set_inventory_hand(&self, item: Option<ItemStack>) {
+        *self.hand_item.lock() = match item {
             Some(item) => {
                 if item.get_count() == 0 {
                     None
@@ -847,28 +848,28 @@ impl EntityData {
         };
         Inventory::set_cursor(self);
     }
-    pub fn get_inventory_hand(&self) -> &Option<ItemStack> {
-        &self.hand_item
+    pub fn get_inventory_hand(&self) -> Option<ItemStack> {
+        self.hand_item.lock().clone()
     }
-    fn send_abilities(&mut self) {
+    fn send_abilities(&self) {
         self.player
             .upgrade()
             .unwrap()
             .try_send_message(&NetworkMessageS2C::PlayerAbilities(
-                self.speed,
-                self.move_type,
+                *self.speed.lock(),
+                *self.move_type.lock(),
             ))
             .ok();
     }
-    pub fn set_speed(&mut self, speed: f32) {
-        self.speed = speed;
+    pub fn set_speed(&self, speed: f32) {
+        *self.speed.lock() = speed;
         self.send_abilities();
     }
-    pub fn set_move_type(&mut self, move_type: MovementType) {
-        self.move_type = move_type;
+    pub fn set_move_type(&self, move_type: MovementType) {
+        *self.move_type.lock() = move_type;
         self.send_abilities();
     }
-    pub fn set_hand_slot(&mut self, slot: u32) {
+    pub fn set_hand_slot(&self, slot: u32) {
         let player = self.player.upgrade().unwrap();
         let slot = if slot == u32::MAX {
             player.inventory.get_size() - 1
@@ -877,17 +878,21 @@ impl EntityData {
         };
         player
             .try_send_message(&NetworkMessageS2C::GuiEditElement(
-                player.inventory.get_slot_id_entity(&player, self.slot),
+                player
+                    .inventory
+                    .get_slot_id_entity(&player, *self.slot.lock()),
                 GUIElementEdit {
                     base_color: Some(Color::WHITE),
                     ..Default::default()
                 },
             ))
             .ok();
-        self.slot = slot;
+        *self.slot.lock() = slot;
         player
             .try_send_message(&NetworkMessageS2C::GuiEditElement(
-                player.inventory.get_slot_id_entity(&player, self.slot),
+                player
+                    .inventory
+                    .get_slot_id_entity(&player, *self.slot.lock()),
                 GUIElementEdit {
                     base_color: Some(Color {
                         r: 100,
@@ -899,9 +904,11 @@ impl EntityData {
                 },
             ))
             .ok();
+
+        player.sync_main_hand_viewmodel(player.get_hand_item().as_ref());
     }
     pub fn get_hand_slot(&self) -> u32 {
-        self.slot
+        *self.slot.lock()
     }
 }
 
@@ -911,7 +918,7 @@ pub struct Entity {
     pub(crate) rotation_shifting: Mutex<(f32, bool)>,
     teleport: Mutex<Option<ChunkLocation>>,
     pub entity_type: Arc<EntityType>,
-    pub entity_data: Mutex<EntityData>,
+    pub entity_data: EntityData,
     removed: AtomicBool,
     pub client_id: u32,
     id: Uuid,
@@ -946,7 +953,7 @@ impl Entity {
             client_id: ENTITY_CLIENT_ID_GENERATOR.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
             id: Uuid::new_v4(),
             teleport: Mutex::new(None),
-            entity_data: Mutex::new(EntityData::new(weak.clone())),
+            entity_data: EntityData::new(weak.clone()),
             rotation_shifting: Mutex::new((0., false)),
             animation_controller: Mutex::new(AnimationController::new(weak.clone(), 1)),
             inventory: Inventory::new(
@@ -972,7 +979,6 @@ impl Entity {
                     entity.entity_type.client_id,
                 ))
                 .unwrap();
-            entity.try_send_message(&NetworkMessageS2C::ModelItem(ClientModelTarget::ViewModel, 0, Some(entity.server.item_registry.item_by_identifier(&Identifier::new("example", "copper_pickaxe")).unwrap().client_id))).ok();
             entity.inventory.add_viewer(GuiInventoryViewer {
                 slot_range: 0..9,
                 slots: {
@@ -994,9 +1000,8 @@ impl Entity {
         }
 
         if entity.is_player() {
-            let mut entity_data = entity.entity_data.lock();
-            entity_data.set_hand_slot(0);
-            Inventory::set_cursor(&mut *entity_data);
+            entity.entity_data.set_hand_slot(0);
+            Inventory::set_cursor(&entity.entity_data);
         }
         chunk.add_entity(entity.clone());
         let add_message = entity.create_add_messages(position);
@@ -1052,10 +1057,9 @@ impl Entity {
                 .add_viewer(viewer);
             Some(id)
         } else {
-            let mut player_data = self.entity_data.lock();
             //todo: drop hand item
-            player_data.set_inventory_hand(None);
-            Inventory::set_cursor(&mut *player_data);
+            self.entity_data.set_inventory_hand(None);
+            Inventory::set_cursor(&self.entity_data);
             None
         };
         self.try_send_message(&NetworkMessageS2C::SetCursorLock(inventory.is_none()))
@@ -1319,7 +1323,7 @@ impl Entity {
                         match key {
                             KeyboardKey::Q => {
                                 if pressed {
-                                    let slot = { self.entity_data.lock().slot };
+                                    let slot = { *self.entity_data.slot.lock() };
                                     self.inventory
                                         .get_full_view()
                                         .modify_item(slot, |item| {
@@ -1370,25 +1374,22 @@ impl Entity {
                                     if self.open_inventory.lock().is_some() {
                                         self.set_open_inventory(None);
                                     } else {
-                                        if self.entity_data.lock().creative {
-                                            self.set_open_inventory(Some((InventoryWrapper::Own(Arc::new(
+                                        if *self.entity_data.creative.lock() {
+                                            self.set_open_inventory(Some((InventoryWrapper::Own(
                                     {
-                                        let inventory = Inventory::new(
-                                            self,
+                                        let inventory = Inventory::new_owned(
                                             27,
                                             Some(Box::new(move |inventory: &Inventory, entity: &Entity, slot: u32, _: MouseButton, _: bool| {
-                                                let mut entity_data = entity.entity_data.lock();
-                                                let hand_empty = entity_data.hand_item.is_none();
+                                                let hand_empty = entity.entity_data.hand_item.lock().is_none();
                                                 if hand_empty {
-                                                    entity_data.set_inventory_hand(inventory.get_full_view().get_item(slot).unwrap().clone());
+                                                    entity.entity_data.set_inventory_hand(inventory.get_full_view().get_item(slot).unwrap().clone());
                                                 } else {
-                                                    entity_data.set_inventory_hand(None);
+                                                    entity.entity_data.set_inventory_hand(None);
                                                 }
                                                 InteractionResult::Consumed
                                             })),
                                             Some(Box::new(|inventory: &Inventory, entity: &Entity, slot: u32, _: i32, y: i32, _: bool| {
-                                                let mut entity_data = entity.entity_data.lock();
-                                                entity_data.modify_inventory_hand(|item| {
+                                                entity.entity_data.modify_inventory_hand(|item| {
                                                     match &mut *item {
                                                         Some(item) => {
                                                             item.add_count(if y < 0 { -1 } else { 1 });
@@ -1421,7 +1422,7 @@ impl Entity {
                                                 .ok();
                                         }
                                         inventory
-                                    }),
+                                    },
                                 ), GuiInventoryData{
                                                 slots: {
                                                     let mut slots = Vec::with_capacity(27);
@@ -1551,7 +1552,7 @@ impl Entity {
                         }
                         if let Some(slot) = key.get_slot() {
                             if pressed {
-                                self.entity_data.lock().set_hand_slot(slot as u32);
+                                self.entity_data.set_hand_slot(slot as u32);
                             }
                         }
                     }
@@ -1603,7 +1604,7 @@ impl Entity {
                             .set_animation(Some(if moved { 2 } else { 1 }));
                     }
                     NetworkMessageC2S::RequestBlockBreakTime(id, position) => {
-                        let block_break_time = if self.entity_data.lock().creative {
+                        let block_break_time = if *self.entity_data.creative.lock() {
                             0.
                         } else {
                             let world = self.get_location().chunk.world.clone();
@@ -1650,7 +1651,7 @@ impl Entity {
                         world.break_block(block_position, BlockBreakParameters::from_entity(self));
                     }
                     NetworkMessageC2S::RightClickBlock(block_position, face, shifting) => {
-                        let hand_slot = self.entity_data.lock().get_hand_slot();
+                        let hand_slot = self.entity_data.get_hand_slot();
                         let block = self
                             .get_location()
                             .chunk
@@ -1682,7 +1683,7 @@ impl Entity {
                             .unwrap();
                     }
                     NetworkMessageC2S::RightClick(_shifting) => {
-                        let hand_slot = self.entity_data.lock().get_hand_slot();
+                        let hand_slot = self.entity_data.get_hand_slot();
                         let mut right_click_result = InteractionResult::Ignored;
                         self.inventory
                             .get_full_view()
@@ -1734,9 +1735,8 @@ impl Entity {
                         }
                     }
                     NetworkMessageC2S::MouseScroll(_scroll_x, scroll_y) => {
-                        let mut player_data = self.entity_data.lock();
-                        let new_slot = player_data.get_hand_slot() as i32 - scroll_y;
-                        player_data.set_hand_slot(new_slot as u32);
+                        let new_slot = self.entity_data.get_hand_slot() as i32 - scroll_y;
+                        self.entity_data.set_hand_slot(new_slot as u32);
                     }
                     NetworkMessageC2S::SendMessage(message) => {
                         if message.starts_with("/") {
@@ -1773,7 +1773,7 @@ impl Entity {
     }
     pub fn get_hand_item(&self) -> Option<ItemStack> {
         let inventory = self.inventory.get_full_view();
-        inventory.get_item(self.entity_data.lock().slot).unwrap()
+        inventory.get_item(*self.entity_data.slot.lock()).unwrap()
     }
     pub fn remove(&self) {
         self.removed
@@ -1802,6 +1802,14 @@ impl Entity {
         if let Some(inventory) = self.open_inventory.lock().as_ref() {
             inventory.0.get_inventory().remove_viewer(self.get_id());
         }
+    }
+    pub fn sync_main_hand_viewmodel(&self, item: Option<&ItemStack>) {
+        self.try_send_message(&NetworkMessageS2C::ModelItem(
+            ClientModelTarget::ViewModel,
+            0,
+            item.map(|item| item.item_type.client_id),
+        ))
+        .ok();
     }
     fn is_player(&self) -> bool {
         self.connection.lock().is_some()
