@@ -271,6 +271,9 @@ pub async fn run() {
                     ))
                     .unwrap_or(String::new())
             ));
+            if let Some(animation) = viewmodel_instance.animation.as_mut() {
+                animation.1 += dt;
+            }
             block_breaking_manager.tick(dt, &mut connection, keys.contains(&VirtualKeyCode::R));
             while let Ok(message) = text_input_channel.try_recv() {
                 connection.send_message(&NetworkMessageC2S::SendMessage(message));
@@ -475,7 +478,13 @@ pub async fn run() {
                             ClientModelTarget::ViewModel => player_entity_type
                                 .as_ref()
                                 .map(|id| entity_registry.get_entity(*id))
-                                .and_then(|entity| entity.viewmodel.as_ref()).map(|viewmodel|(&mut viewmodel_instance, viewmodel.get_item_slot(slot).unwrap())),
+                                .and_then(|entity| entity.viewmodel.as_ref())
+                                .map(|viewmodel| {
+                                    (
+                                        &mut viewmodel_instance,
+                                        viewmodel.get_item_slot(slot).unwrap(),
+                                    )
+                                }),
                         };
                         if let Some((model_instance, slot)) = model_data {
                             match item {
@@ -512,7 +521,8 @@ pub async fn run() {
                 player_entity_type
                     .as_ref()
                     .map(|id| entity_registry.get_entity(*id))
-                    .and_then(|entity| entity.viewmodel.as_ref()).map(|model|(model,&viewmodel_instance)),
+                    .and_then(|entity| entity.viewmodel.as_ref())
+                    .map(|model| (model, &viewmodel_instance)),
             ) {
                 Ok(_) => {}
                 Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {

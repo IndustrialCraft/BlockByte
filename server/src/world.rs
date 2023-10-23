@@ -1810,6 +1810,13 @@ impl Entity {
             item.map(|item| item.item_type.client_id),
         ))
         .ok();
+        if item.is_some() {
+            self.try_send_message(&NetworkMessageS2C::ModelAnimation(
+                ClientModelTarget::ViewModel,
+                0,
+            ))
+            .ok();
+        }
     }
     fn is_player(&self) -> bool {
         self.connection.lock().is_some()
