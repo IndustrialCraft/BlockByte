@@ -972,6 +972,7 @@ impl Entity {
                     entity.entity_type.client_id,
                 ))
                 .unwrap();
+            entity.try_send_message(&NetworkMessageS2C::ModelItem(ClientModelTarget::ViewModel, 0, Some(entity.server.item_registry.item_by_identifier(&Identifier::new("example", "copper_pickaxe")).unwrap().client_id))).ok();
             entity.inventory.add_viewer(GuiInventoryViewer {
                 slot_range: 0..9,
                 slots: {

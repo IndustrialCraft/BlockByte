@@ -100,6 +100,8 @@ pub async fn run() {
     let mut player_entity_type = None;
 
     let text_input_channel = spawn_stdin_channel();
+
+    let mut viewmodel_instance = ModelInstanceData::new();
     #[allow(deprecated)]
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -436,7 +438,7 @@ pub async fn run() {
                                 .entities
                                 .get_mut(&id)
                                 .map(|entity| &mut entity.model_instance),
-                            ClientModelTarget::ViewModel => None,
+                            ClientModelTarget::ViewModel => Some(&mut viewmodel_instance),
                         };
                         if let Some(model_instance) = model_instance {
                             model_instance.animation = Some((animation, 0.));
@@ -470,7 +472,10 @@ pub async fn run() {
                                     )
                                 })
                             }
-                            ClientModelTarget::ViewModel => None,
+                            ClientModelTarget::ViewModel => player_entity_type
+                                .as_ref()
+                                .map(|id| entity_registry.get_entity(*id))
+                                .and_then(|entity| entity.viewmodel.as_ref()).map(|viewmodel|(&mut viewmodel_instance, viewmodel.get_item_slot(slot).unwrap())),
                         };
                         if let Some((model_instance, slot)) = model_data {
                             match item {
@@ -494,6 +499,7 @@ pub async fn run() {
                                 entity.hitbox_h_shifting,
                             )
                         });
+                        viewmodel_instance = ModelInstanceData::new();
                     }
                 }
             }
@@ -506,7 +512,7 @@ pub async fn run() {
                 player_entity_type
                     .as_ref()
                     .map(|id| entity_registry.get_entity(*id))
-                    .and_then(|entity| entity.viewmodel.as_ref()),
+                    .and_then(|entity| entity.viewmodel.as_ref()).map(|model|(model,&viewmodel_instance)),
             ) {
                 Ok(_) => {}
                 Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {

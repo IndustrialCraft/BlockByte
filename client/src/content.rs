@@ -361,8 +361,8 @@ impl EntityRegistry {
                         .unwrap_or(models.get("missing").unwrap())
                         .clone(),
                     texture_atlas.get(viewmodel.1.as_str()),
-                    Vec::new(),
-                    Vec::new(),
+                    viewmodel.2.clone(),
+                    viewmodel.3.clone(),
                 )
             }),
         });

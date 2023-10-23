@@ -446,7 +446,7 @@ impl RenderState {
         gui: &mut GUIRenderer,
         item_registry: &ItemRegistry,
         entity_registry: &EntityRegistry,
-        viewmodel: Option<&Model>,
+        viewmodel: Option<(&Model, &ModelInstanceData)>,
     ) -> Result<(), wgpu::SurfaceError> {
         self.camera_uniform
             .load_view_proj_matrix(camera, self.size.width as f32 / self.size.height as f32);
@@ -661,12 +661,12 @@ impl RenderState {
 
         let viewmodel = {
             match viewmodel {
-                Some(viewmodel) => {
+                Some((viewmodel, viewmodel_instance)) => {
                     let mut vertices = Vec::new();
                     viewmodel.add_vertices(
                         Model::create_matrix_trs(&Vec3::ZERO, &Vec3::ZERO, &Vec3::ZERO, &Vec3::ONE),
-                        &ModelInstanceData::new(),
-                        None,
+                        viewmodel_instance,
+                        Some(item_registry),
                         &mut |position, coords| {
                             vertices.push(Vertex {
                                 position: [position.x as f32, position.y as f32, position.z as f32],

@@ -82,7 +82,7 @@ pub struct ClientEntityData {
     pub hitbox_h_shifting: f64,
     pub animations: Vec<String>,
     pub items: Vec<String>,
-    pub viewmodel: Option<(String, String)>,
+    pub viewmodel: Option<(String, String, Vec<String>, Vec<String>)>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
