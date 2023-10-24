@@ -148,39 +148,45 @@ impl ModelAnimationData {
         time: f32,
         default_value: f32,
     ) -> Vec3 {
-        let mut closest_time = f32::MAX;
-        let mut closest = None;
-        for keyframe in keyframes.iter().enumerate() {
-            let time_diff = (keyframe.1.time - time).abs();
-            if time_diff < closest_time {
-                closest_time = time_diff;
-                closest = Some(keyframe);
-            }
-        }
-        if let None = closest {
-            return Vec3 {
+        if keyframes.len() == 0 {
+            Vec3 {
                 x: default_value,
                 y: default_value,
                 z: default_value,
-            };
-        }
-        let closest = closest.unwrap();
-        let second = keyframes
-            .get((closest.0 as i32 + (if closest.1.time < time { 1i32 } else { -1i32 })) as usize);
-        let mut first = closest.1;
-        let mut second = if let Some(second) = second {
-            second
+            }
         } else {
-            return first.data;
-        };
-        if second.time < first.time {
-            (first, second) = (second, first);
-        }
-        let lerp_val = (time - first.time) / (second.time - first.time);
-        Vec3 {
-            x: (first.data.x * (1. - lerp_val)) + (second.data.x * lerp_val),
-            y: (first.data.y * (1. - lerp_val)) + (second.data.y * lerp_val),
-            z: (first.data.z * (1. - lerp_val)) + (second.data.z * lerp_val),
+            let mut first = None;
+            let mut second = None;
+            for keyframe in keyframes {
+                if keyframe.time < time {
+                    first = Some(keyframe);
+                } else {
+                    second = Some(keyframe);
+                    break;
+                }
+            }
+            if first.is_some() && second.is_none() {
+                second = first;
+            }
+            if second.is_some() && first.is_none() {
+                first = second;
+            }
+            let first = first.unwrap();
+            let second = second.unwrap();
+            if std::ptr::eq(first, second) {
+                Vec3 {
+                    x: first.data.x,
+                    y: first.data.y,
+                    z: first.data.z,
+                }
+            } else {
+                let lerp_val = (time - first.time) / (second.time - first.time);
+                Vec3 {
+                    x: (first.data.x * (1. - lerp_val)) + (second.data.x * lerp_val),
+                    y: (first.data.y * (1. - lerp_val)) + (second.data.y * lerp_val),
+                    z: (first.data.z * (1. - lerp_val)) + (second.data.z * lerp_val),
+                }
+            }
         }
     }
 }

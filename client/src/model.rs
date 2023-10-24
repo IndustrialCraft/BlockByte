@@ -253,8 +253,8 @@ impl Model {
         let origin = Matrix4::from_translation(Vector3::new(origin.x, origin.y, origin.z));
         Matrix4::from_translation(Vector3::new(translation.x, translation.y, translation.z))
             * (origin
-                * Matrix4::from_angle_z(Rad(rotation.z))
-                * Matrix4::from_angle_y(Rad(rotation.y))
+                * Matrix4::from_angle_z(Rad(-rotation.z))
+                * Matrix4::from_angle_y(Rad(-rotation.y))
                 * Matrix4::from_angle_x(Rad(-rotation.x))
                 * origin.invert().unwrap())
             * Matrix4::from_nonuniform_scale(scale.x, scale.y, scale.z)

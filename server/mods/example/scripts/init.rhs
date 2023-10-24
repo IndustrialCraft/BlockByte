@@ -21,7 +21,7 @@ create_block("example:leaves", |p|{
 }).register_item("example:leaves_block","Leaves Block").register();
 create_block("example:test_model", |p|{
     create_air().dynamic("example:player","example:player").dynamic_add_animation("walk").dynamic_add_item("main_hand")
-}).register_item("example:mode_test_block","Model Test Block").register();
+}).data_container().register_item("example:mode_test_block","Model Test Block").register();
 create_block("example:barrel", |p|{
     create_cube("example:barrel","example:barrel","example:barrel","example:barrel","example:barrel","example:barrel")
 }).register_item("example:barrel_block","Barrel Block").data_container().register();
