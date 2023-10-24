@@ -186,7 +186,7 @@ impl BlockData {
         match self.block_type {
             BlockRenderDataType::Air => false,
             BlockRenderDataType::Cube(_) => true,
-            BlockRenderDataType::Static(_) => false, //todo
+            BlockRenderDataType::Static(_) => false,
             BlockRenderDataType::Foliage(_) => false,
         }
     }

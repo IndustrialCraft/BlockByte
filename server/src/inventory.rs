@@ -37,13 +37,10 @@ impl ItemStack {
         }
     }
     pub fn from_json(json: &JsonValue, item_registry: &ItemRegistry) -> Result<Self, ()> {
-        //todo: error instead of crashing
-        Ok(Self::new(
-            item_registry
-                .item_by_identifier(&Identifier::parse(json["id"].as_str().unwrap()).unwrap())
-                .unwrap(),
-            json["count"].as_u32().unwrap(),
-        ))
+        item_registry
+            .item_by_identifier(&Identifier::parse(json["id"].as_str().unwrap()).unwrap())
+            .map(|item| Self::new(item, json["count"].as_u32().unwrap_or(1)))
+            .ok_or(())
     }
     pub fn copy(&self, new_count: u32) -> Self {
         ItemStack {
@@ -473,7 +470,6 @@ impl<'a> InventoryView<'a> {
         }
     }
     pub fn get_item(&self, index: u32) -> Result<Option<ItemStack>, ()> {
-        //todo: prevent copying
         self.inventory
             .items
             .lock()

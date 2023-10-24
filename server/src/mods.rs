@@ -594,10 +594,10 @@ impl ModManager {
 #[derive(Clone)]
 pub struct BiomeBuilder {
     pub id: Identifier,
-    pub top_block: Identifier,
-    pub middle_block: Identifier,
-    pub bottom_block: Identifier,
-    pub water_block: Identifier,
+    pub top_block: String,
+    pub middle_block: String,
+    pub bottom_block: String,
+    pub water_block: String,
     pub spline_height: Vec<splines::Key<f64, f64>>,
     pub spline_land: Vec<splines::Key<f64, f64>>,
     pub spline_temperature: Vec<splines::Key<f64, f64>>,
@@ -609,10 +609,10 @@ impl BiomeBuilder {
     pub fn new(id: &str, top: &str, middle: &str, bottom: &str, water: &str) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(BiomeBuilder {
             id: Identifier::parse(id).unwrap(),
-            top_block: Identifier::parse(top).unwrap(),
-            middle_block: Identifier::parse(middle).unwrap(),
-            bottom_block: Identifier::parse(bottom).unwrap(),
-            water_block: Identifier::parse(water).unwrap(),
+            top_block: top.to_string(),
+            middle_block: middle.to_string(),
+            bottom_block: bottom.to_string(),
+            water_block: water.to_string(),
             spline_height: Vec::new(),
             spline_land: Vec::new(),
             spline_temperature: Vec::new(),
@@ -844,14 +844,12 @@ impl ModClientBlockData {
         self.clone()
     }
     pub fn dynamic_add_animation(&mut self, animation: &str) -> Self {
-        //todo: result
         if let Some(dynamic) = &mut self.client.dynamic {
             dynamic.animations.push(animation.to_string());
         }
         self.clone()
     }
     pub fn dynamic_add_item(&mut self, item: &str) -> Self {
-        //todo: result
         if let Some(dynamic) = &mut self.client.dynamic {
             dynamic.items.push(item.to_string());
         }
@@ -862,7 +860,7 @@ impl ModClientBlockData {
 pub struct ItemBuilder {
     pub id: Identifier,
     pub client: ClientModItemData,
-    pub place: Option<Identifier>,
+    pub place: Option<String>,
     pub on_right_click: Option<FnPtr>,
     pub stack_size: u32,
     pub tool: Option<ToolData>,
@@ -929,7 +927,7 @@ impl ItemBuilder {
         this.clone()
     }
     pub fn place(this: &mut Arc<Mutex<Self>>, place: &str) -> Arc<Mutex<Self>> {
-        this.lock().place = Some(Identifier::parse(place).unwrap());
+        this.lock().place = Some(place.to_string());
         this.clone()
     }
     pub fn on_right_click(this: &mut Arc<Mutex<Self>>, callback: FnPtr) -> Arc<Mutex<Self>> {

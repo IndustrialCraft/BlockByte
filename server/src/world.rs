@@ -74,6 +74,37 @@ impl World {
         std::fs::create_dir_all(world.get_world_path()).unwrap();
         world
     }
+    pub fn drop_item_on_ground(
+        &self,
+        position: Position,
+        item: ItemStack,
+        rotation: Option<f32>,
+        velocity: Option<(f64, f64, f64)>,
+    ) {
+        let item_entity = Entity::new(
+            &Location {
+                world: self.ptr(),
+                position,
+            },
+            self.server
+                .entity_registry
+                .entity_by_identifier(&Identifier::new("bb", "item"))
+                .unwrap(),
+            None,
+        );
+        item_entity
+            .inventory
+            .get_full_view()
+            .set_item(0, Some(item))
+            .unwrap();
+
+        if let Some(velocity) = velocity {
+            item_entity.apply_knockback(velocity.0, velocity.1, velocity.2);
+        }
+        if let Some(rotation) = rotation {
+            *item_entity.rotation_shifting.lock() = (rotation, false);
+        }
+    }
     pub fn get_world_path(&self) -> PathBuf {
         let mut path = self.server.save_directory.clone();
         path.push("worlds");
@@ -264,6 +295,9 @@ impl World {
             self.unload_timer.inc();
         }
     }
+    pub fn ptr(&self) -> Arc<World> {
+        self.this.upgrade().unwrap()
+    }
     pub fn should_unload(&self) -> bool {
         self.unload_timer.get() >= World::UNLOAD_TIME
     }
@@ -371,6 +405,7 @@ impl Chunk {
                                     .unwrap(),
                                 None,
                             );
+                            *entity.user_data.lock() = entity_data.user_data;
                             *entity.velocity.lock() = entity_data.velocity;
                             entity.rotation_shifting.lock().0 = entity_data.rotation;
                             entity.inventory.deserialize(
@@ -693,6 +728,7 @@ impl Chunk {
                         rotation: entity.get_rotation(),
                         position,
                         inventory: entity.inventory.serialize(),
+                        user_data: entity.user_data.lock().clone(),
                     });
                 }
                 let chunk_save_data = ChunkSaveData {
@@ -753,7 +789,7 @@ pub struct EntitySaveData {
     entity_type: Identifier,
     inventory: InventorySaveData,
     velocity: (f64, f64, f64),
-    //todo: user data
+    user_data: UserData,
 }
 
 struct ChunkViewer {
@@ -774,7 +810,7 @@ impl PartialEq for ChunkViewer {
 
 impl Eq for ChunkViewer {}
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct UserData {
     data: HashMap<Identifier, Dynamic>,
 }
@@ -1057,7 +1093,9 @@ impl Entity {
                 .add_viewer(viewer);
             Some(id)
         } else {
-            //todo: drop hand item
+            if let Some(inventory_hand) = self.entity_data.get_inventory_hand() {
+                self.throw_item(inventory_hand);
+            }
             self.entity_data.set_inventory_hand(None);
             Inventory::set_cursor(&self.entity_data);
             None
@@ -1329,41 +1367,17 @@ impl Entity {
                                         .modify_item(slot, |item| {
                                             let item = item.as_mut();
                                             if let Some(item) = item {
-                                                let mut location = self.get_location();
-                                                location.position.y += 1.7;
-                                                let item_entity = Entity::new(
-                                                    location,
-                                                    self.server
-                                                        .entity_registry
-                                                        .entity_by_identifier(&Identifier::new(
-                                                            "bb", "item",
-                                                        ))
-                                                        .unwrap(),
-                                                    None,
-                                                );
                                                 let count = if key_mod & KeyboardModifier::CTRL != 0
                                                 {
                                                     item.get_count()
                                                 } else {
                                                     1
                                                 };
-                                                item_entity
-                                                    .inventory
-                                                    .get_full_view()
-                                                    .set_item(0, Some(item.copy(count)))
-                                                    .unwrap();
+                                                let item_stack = item.copy(count);
 
                                                 item.add_count(-(count as i32));
 
-                                                let rotation = { *self.rotation_shifting.lock() };
-                                                let rotation_radians = rotation.0.to_radians();
-                                                item_entity.apply_knockback(
-                                                    rotation_radians.sin() as f64,
-                                                    0.,
-                                                    rotation_radians.cos() as f64,
-                                                );
-                                                *item_entity.rotation_shifting.lock() =
-                                                    (rotation.0, false);
+                                                self.throw_item(item_stack);
                                             }
                                         })
                                         .unwrap();
@@ -1756,6 +1770,22 @@ impl Entity {
             }
         }
     }
+    pub fn throw_item(&self, item: ItemStack) {
+        let mut location = self.get_location();
+        location.position.y += 1.7;
+        let rotation = { *self.rotation_shifting.lock() };
+        let rotation_radians = rotation.0.to_radians();
+        location.chunk.world.drop_item_on_ground(
+            location.position,
+            item,
+            Some(rotation.0),
+            Some((
+                rotation_radians.sin() as f64,
+                0.,
+                rotation_radians.cos() as f64,
+            )),
+        );
+    }
     pub fn on_attack(&self, _player: &Entity) {}
     pub fn on_right_click(&self, player: &Entity) {
         if self.entity_type.client_data.model == "bb:item" {
@@ -2030,7 +2060,7 @@ impl Structure {
                             .unwrap(),
                         block["chance"].as_f32().unwrap_or(1.),
                     )
-                }, //todo: place correct state
+                },
             ));
         }
         Structure { blocks, id }

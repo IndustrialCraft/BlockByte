@@ -389,7 +389,7 @@ impl Color {
 impl ops::Mul for Color {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
-        //todo: copied from https://stackoverflow.com/questions/45041273/how-to-correctly-multiply-two-colors-with-byte-components, check if works
+        //copied from https://stackoverflow.com/questions/45041273/how-to-correctly-multiply-two-colors-with-byte-components, check if works
         Color {
             r: ((self.r as u16 * rhs.r as u16 + 0xFF) >> 8) as u8,
             g: ((self.g as u16 * rhs.g as u16 + 0xFF) >> 8) as u8,

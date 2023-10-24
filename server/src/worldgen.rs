@@ -1,6 +1,5 @@
 use crate::{
     registry::{BlockRegistry, BlockStateRef},
-    util::Identifier,
     world::{BlockData, Chunk, Structure},
 };
 use array_init::array_init;
@@ -246,10 +245,10 @@ pub struct Biome {
 impl Biome {
     pub fn new(
         block_registry: &BlockRegistry,
-        top_block: Identifier,
-        middle_block: Identifier,
-        bottom_block: Identifier,
-        water_block: Identifier,
+        top_block: &str,
+        middle_block: &str,
+        bottom_block: &str,
+        water_block: &str,
         land_noise_spline: Spline<f64, f64>,
         height_spline: Spline<f64, f64>,
         temperature_noise_spline: Spline<f64, f64>,
@@ -257,22 +256,10 @@ impl Biome {
         structures: Vec<(f32, Arc<Structure>)>,
     ) -> Self {
         Biome {
-            top_block: block_registry
-                .block_by_identifier(&top_block)
-                .unwrap()
-                .get_state_ref(0), //todo: handle states
-            middle_block: block_registry
-                .block_by_identifier(&middle_block)
-                .unwrap()
-                .get_state_ref(0), //todo: handle states
-            bottom_block: block_registry
-                .block_by_identifier(&bottom_block)
-                .unwrap()
-                .get_state_ref(0), //todo: handle states
-            water_block: block_registry
-                .block_by_identifier(&water_block)
-                .unwrap()
-                .get_state_ref(0), //todo: handle states
+            top_block: block_registry.state_from_string(top_block).unwrap(),
+            middle_block: block_registry.state_from_string(middle_block).unwrap(),
+            bottom_block: block_registry.state_from_string(bottom_block).unwrap(),
+            water_block: block_registry.state_from_string(water_block).unwrap(),
             land_noise_spline,
             height_spline,
             temperature_noise_spline,

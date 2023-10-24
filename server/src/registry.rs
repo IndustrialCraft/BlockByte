@@ -120,9 +120,8 @@ impl BlockRegistry {
         self.states.get(block_state_ref.state_id as usize).unwrap()
     }
     pub fn state_from_string(&self, state: &str) -> Result<BlockStateRef, ()> {
-        //todo: better error handling
         let (block, props) = if state.contains('{') {
-            let split = state.split_once('{').unwrap();
+            let split = state.split_once('{').ok_or(())?;
             (
                 self.block_by_identifier(&Identifier::parse(split.0)?)
                     .ok_or(())?,
@@ -540,7 +539,7 @@ pub struct Item {
     pub id: Identifier,
     pub client_data: ClientItemData,
     pub client_id: u32,
-    pub place_block: Option<Arc<Block>>,
+    pub place_block: Option<BlockStateRef>,
     pub on_right_click: Option<ScriptCallback>,
     pub stack_size: u32,
     pub tool_data: Option<ToolData>,
@@ -565,7 +564,7 @@ impl Item {
                             if !*player.entity_data.creative.lock() {
                                 item.add_count(-1);
                             }
-                            Some(place.get_state_ref(0)) //todo: place correct state
+                            Some(*place)
                         } else {
                             None
                         }

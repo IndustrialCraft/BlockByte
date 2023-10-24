@@ -187,11 +187,7 @@ impl Server {
                             },
                         },
                         place_block: item_data.place.map(|place| {
-                            block_registry
-                                .borrow()
-                                .block_by_identifier(&place)
-                                .unwrap()
-                                .clone()
+                            block_registry.borrow().state_from_string(&place).unwrap()
                         }),
                         on_right_click: item_data
                             .on_right_click
@@ -286,10 +282,10 @@ impl Server {
                 .map(|biome_template| {
                     Biome::new(
                         &block_registry,
-                        biome_template.top_block.clone(),
-                        biome_template.middle_block.clone(),
-                        biome_template.bottom_block.clone(),
-                        biome_template.water_block.clone(),
+                        biome_template.top_block.as_str(),
+                        biome_template.middle_block.as_str(),
+                        biome_template.bottom_block.as_str(),
+                        biome_template.water_block.as_str(),
                         Spline::from_vec(biome_template.spline_land.clone()),
                         Spline::from_vec(biome_template.spline_height.clone()),
                         Spline::from_vec(biome_template.spline_temperature.clone()),
