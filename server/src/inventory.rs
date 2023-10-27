@@ -126,7 +126,7 @@ impl Inventory {
         let length = content.len();
         *self.items.lock() = content;
         for i in 0..length {
-            self.sync_slot(i as u32);
+            self.sync_slot(i as u32, false);
         }
     }
     pub fn get_owner(&self) -> &WeakInventoryWrapper {
@@ -135,7 +135,7 @@ impl Inventory {
     pub fn get_size(&self) -> u32 {
         self.items.lock().len() as u32
     }
-    fn sync_slot(&self, index: u32) {
+    fn sync_slot(&self, index: u32, only_count: bool) {
         let item = &self.items.lock()[index as usize];
         for viewer in self.viewers.lock().values() {
             viewer
@@ -156,34 +156,37 @@ impl Inventory {
                 ))
                 .unwrap();
         }
-        match &self.owner.upgrade().unwrap() {
-            InventoryWrapper::Entity(entity) => {
-                if let Some(mapping) = entity.entity_type.item_model_mapping.mapping.get(&index) {
-                    entity
-                        .get_location()
-                        .chunk
-                        .announce_to_viewers(&NetworkMessageS2C::ModelItem(
-                            ClientModelTarget::Entity(entity.client_id),
+        if !only_count {
+            match &self.owner.upgrade().unwrap() {
+                InventoryWrapper::Entity(entity) => {
+                    if let Some(mapping) = entity.entity_type.item_model_mapping.mapping.get(&index)
+                    {
+                        entity.get_location().chunk.announce_to_viewers(
+                            &NetworkMessageS2C::ModelItem(
+                                ClientModelTarget::Entity(entity.client_id),
+                                *mapping,
+                                item.as_ref().map(|item| item.item_type.client_id),
+                            ),
+                        );
+                    }
+                    if index == entity.entity_data.get_hand_slot() {
+                        entity.sync_main_hand_viewmodel(item.as_ref());
+                    }
+                }
+                InventoryWrapper::Block(block) => {
+                    let chunk = block.chunk.upgrade().unwrap();
+                    let block_type = chunk.world.server.block_registry.state_by_ref(&block.state);
+                    if let Some(mapping) = block_type.parent.item_model_mapping.mapping.get(&index)
+                    {
+                        chunk.announce_to_viewers(&NetworkMessageS2C::ModelItem(
+                            ClientModelTarget::Block(block.position),
                             *mapping,
                             item.as_ref().map(|item| item.item_type.client_id),
                         ));
+                    }
                 }
-                if index == entity.entity_data.get_hand_slot() {
-                    entity.sync_main_hand_viewmodel(item.as_ref());
-                }
+                _ => {}
             }
-            InventoryWrapper::Block(block) => {
-                let chunk = block.chunk.upgrade().unwrap();
-                let block_type = chunk.world.server.block_registry.state_by_ref(&block.state);
-                if let Some(mapping) = block_type.parent.item_model_mapping.mapping.get(&index) {
-                    chunk.announce_to_viewers(&NetworkMessageS2C::ModelItem(
-                        ClientModelTarget::Block(block.position),
-                        *mapping,
-                        item.as_ref().map(|item| item.item_type.client_id),
-                    ));
-                }
-            }
-            _ => {}
         }
     }
     pub fn add_viewer(&self, viewer: GuiInventoryViewer) {
@@ -479,8 +482,14 @@ impl<'a> InventoryView<'a> {
     }
     pub fn set_item(&self, index: u32, item: Option<ItemStack>) -> Result<(), ()> {
         let index = self.map_slot(index)?;
-        {
-            self.inventory.items.lock()[index as usize] = match item {
+        let only_count = {
+            let mut items = self.inventory.items.lock();
+            let old_item = items.get_mut(index as usize).unwrap();
+            let only_count = match (old_item.as_ref(), item.as_ref()) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a.get_type(), b.get_type()),
+                _ => false,
+            };
+            *old_item = match item {
                 Some(item) => {
                     if item.item_count == 0 {
                         None
@@ -490,8 +499,9 @@ impl<'a> InventoryView<'a> {
                 }
                 None => None,
             };
-        }
-        self.inventory.sync_slot(index);
+            only_count
+        };
+        self.inventory.sync_slot(index, only_count);
 
         if let Some(handler) = self.inventory.set_item_handler.as_ref() {
             handler.call((self.inventory, index));
@@ -503,16 +513,24 @@ impl<'a> InventoryView<'a> {
         F: FnOnce(&mut Option<ItemStack>),
     {
         let index = self.map_slot(index)?;
-
-        function.call_once((&mut self.inventory.items.lock()[index as usize],));
-        let set_as_empty = match &self.inventory.items.lock()[index as usize] {
-            Some(item) => item.item_count == 0,
-            None => false,
+        let only_count = {
+            let mut items = self.inventory.items.lock();
+            let item = items.get_mut(index as usize).unwrap();
+            let old_item_type = item.as_ref().map(|item| item.item_type.clone());
+            function.call_once((item,));
+            let set_as_empty = match item {
+                Some(item) => item.item_count == 0,
+                None => false,
+            };
+            if set_as_empty {
+                *item = None;
+            }
+            match (old_item_type, item) {
+                (Some(a), Some(b)) => Arc::ptr_eq(&a, b.get_type()),
+                _ => false,
+            }
         };
-        if set_as_empty {
-            self.inventory.items.lock()[index as usize] = None;
-        }
-        self.inventory.sync_slot(index);
+        self.inventory.sync_slot(index, only_count);
         Ok(())
     }
     pub fn add_item(&self, item: &ItemStack) -> Option<ItemStack> {
