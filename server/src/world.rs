@@ -31,7 +31,7 @@ use rhai::{Array, Dynamic};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::inventory::{GuiInventoryData, GuiInventoryViewer, InventorySaveData};
+use crate::inventory::{GuiInventoryData, GuiInventoryViewer, InventorySaveData, InventoryView};
 use crate::registry::{Block, BlockState};
 use crate::{
     inventory::{Inventory, InventoryWrapper, ItemStack, WeakInventoryWrapper},
@@ -1846,6 +1846,14 @@ impl Entity {
                 0,
             ))
             .ok();
+            self.try_send_message(&NetworkMessageS2C::PlaySound(
+                "example:equip".to_string(),
+                self.get_location().position,
+                1.,
+                1.,
+                false,
+            ))
+            .ok();
         }
     }
     fn is_player(&self) -> bool {
@@ -2228,6 +2236,9 @@ impl WorldBlock {
                 }
             }
         }
+    }
+    pub fn get_inputs_view_for_side(&self, _side: Face) -> InventoryView {
+        self.inventory.get_full_view()
     }
     pub fn needs_ticking(&self) -> bool {
         self.block.machine_data.is_some()

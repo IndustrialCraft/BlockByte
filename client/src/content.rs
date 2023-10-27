@@ -1,14 +1,18 @@
 use crate::gui::TextRenderer;
 use crate::model::Model;
 use crate::texture::{pack_textures, TextureAtlas};
+use ambisonic::rodio::Source;
+use ambisonic::{Ambisonic, AmbisonicBuilder, StereoConfig};
 use block_byte_common::content::{
     ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData,
     ClientItemModel, ModelData,
 };
-use block_byte_common::{Face, TexCoords, Vec2};
+use block_byte_common::{Face, Position, TexCoords, Vec2};
 use image::RgbaImage;
 use std::collections::HashMap;
+use std::io::Cursor;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 pub fn load_assets(
     zip_path: PathBuf,
@@ -20,6 +24,7 @@ pub fn load_assets(
     ItemRegistry,
     EntityRegistry,
     TextRenderer<'static>,
+    SoundManager,
 ) {
     let mut zip =
         zip::ZipArchive::new(std::fs::File::open(zip_path).expect("asset archive not found"))
@@ -29,6 +34,8 @@ pub fn load_assets(
 
     let mut content = None;
     let mut font = None;
+
+    let mut sound_manager = SoundManager::new();
 
     for file in 0..zip.len() {
         let mut file = zip.by_index(file).unwrap();
@@ -44,8 +51,7 @@ pub fn load_assets(
             continue;
         }
         if name.ends_with(".wav") {
-            //todo
-            //sound_manager.load(name.replace(".wav", ""), data);
+            sound_manager.load_sound(name.replace(".wav", ""), data);
             continue;
         }
         if name.ends_with(".bbm") {
@@ -97,6 +103,7 @@ pub fn load_assets(
         item_registry,
         entity_registry,
         font,
+        sound_manager,
     )
 }
 pub struct BlockRegistry {
@@ -375,4 +382,49 @@ pub struct EntityData {
     pub hitbox_d: f64,
     pub hitbox_h_shifting: f64,
     pub viewmodel: Option<Model>,
+}
+
+//todo: better audio
+pub struct SoundManager {
+    scene: Ambisonic,
+    //sources: HashMap<String, SamplesConverter<Decoder<Cursor<Vec<u8>>>, f32>>,
+    sources: HashMap<String, Sound>,
+}
+impl SoundManager {
+    pub fn new() -> Self {
+        let scene = AmbisonicBuilder::default().build();
+        SoundManager {
+            scene,
+            sources: HashMap::new(),
+        }
+    }
+    pub fn load_sound(&mut self, id: String, data: Vec<u8>) {
+        self.sources.insert(id, Sound(Arc::new(data)));
+    }
+    pub fn play_sound(
+        &mut self,
+        id: &str,
+        position: Position,
+        gain: f32,
+        pitch: f32,
+        relative: bool,
+    ) {
+        let controller = self.scene.play_at(
+            ambisonic::rodio::Decoder::new(self.sources.get(id).unwrap().cursor())
+                .unwrap()
+                .convert_samples(),
+            [position.x as f32, position.y as f32, position.z as f32],
+        );
+    }
+}
+pub struct Sound(Arc<Vec<u8>>);
+impl AsRef<[u8]> for Sound {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+impl Sound {
+    pub fn cursor(self: &Self) -> Cursor<Sound> {
+        Cursor::new(Sound(self.0.clone()))
+    }
 }

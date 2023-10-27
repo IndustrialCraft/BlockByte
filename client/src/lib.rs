@@ -53,6 +53,7 @@ pub async fn run() {
         item_registry,
         entity_registry,
         text_renderer,
+        mut sound_manager,
     ) = content::load_assets(PathBuf::from(args.get(1).unwrap()), false);
     let block_registry = Rc::new(block_registry);
     let entity_registry = Rc::new(entity_registry);
@@ -419,7 +420,9 @@ pub async fn run() {
                     NetworkMessageS2C::FluidSelectable(selectable) => {
                         fluid_selectable = selectable;
                     }
-                    NetworkMessageS2C::PlaySound(_, _, _, _, _) => {}
+                    NetworkMessageS2C::PlaySound(id, position, gain, pitch, relative) => {
+                        sound_manager.play_sound(id.as_str(), position, gain, pitch, relative);
+                    }
                     NetworkMessageS2C::ChatMessage(message) => {
                         println!("[CHAT]{}", message);
                     }

@@ -132,6 +132,8 @@ register_model("example:campfire", "models/campfire.bbm");
 register_model("example:rock", "models/rock.bbm");
 register_model("example:branch", "models/branch.bbm");
 
+register_sound("example:equip", "sounds/equip.wav");
+
 
 register_event("bb:command", |player,command|{
     if command[0] == "creative"{
