@@ -311,7 +311,7 @@ impl Inventory {
                     }
                     _ => {}
                 }
-                *player.hand_item.lock() = slot;
+                player.set_inventory_hand(slot);
                 self.get_full_view().set_item(id, hand).unwrap();
             }
         }

@@ -501,8 +501,8 @@ impl ModManager {
         engine.register_fn("get_world", |entity: Arc<Entity>| {
             entity.get_location().chunk.world.clone()
         });
-        engine.register_fn("abilities", |entity: Arc<Entity>| PlayerAbilitiesWrapper {
-            player: entity.get_player().unwrap(),
+        engine.register_fn("abilities", |player: Arc<PlayerData>| {
+            PlayerAbilitiesWrapper { player }
         });
         engine.register_fn(
             "teleport_position",
