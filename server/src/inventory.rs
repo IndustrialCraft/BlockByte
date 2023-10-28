@@ -17,11 +17,11 @@ use splines::Spline;
 use uuid::Uuid;
 
 use crate::registry::ToolType;
-use crate::world::UserData;
+use crate::world::{PlayerData, UserData};
 use crate::{
     registry::{InteractionResult, Item, ItemRegistry},
     util::Identifier,
-    world::{Entity, EntityData, WorldBlock},
+    world::{Entity, WorldBlock},
 };
 
 #[derive(Clone)]
@@ -64,9 +64,9 @@ impl ItemStack {
     }
 }
 pub type InventoryClickHandler =
-    Box<dyn Fn(&Inventory, &Entity, u32, MouseButton, bool) -> InteractionResult + Send + Sync>;
+    Box<dyn Fn(&Inventory, &PlayerData, u32, MouseButton, bool) -> InteractionResult + Send + Sync>;
 pub type InventoryScrollHandler =
-    Box<dyn Fn(&Inventory, &Entity, u32, i32, i32, bool) -> InteractionResult + Send + Sync>;
+    Box<dyn Fn(&Inventory, &PlayerData, u32, i32, i32, bool) -> InteractionResult + Send + Sync>;
 pub type InventorySetItemHandler = Box<dyn Fn(&Inventory, u32) + Send + Sync>;
 
 pub struct Inventory {
@@ -140,7 +140,7 @@ impl Inventory {
         for viewer in self.viewers.lock().values() {
             viewer
                 .viewer
-                .try_send_message(&NetworkMessageS2C::GuiEditElement(
+                .send_message(&NetworkMessageS2C::GuiEditElement(
                     self.get_slot_id(viewer, index),
                     GUIElementEdit {
                         component_type: GUIComponentEdit::SlotComponent {
@@ -153,8 +153,7 @@ impl Inventory {
                         },
                         ..Default::default()
                     },
-                ))
-                .unwrap();
+                ));
         }
         if !only_count {
             match &self.owner.upgrade().unwrap() {
@@ -169,7 +168,7 @@ impl Inventory {
                             ),
                         );
                     }
-                    if index == entity.entity_data.get_hand_slot() {
+                    if index == *entity.slot.lock() {
                         entity.sync_main_hand_viewmodel(item.as_ref());
                     }
                 }
@@ -199,7 +198,7 @@ impl Inventory {
             let item = real_view.get_item(slot as u32).unwrap();
             viewer
                 .viewer
-                .try_send_message(&NetworkMessageS2C::GuiSetElement(
+                .send_message(&NetworkMessageS2C::GuiSetElement(
                     self.get_slot_id(&viewer, real_view.map_slot(slot as u32).unwrap()),
                     GUIElement {
                         component_type: GUIComponent::SlotComponent {
@@ -217,8 +216,7 @@ impl Inventory {
                         anchor: slot_data.0,
                         base_color: Color::WHITE,
                     },
-                ))
-                .unwrap();
+                ));
         }
         self.viewers.lock().insert(id.clone(), viewer);
     }
@@ -226,8 +224,7 @@ impl Inventory {
         if let Some(viewer) = self.viewers.lock().remove(id) {
             viewer
                 .viewer
-                .try_send_message(&NetworkMessageS2C::GuiRemoveElements(viewer.id.to_string()))
-                .unwrap();
+                .send_message(&NetworkMessageS2C::GuiRemoveElements(viewer.id.to_string()));
         }
     }
     pub fn get_slot_id(&self, viewer: &GuiInventoryViewer, slot: u32) -> String {
@@ -246,40 +243,32 @@ impl Inventory {
         item.as_ref()
             .map(|item| object! {item:item.item_type.client_id, count:item.item_count})
     }
-    pub fn set_cursor(entity_data: &EntityData) {
-        let item = entity_data.get_inventory_hand();
-        let player = entity_data.player.upgrade().unwrap();
+    pub fn set_cursor(player: &PlayerData, item: &Option<ItemStack>) {
         if item.is_some() {
-            player
-                .try_send_message(&NetworkMessageS2C::GuiSetElement(
-                    "item_cursor".to_string(),
-                    GUIElement {
-                        component_type: GUIComponent::SlotComponent {
-                            item_id: {
-                                let item = item.as_ref().unwrap();
-                                Some((item.item_type.client_id, item.item_count))
-                            },
-                            size: Vec2 { x: 100., y: 100. },
-                            background: "".to_string(),
+            player.send_message(&NetworkMessageS2C::GuiSetElement(
+                "item_cursor".to_string(),
+                GUIElement {
+                    component_type: GUIComponent::SlotComponent {
+                        item_id: {
+                            let item = item.as_ref().unwrap();
+                            Some((item.item_type.client_id, item.item_count))
                         },
-                        anchor: PositionAnchor::Cursor,
-                        position: Position {
-                            x: 0.,
-                            y: 0.,
-                            z: 10.,
-                        },
-                        base_color: Color::WHITE,
+                        size: Vec2 { x: 100., y: 100. },
+                        background: "".to_string(),
                     },
-                ))
-                .ok();
-            //player.try_send_message(&&NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"slot",background:false,item: Self::item_to_json(item)}.to_string())).ok();
+                    anchor: PositionAnchor::Cursor,
+                    position: Position {
+                        x: 0.,
+                        y: 0.,
+                        z: 10.,
+                    },
+                    base_color: Color::WHITE,
+                },
+            ));
         } else {
-            player
-                .try_send_message(&NetworkMessageS2C::GuiRemoveElements(
-                    "item_cursor".to_string(),
-                ))
-                .ok();
-            //player.try_send_message(&&NetworkMessageS2C::GuiData(object! {"type":"setElement",id:"cursor",element_type:"image",texture:"cursor",w:0.05,h:0.05}.to_string())).ok();
+            player.send_message(&NetworkMessageS2C::GuiRemoveElements(
+                "item_cursor".to_string(),
+            ));
         }
     }
     pub fn resolve_slot(&self, view_id: &Uuid, id: &str) -> Option<u32> {
@@ -296,7 +285,7 @@ impl Inventory {
             None
         }
     }
-    pub fn on_click_slot(&self, player: &Entity, id: u32, button: MouseButton, shifting: bool) {
+    pub fn on_click_slot(&self, player: &PlayerData, id: u32, button: MouseButton, shifting: bool) {
         let result = self
             .click_handler
             .as_ref()
@@ -304,7 +293,7 @@ impl Inventory {
             .unwrap_or(InteractionResult::Ignored);
         if let InteractionResult::Ignored = result {
             if button == MouseButton::Left {
-                let mut hand = player.entity_data.get_inventory_hand().clone();
+                let mut hand = player.hand_item.lock().clone();
                 let mut slot = self.get_full_view().get_item(id).unwrap().clone();
                 match (hand.as_mut(), slot.as_mut()) {
                     (Some(hand), Some(slot)) => {
@@ -322,19 +311,19 @@ impl Inventory {
                     }
                     _ => {}
                 }
-                player.entity_data.set_inventory_hand(slot);
+                *player.hand_item.lock() = slot;
                 self.get_full_view().set_item(id, hand).unwrap();
             }
         }
     }
-    pub fn on_scroll_slot(&self, player: &Entity, id: u32, x: i32, y: i32, shifting: bool) {
+    pub fn on_scroll_slot(&self, player: &PlayerData, id: u32, x: i32, y: i32, shifting: bool) {
         let result = self
             .scroll_handler
             .as_ref()
             .map(|handler| handler.call((self, player, id, x, y, shifting)))
             .unwrap_or(InteractionResult::Ignored);
         if let InteractionResult::Ignored = result {
-            player.entity_data.modify_inventory_hand(|first| {
+            player.modify_inventory_hand(|first| {
                 self.get_full_view()
                     .modify_item(id, |second| {
                         let (first, second) = if y < 0 {
@@ -434,7 +423,7 @@ pub struct GuiInventoryData {
     pub slots: Vec<(PositionAnchor, f32, f32)>,
 }
 impl GuiInventoryData {
-    pub fn into_viewer(self, viewer: Arc<Entity>) -> GuiInventoryViewer {
+    pub fn into_viewer(self, viewer: Arc<PlayerData>) -> GuiInventoryViewer {
         GuiInventoryViewer {
             slots: self.slots,
             slot_range: self.slot_range,
@@ -446,7 +435,7 @@ impl GuiInventoryData {
 pub struct GuiInventoryViewer {
     pub slot_range: Range<u32>,
     pub slots: Vec<(PositionAnchor, f32, f32)>,
-    pub viewer: Arc<Entity>,
+    pub viewer: Arc<PlayerData>,
     pub id: Uuid,
 }
 impl GuiInventoryViewer {

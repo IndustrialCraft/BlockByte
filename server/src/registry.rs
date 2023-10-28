@@ -20,8 +20,7 @@ use zip::{write::FileOptions, DateTime, ZipWriter};
 
 use crate::inventory::{LootTableGenerationParameters, Recipe};
 use crate::mods::ModClientBlockData;
-use crate::util::ChunkLocation;
-use crate::world::BlockBreakParameters;
+use crate::world::{BlockBreakParameters, PlayerData};
 use crate::{
     inventory::ItemStack,
     mods::{ClientContentData, ScriptCallback},
@@ -463,36 +462,23 @@ impl BlockState {
                 |item| {
                     for _ in 0..item.get_count() {
                         let rotation: f32 = thread_rng().gen_range((0.)..(360.));
+                        let rotation_radians = rotation.to_radians();
                         let vertical_strength = 0.4;
                         let horizontal_strength = 0.2;
-                        let item_entity = Entity::new(
-                            ChunkLocation {
-                                chunk: location.chunk.clone(),
-                                position: Position {
-                                    x: location.position.x as f64 + 0.5,
-                                    y: location.position.y as f64 + 0.5,
-                                    z: location.position.z as f64 + 0.5,
-                                },
+                        location.chunk.world.drop_item_on_ground(
+                            Position {
+                                x: location.position.x as f64 + 0.5,
+                                y: location.position.y as f64 + 0.5,
+                                z: location.position.z as f64 + 0.5,
                             },
-                            server
-                                .entity_registry
-                                .entity_by_identifier(&Identifier::new("bb", "item"))
-                                .unwrap(),
-                            None,
+                            item.copy(1),
+                            Some(rotation),
+                            Some((
+                                rotation_radians.sin() as f64 * horizontal_strength,
+                                vertical_strength,
+                                rotation_radians.cos() as f64 * horizontal_strength,
+                            )),
                         );
-                        item_entity
-                            .inventory
-                            .get_full_view()
-                            .set_item(0, Some(item.copy(1)))
-                            .unwrap();
-
-                        let rotation_radians = rotation.to_radians();
-                        item_entity.apply_knockback(
-                            rotation_radians.sin() as f64 * horizontal_strength,
-                            vertical_strength,
-                            rotation_radians.cos() as f64 * horizontal_strength,
-                        );
-                        *item_entity.rotation_shifting.lock() = (rotation, false);
                     }
                 },
                 LootTableGenerationParameters {
@@ -549,19 +535,19 @@ impl Item {
     pub fn on_right_click_block(
         &self,
         item: &mut ItemStack,
-        player: Arc<Entity>,
+        player: Arc<PlayerData>,
         block_position: BlockPosition,
         block_face: Face,
     ) -> InteractionResult {
         if let Some(place) = &self.place_block {
             let block_position = block_position.offset_by_face(block_face);
-            let world = player.get_location().chunk.world.clone();
+            let world = player.get_entity().get_location().chunk.world.clone();
             world.replace_block(
                 block_position,
                 |block| match block {
                     BlockData::Simple(0) => {
                         if !world.collides_entity_with_block(block_position) {
-                            if !*player.entity_data.creative.lock() {
+                            if !*player.creative.lock() {
                                 item.add_count(-1);
                             }
                             Some(*place)

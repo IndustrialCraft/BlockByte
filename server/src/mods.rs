@@ -25,7 +25,7 @@ use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
 use crate::registry::{BlockMachineData, BlockStateProperty, BlockStatePropertyStorage};
-use crate::world::World;
+use crate::world::{PlayerData, World};
 use crate::{
     inventory::{LootTable, Recipe},
     registry::{BlockRegistry, ItemRegistry, ToolData, ToolType},
@@ -488,7 +488,9 @@ impl ModManager {
         );
         //engine.register_type_with_name::<Arc<Entity>>("Entity");
         engine.register_fn("send_message", |entity: Arc<Entity>, text: &str| {
-            entity.send_chat_message(text.to_string());
+            if let Some(player) = entity.get_player() {
+                player.send_chat_message(text.to_string());
+            }
         });
         engine.register_fn("get_position", |entity: Arc<Entity>| {
             entity.get_location().position
@@ -500,7 +502,7 @@ impl ModManager {
             entity.get_location().chunk.world.clone()
         });
         engine.register_fn("abilities", |entity: Arc<Entity>| PlayerAbilitiesWrapper {
-            entity,
+            player: entity.get_player().unwrap(),
         });
         engine.register_fn(
             "teleport_position",
@@ -1107,18 +1109,20 @@ impl ScriptCallback {
 
 #[derive(Clone)]
 pub struct PlayerAbilitiesWrapper {
-    pub entity: Arc<Entity>,
+    pub player: Arc<PlayerData>,
 }
 
 impl PlayerAbilitiesWrapper {
     pub fn set_speed(&mut self, speed: f64) {
-        self.entity.entity_data.set_speed(speed as f32);
+        *self.player.speed.lock() = speed as f32;
+        self.player.resync_abilities();
     }
     pub fn set_movement_type(&mut self, move_type: MovementType) {
-        self.entity.entity_data.set_move_type(move_type);
+        *self.player.move_type.lock() = move_type;
+        self.player.resync_abilities();
     }
     pub fn set_creative(&mut self, creative: bool) {
-        *self.entity.entity_data.creative.lock() = creative;
+        *self.player.creative.lock() = creative;
     }
 }
 

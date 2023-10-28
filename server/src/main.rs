@@ -33,6 +33,7 @@ use std::{
 
 use crate::mods::{ClientModItemModel, ModClientBlockData};
 use crate::registry::RecipeManager;
+use crate::world::PlayerData;
 use block_byte_common::content::{ClientEntityData, ClientItemData, ClientItemModel};
 use block_byte_common::Position;
 use crossbeam_channel::Receiver;
@@ -115,6 +116,7 @@ pub struct Server {
     save_directory: PathBuf,
     settings: ServerSettings,
     loot_tables: HashMap<Identifier, Arc<LootTable>>,
+    players: Mutex<Vec<Arc<PlayerData>>>,
 }
 
 impl Server {
@@ -321,6 +323,7 @@ impl Server {
             },
             save_directory,
             loot_tables: loottables,
+            players: Mutex::new(Vec::new()),
         })
     }
     pub fn export_file(&self, filename: String, data: Vec<u8>) {
@@ -370,14 +373,18 @@ impl Server {
     }
     pub fn tick(&self) {
         while let Ok(connection) = self.new_players.lock().try_recv() {
-            let player = Entity::new(
+            let entity = Entity::new(
                 &self.get_spawn_location(),
                 self.entity_registry
                     .entity_by_identifier(&Identifier::new("bb", "player"))
                     .unwrap(),
-                Some(connection),
             );
+            let player = PlayerData::new(connection, self.ptr(), entity);
+            self.players.lock().push(player.clone());
             self.call_event(Identifier::new("bb", "player_join"), (player,));
+        }
+        for player in &*self.players.lock() {
+            player.tick();
         }
         let worlds: Vec<Arc<World>> = self.worlds.lock().values().cloned().collect();
         for world in worlds {
@@ -386,6 +393,10 @@ impl Server {
         self.worlds
             .lock()
             .extract_if(|_, world| world.should_unload())
+            .count();
+        self.players
+            .lock()
+            .extract_if(|player| player.connection.lock().is_closed())
             .count();
     }
     pub fn wait_for_tasks(&self) {
@@ -438,6 +449,9 @@ impl Server {
             }
         });
         rx
+    }
+    pub fn ptr(&self) -> Arc<Server> {
+        self.this.upgrade().unwrap()
     }
 }
 pub struct ServerSettings {

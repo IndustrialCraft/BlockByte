@@ -90,7 +90,6 @@ impl World {
                 .entity_registry
                 .entity_by_identifier(&Identifier::new("bb", "item"))
                 .unwrap(),
-            None,
         );
         item_entity
             .inventory
@@ -403,7 +402,6 @@ impl Chunk {
                                     .entity_registry
                                     .entity_by_identifier(&entity_data.entity_type)
                                     .unwrap(),
-                                None,
                             );
                             *entity.user_data.lock() = entity_data.user_data;
                             *entity.velocity.lock() = entity_data.velocity;
@@ -559,30 +557,26 @@ impl Chunk {
     fn add_entity(&self, entity: Arc<Entity>) {
         self.entities.lock().push(entity);
     }
-    fn add_viewer(&self, viewer: Arc<Entity>) {
+    fn add_viewer(&self, viewer: Arc<PlayerData>) {
         self.viewers.lock().insert(ChunkViewer {
             player: viewer.clone(),
         });
-        viewer.chunk_loading_manager.lock().load(self.ptr());
+        viewer.chunk_loading_manager.load(self.ptr());
         for entity in self.entities.lock().iter() {
-            if Arc::ptr_eq(entity, &viewer) {
+            if entity.id == viewer.get_entity().id {
                 continue;
             }
-            viewer
-                .try_send_messages(&entity.create_add_messages(entity.get_location().position))
-                .unwrap();
+            viewer.send_messages(&entity.create_add_messages(entity.get_location().position));
         }
     }
-    fn remove_viewer(&self, viewer: &Entity, unload_entities: bool) {
-        viewer.chunk_loading_manager.lock().unload(self.ptr());
+    fn remove_viewer(&self, viewer: &PlayerData, unload_entities: bool) {
+        viewer.chunk_loading_manager.unload(self.ptr());
         if unload_entities {
             for entity in self.entities.lock().iter() {
-                if entity.as_ref() == viewer {
+                if entity.id == viewer.get_entity().id {
                     continue;
                 }
-                viewer
-                    .try_send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id))
-                    .unwrap();
+                viewer.send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id));
             }
         }
         self.viewers.lock().remove(&ChunkViewer {
@@ -591,14 +585,14 @@ impl Chunk {
     }
     pub fn announce_to_viewers_except(&self, message: NetworkMessageS2C, player: &Entity) {
         for viewer in self.viewers.lock().iter() {
-            if viewer.player.id != player.id {
-                viewer.player.try_send_message(&message).unwrap();
+            if viewer.player.get_entity().id != player.id {
+                viewer.player.send_message(&message);
             }
         }
     }
     pub fn announce_to_viewers(&self, message: &NetworkMessageS2C) {
         for viewer in self.viewers.lock().iter() {
-            viewer.player.try_send_message(message).unwrap();
+            viewer.player.send_message(message);
         }
     }
     pub fn tick(&self) {
@@ -618,8 +612,7 @@ impl Chunk {
                     {
                         viewer
                             .player
-                            .try_send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id))
-                            .unwrap();
+                            .send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id));
                     }
                 }
                 let removed = entity.is_removed();
@@ -627,8 +620,7 @@ impl Chunk {
                     for viewer in self.viewers.lock().iter() {
                         viewer
                             .player
-                            .try_send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id))
-                            .unwrap();
+                            .send_message(&NetworkMessageS2C::DeleteEntity(entity.client_id));
                     }
                     entity.post_remove();
                 }
@@ -718,7 +710,7 @@ impl Chunk {
                     let position = entity.get_location().position;
                     if position.to_chunk_pos() != chunk.position
                         || entity.is_removed()
-                        || entity.is_player()
+                        || entity.get_player().is_some()
                     {
                         continue;
                     }
@@ -793,18 +785,18 @@ pub struct EntitySaveData {
 }
 
 struct ChunkViewer {
-    pub player: Arc<Entity>,
+    pub player: Arc<PlayerData>,
 }
 
 impl Hash for ChunkViewer {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.player.id.hash(state)
+        self.player.get_entity().id.hash(state)
     }
 }
 
 impl PartialEq for ChunkViewer {
     fn eq(&self, other: &Self) -> bool {
-        self.player.id == other.player.id
+        self.player.get_entity().id == other.player.get_entity().id
     }
 }
 
@@ -835,13 +827,8 @@ impl UserData {
     }
 }
 
-pub struct EntityData {
+/*pub struct EntityData {
     pub player: Weak<Entity>,
-    slot: Mutex<u32>,
-    speed: Mutex<f32>,
-    move_type: Mutex<MovementType>,
-    pub creative: Mutex<bool>,
-    hand_item: Mutex<Option<ItemStack>>,
 }
 
 impl EntityData {
@@ -856,21 +843,7 @@ impl EntityData {
         }
     }
 
-    pub fn modify_inventory_hand<F>(&self, function: F)
-    where
-        F: FnOnce(&mut Option<ItemStack>),
-    {
-        let mut hand_item = self.hand_item.lock();
-        function.call_once((&mut *hand_item,));
-        let set_as_empty = match &*hand_item {
-            Some(item) => item.get_count() == 0,
-            None => true,
-        };
-        if set_as_empty {
-            *hand_item = None;
-        }
-        Inventory::set_cursor(self);
-    }
+
     pub fn set_inventory_hand(&self, item: Option<ItemStack>) {
         *self.hand_item.lock() = match item {
             Some(item) => {
@@ -946,38 +919,175 @@ impl EntityData {
     pub fn get_hand_slot(&self) -> u32 {
         *self.slot.lock()
     }
+}*/
+
+pub struct PlayerData {
+    entity: Mutex<Arc<Entity>>,
+    pub connection: Mutex<PlayerConnection>,
+    open_inventory: Mutex<Option<(InventoryWrapper, Uuid)>>,
+    pub chunk_loading_manager: ChunkLoadingManager,
+    pub speed: Mutex<f32>,
+    pub move_type: Mutex<MovementType>,
+    pub creative: Mutex<bool>,
+    pub hand_item: Mutex<Option<ItemStack>>,
+    pub server: Arc<Server>,
+    this: Weak<PlayerData>,
+}
+impl PlayerData {
+    pub fn new(
+        connection: PlayerConnection,
+        server: Arc<Server>,
+        entity: Arc<Entity>,
+    ) -> Arc<Self> {
+        let player = Arc::new_cyclic(|this| PlayerData {
+            connection: Mutex::new(connection),
+            open_inventory: Mutex::new(None),
+            chunk_loading_manager: ChunkLoadingManager::new(
+                this.clone(),
+                server.clone(),
+                (&entity.get_location()).into(),
+            ),
+            entity: Mutex::new(entity.clone()),
+            speed: Mutex::new(1.),
+            move_type: Mutex::new(MovementType::Normal),
+            creative: Mutex::new(true),
+            hand_item: Mutex::new(None),
+            server,
+            this: this.clone(),
+        });
+        player.chunk_loading_manager.load_initial_chunks();
+        Inventory::set_cursor(&player, &None);
+        entity.set_player(player.clone());
+        player
+    }
+    pub fn destroy(&self) {
+        self.chunk_loading_manager.unload_chunks();
+
+        if let Some(inventory) = self.open_inventory.lock().as_ref() {
+            inventory
+                .0
+                .get_inventory()
+                .remove_viewer(self.get_entity().get_id());
+        }
+    }
+    pub fn modify_inventory_hand<F>(&self, function: F)
+    where
+        F: FnOnce(&mut Option<ItemStack>),
+    {
+        let mut hand_item = self.hand_item.lock();
+        function.call_once((&mut *hand_item,));
+        let set_as_empty = match &*hand_item {
+            Some(item) => item.get_count() == 0,
+            None => true,
+        };
+        if set_as_empty {
+            *hand_item = None;
+        }
+        Inventory::set_cursor(self, &hand_item);
+    }
+    pub fn resync_abilities(&self) {
+        self.send_message(&NetworkMessageS2C::PlayerAbilities(
+            *self.speed.lock(),
+            *self.move_type.lock(),
+        ));
+    }
+    pub fn tick(&self) {
+        self.chunk_loading_manager.tick();
+    }
+    pub fn get_entity(&self) -> Arc<Entity> {
+        self.entity.lock().clone()
+    }
+    pub fn send_message(&self, message: &NetworkMessageS2C) {
+        self.connection.lock().send(message);
+    }
+    pub fn send_messages(&self, messages: &Vec<NetworkMessageS2C>) {
+        let mut connection = self.connection.lock();
+        for message in messages {
+            connection.send(message);
+        }
+    }
+    pub fn set_open_inventory(&self, new_inventory: Option<(InventoryWrapper, GuiInventoryData)>) {
+        let mut current_inventory = self.open_inventory.lock();
+        if let Some(current_inventory) = &*current_inventory {
+            current_inventory
+                .0
+                .get_inventory()
+                .remove_viewer(&current_inventory.1);
+        }
+        let (inventory, data) = new_inventory
+            .map(|inv| (Some(inv.0), Some(inv.1)))
+            .unwrap_or((None, None));
+        let view_id = if let Some(data) = data {
+            let viewer = data.into_viewer(self.ptr());
+            let id = viewer.id.clone();
+            inventory
+                .as_ref()
+                .unwrap()
+                .get_inventory()
+                .add_viewer(viewer);
+            Some(id)
+        } else {
+            let mut hand_item = self.hand_item.lock();
+            if let Some(inventory_hand) = &*hand_item {
+                self.get_entity().throw_item(inventory_hand.clone());
+            }
+            *hand_item = None;
+            Inventory::set_cursor(self, &None);
+            None
+        };
+        self.send_message(&NetworkMessageS2C::SetCursorLock(inventory.is_none()));
+        self.send_message(&NetworkMessageS2C::GuiRemoveElements("cursor".to_string()));
+        if inventory.is_none() {
+            self.send_message(&NetworkMessageS2C::GuiSetElement(
+                "cursor".to_string(),
+                GUIElement {
+                    position: Position {
+                        x: 0.,
+                        y: 0.,
+                        z: 0.,
+                    },
+                    anchor: PositionAnchor::Center,
+                    base_color: Color::WHITE,
+                    component_type: GUIComponent::ImageComponent {
+                        size: Vec2 { x: 50., y: 50. },
+                        texture: "bb:cursor".to_string(),
+                    },
+                },
+            ));
+        }
+        *current_inventory = inventory.map(|inventory| (inventory, view_id.unwrap()));
+    }
+    pub fn send_chat_message(&self, text: String) {
+        self.send_message(&NetworkMessageS2C::ChatMessage(text));
+    }
+    pub fn ptr(&self) -> Arc<PlayerData> {
+        self.this.upgrade().unwrap()
+    }
 }
 
 pub struct Entity {
     this: Weak<Self>,
     location: Mutex<ChunkLocation>,
-    pub(crate) rotation_shifting: Mutex<(f32, bool)>,
+    pub rotation_shifting: Mutex<(f32, bool)>,
     teleport: Mutex<Option<ChunkLocation>>,
     pub entity_type: Arc<EntityType>,
-    pub entity_data: EntityData,
     removed: AtomicBool,
     pub client_id: u32,
     id: Uuid,
     animation_controller: Mutex<AnimationController<Entity>>,
     pub inventory: Inventory,
     pub server: Arc<Server>,
-    open_inventory: Mutex<Option<(InventoryWrapper, Uuid)>>,
-    pub connection: Mutex<Option<PlayerConnection>>,
     velocity: Mutex<(f64, f64, f64)>,
     pub user_data: Mutex<UserData>,
-    pub chunk_loading_manager: Mutex<ChunkLoadingManager>,
+    pub(crate) slot: Mutex<u32>,
+    pub player: Mutex<Option<Weak<PlayerData>>>,
 }
 
 static ENTITY_CLIENT_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
 
 impl Entity {
-    pub fn new<T: Into<ChunkLocation>>(
-        location: T,
-        entity_type: &Arc<EntityType>,
-        connection: Option<PlayerConnection>,
-    ) -> Arc<Entity> {
+    pub fn new<T: Into<ChunkLocation>>(location: T, entity_type: &Arc<EntityType>) -> Arc<Entity> {
         let location: ChunkLocation = location.into();
-        let position = location.position;
         let chunk = location.chunk.clone();
         let server = location.chunk.world.server.clone();
         let entity = Arc::new_cyclic(|weak| Entity {
@@ -989,7 +1099,6 @@ impl Entity {
             client_id: ENTITY_CLIENT_ID_GENERATOR.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
             id: Uuid::new_v4(),
             teleport: Mutex::new(None),
-            entity_data: EntityData::new(weak.clone()),
             rotation_shifting: Mutex::new((0., false)),
             animation_controller: Mutex::new(AnimationController::new(weak.clone(), 1)),
             inventory: Inventory::new(
@@ -999,61 +1108,74 @@ impl Entity {
                 None,
                 None,
             ),
-            open_inventory: Mutex::new(None),
-            connection: Mutex::new(connection),
             velocity: Mutex::new((0., 0., 0.)),
             user_data: Mutex::new(UserData::new()),
-            chunk_loading_manager: Mutex::new(ChunkLoadingManager::new(weak.clone(), server)),
+            slot: Mutex::new(0),
+            player: Mutex::new(None),
         });
-        entity
-            .try_send_message(&NetworkMessageS2C::TeleportPlayer(position, 0.))
-            .ok();
-
-        if entity.is_player() {
-            entity
-                .try_send_message(&NetworkMessageS2C::ControllingEntity(
-                    entity.entity_type.client_id,
-                ))
-                .unwrap();
-            entity.inventory.add_viewer(GuiInventoryViewer {
-                slot_range: 0..9,
-                slots: {
-                    let mut slots = Vec::with_capacity(9);
-                    for i in 0..9 {
-                        slots.push((PositionAnchor::Bottom, ((i - 4) as f32 * 130.), 100.));
-                    }
-                    slots
-                },
-                id: entity.get_id().clone(),
-                viewer: entity.clone(),
-            });
-            for chunk_position in Entity::get_chunks_to_load_at(&chunk.world.server, &position) {
-                chunk
-                    .world
-                    .load_chunk(chunk_position)
-                    .add_viewer(entity.clone());
-            }
-        }
-
-        if entity.is_player() {
-            entity.entity_data.set_hand_slot(0);
-            Inventory::set_cursor(&entity.entity_data);
-        }
         chunk.add_entity(entity.clone());
-        let add_message = entity.create_add_messages(position);
+        let add_message = entity.create_add_messages(entity.get_location().position);
         for viewer in chunk.viewers.lock().iter() {
-            if viewer.player.id != entity.id {
-                viewer.player.try_send_messages(&add_message).unwrap();
+            if viewer.player.get_entity().id != entity.id {
+                viewer.player.send_messages(&add_message);
             }
         }
-        if entity.is_player() {
-            entity.set_open_inventory(None);
-        }
-        /*entity.try_send_message(&NetworkMessageS2C::PlayerAbilities(
-            1.,
-            crate::net::MovementType::NoClip,
-        ));*/
         entity
+    }
+    pub fn set_player(&self, player: Arc<PlayerData>) {
+        player.send_message(&NetworkMessageS2C::TeleportPlayer(
+            self.get_location().position,
+            0.,
+        ));
+        player.send_message(&NetworkMessageS2C::ControllingEntity(
+            self.entity_type.client_id,
+        ));
+        self.inventory.add_viewer(GuiInventoryViewer {
+            slot_range: 0..9,
+            slots: {
+                let mut slots = Vec::with_capacity(9);
+                for i in 0..9 {
+                    slots.push((PositionAnchor::Bottom, ((i - 4) as f32 * 130.), 100.));
+                }
+                slots
+            },
+            id: self.get_id().clone(),
+            viewer: player.clone(),
+        });
+        self.set_hand_slot(0);
+
+        *self.player.lock() = Some(Arc::downgrade(&player));
+    }
+    pub fn set_hand_slot(&self, slot: u32) {
+        let slot = if slot == u32::MAX {
+            self.inventory.get_size() - 1
+        } else {
+            slot.rem_euclid(self.inventory.get_size())
+        };
+        let old_slot = *self.slot.lock();
+        *self.slot.lock() = slot;
+        if let Some(player) = self.get_player() {
+            player.send_message(&NetworkMessageS2C::GuiEditElement(
+                self.inventory.get_slot_id_entity(self, old_slot),
+                GUIElementEdit {
+                    base_color: Some(Color::WHITE),
+                    ..Default::default()
+                },
+            ));
+            player.send_message(&NetworkMessageS2C::GuiEditElement(
+                self.inventory.get_slot_id_entity(self, slot),
+                GUIElementEdit {
+                    base_color: Some(Color {
+                        r: 100,
+                        g: 100,
+                        b: 100,
+                        a: 255,
+                    }),
+                    ..Default::default()
+                },
+            ));
+            self.sync_main_hand_viewmodel(self.get_hand_item().as_ref());
+        }
     }
     pub fn get_collider(&self) -> AABB {
         let position = self.get_location().position;
@@ -1072,83 +1194,14 @@ impl Entity {
     pub fn is_shifting(&self) -> bool {
         self.rotation_shifting.lock().1
     }
-    pub fn set_open_inventory(&self, new_inventory: Option<(InventoryWrapper, GuiInventoryData)>) {
-        let mut current_inventory = self.open_inventory.lock();
-        if let Some(current_inventory) = &*current_inventory {
-            current_inventory
-                .0
-                .get_inventory()
-                .remove_viewer(&current_inventory.1);
+    pub fn get_player(&self) -> Option<Arc<PlayerData>> {
+        match &*self.player.lock() {
+            Some(player) => player.upgrade(),
+            None => None,
         }
-        let (inventory, data) = new_inventory
-            .map(|inv| (Some(inv.0), Some(inv.1)))
-            .unwrap_or((None, None));
-        let view_id = if let Some(data) = data {
-            let viewer = data.into_viewer(self.this.upgrade().unwrap());
-            let id = viewer.id.clone();
-            inventory
-                .as_ref()
-                .unwrap()
-                .get_inventory()
-                .add_viewer(viewer);
-            Some(id)
-        } else {
-            if let Some(inventory_hand) = self.entity_data.get_inventory_hand() {
-                self.throw_item(inventory_hand);
-            }
-            self.entity_data.set_inventory_hand(None);
-            Inventory::set_cursor(&self.entity_data);
-            None
-        };
-        self.try_send_message(&NetworkMessageS2C::SetCursorLock(inventory.is_none()))
-            .unwrap();
-        self.try_send_message(&NetworkMessageS2C::GuiRemoveElements("cursor".to_string()))
-            .unwrap();
-        if inventory.is_none() {
-            self.try_send_message(&NetworkMessageS2C::GuiSetElement(
-                "cursor".to_string(),
-                GUIElement {
-                    position: Position {
-                        x: 0.,
-                        y: 0.,
-                        z: 0.,
-                    },
-                    anchor: PositionAnchor::Center,
-                    base_color: Color::WHITE,
-                    component_type: GUIComponent::ImageComponent {
-                        size: Vec2 { x: 50., y: 50. },
-                        texture: "bb:cursor".to_string(),
-                    },
-                },
-            ))
-            .unwrap();
-        }
-        *current_inventory = inventory.map(|inventory| (inventory, view_id.unwrap()));
     }
     pub fn get_id(&self) -> &Uuid {
         &self.id
-    }
-    pub fn try_send_message(&self, message: &NetworkMessageS2C) -> Result<(), ()> {
-        if let Some(connection) = &mut *self.connection.lock() {
-            connection.send(message);
-            Ok(())
-        } else {
-            Err(())
-        }
-    }
-    pub fn try_send_messages(&self, messages: &Vec<NetworkMessageS2C>) -> Result<(), ()> {
-        if let Some(connection) = &mut *self.connection.lock() {
-            for message in messages {
-                connection.send(message);
-            }
-            Ok(())
-        } else {
-            Err(())
-        }
-    }
-    pub fn send_chat_message(&self, text: String) {
-        self.try_send_message(&NetworkMessageS2C::ChatMessage(text))
-            .ok();
     }
     pub fn create_add_messages(&self, position: Position) -> Vec<NetworkMessageS2C> {
         let animation_controller = self.animation_controller.lock();
@@ -1183,13 +1236,14 @@ impl Entity {
         let location: ChunkLocation = location.into();
         let position = location.position.clone();
         self.move_to(location, rotation_shifting);
-        self.try_send_message(&NetworkMessageS2C::TeleportPlayer(
-            position,
-            rotation_shifting
-                .map(|rotation_shifting| rotation_shifting.0)
-                .unwrap_or(f32::NAN),
-        ))
-        .ok();
+        if let Some(player) = self.get_player() {
+            player.send_message(&NetworkMessageS2C::TeleportPlayer(
+                position,
+                rotation_shifting
+                    .map(|rotation_shifting| rotation_shifting.0)
+                    .unwrap_or(f32::NAN),
+            ));
+        }
     }
     pub fn move_to<T: Into<ChunkLocation>>(
         &self,
@@ -1203,28 +1257,6 @@ impl Entity {
             *self.rotation_shifting.lock() = rotation_shifting;
         }
     }
-    pub fn get_chunks_to_load_at(server: &Server, position: &Position) -> FxHashSet<ChunkPosition> {
-        let chunk_pos = position.to_chunk_pos();
-        let vertical_view_distance =
-            server.settings.get_i64("server.view_distance.vertical", 16) as i32;
-        let horizontal_view_distance = server
-            .settings
-            .get_i64("server.view_distance.horizontal", 8)
-            as i32;
-        let mut positions = FxHashSet::default();
-        for x in (-vertical_view_distance)..=vertical_view_distance {
-            for y in (-horizontal_view_distance)..=horizontal_view_distance {
-                for z in (-vertical_view_distance)..=vertical_view_distance {
-                    positions.insert(ChunkPosition {
-                        x: chunk_pos.x + x,
-                        y: chunk_pos.y + y,
-                        z: chunk_pos.z + z,
-                    });
-                }
-            }
-        }
-        positions
-    }
     pub fn get_location(&self) -> ChunkLocation {
         let location = self.location.lock();
         location.clone()
@@ -1236,9 +1268,8 @@ impl Entity {
         velocity.2 += z;
     }
     pub fn tick(&self) {
-        self.chunk_loading_manager.lock().tick();
         let mut teleport_location = { self.teleport.lock().as_ref().map(|loc| loc.clone()) };
-        if !self.is_player() {
+        if self.get_player().is_none() {
             let mut velocity = self.velocity.lock();
             velocity.0 *= 0.8;
             velocity.1 *= 0.8;
@@ -1295,46 +1326,24 @@ impl Entity {
                     let add_message = self.create_add_messages(new_location.position);
                     let delete_message = NetworkMessageS2C::DeleteEntity(self.client_id);
                     for viewer in old_viewers.difference(&new_viewers) {
-                        viewer.player.try_send_message(&delete_message).unwrap();
+                        viewer.player.send_message(&delete_message);
                     }
                     for viewer in new_viewers.difference(&old_viewers) {
-                        if self.id != viewer.player.id {
-                            viewer.player.try_send_messages(&add_message).unwrap();
+                        if self.id != viewer.player.get_entity().id {
+                            viewer.player.send_messages(&add_message);
                         }
                     }
                 }
-                let is_player = self.is_player();
-                if is_player {
-                    let old_loaded =
-                        Entity::get_chunks_to_load_at(&self.server, &old_location.position);
-                    let new_loaded =
-                        Entity::get_chunks_to_load_at(&self.server, &new_location.position);
-
-                    if !Arc::ptr_eq(&old_location.chunk.world, &new_location.chunk.world) {
-                        for pos in old_loaded {
-                            old_location
-                                .chunk
-                                .world
-                                .load_chunk(pos)
-                                .remove_viewer(self, true);
-                        }
-                        for pos in new_loaded {
-                            new_location
-                                .chunk
-                                .world
-                                .load_chunk(pos)
-                                .add_viewer(self.this.upgrade().unwrap());
-                        }
+                if let Some(player) = self.get_player() {
+                    if Arc::ptr_eq(&old_location.chunk.world, &new_location.chunk.world) {
+                        player
+                            .chunk_loading_manager
+                            .transfer_position(new_location.position.to_chunk_pos());
                     } else {
-                        let world = old_location.chunk.world.clone(); //old or new doesn't matter
-                        for pos in old_loaded.difference(&new_loaded) {
-                            world.load_chunk(pos.clone()).remove_viewer(self, true);
-                        }
-                        for pos in new_loaded.difference(&old_loaded) {
-                            world
-                                .load_chunk(pos.clone())
-                                .add_viewer(self.this.upgrade().unwrap());
-                        }
+                        player.chunk_loading_manager.transfer_world(
+                            new_location.chunk.world.clone(),
+                            new_location.position.to_chunk_pos(),
+                        );
                     }
                 }
             }
@@ -1353,15 +1362,15 @@ impl Entity {
         if let Some(ticker) = &*self.entity_type.ticker.lock() {
             let _ = ticker.call(&self.server.engine, (self.this.upgrade().unwrap(),));
         }
-        if self.is_player() {
-            let messages = self.connection.lock().as_mut().unwrap().receive_messages();
+        if let Some(player) = self.get_player() {
+            let messages = player.connection.lock().receive_messages();
             for message in messages {
                 match message {
                     NetworkMessageC2S::Keyboard(key, key_mod, pressed, _repeat) => {
                         match key {
                             KeyboardKey::Q => {
                                 if pressed {
-                                    let slot = { *self.entity_data.slot.lock() };
+                                    let slot = { *self.slot.lock() };
                                     self.inventory
                                         .get_full_view()
                                         .modify_item(slot, |item| {
@@ -1385,25 +1394,26 @@ impl Entity {
                             }
                             KeyboardKey::Tab => {
                                 if pressed {
-                                    if self.open_inventory.lock().is_some() {
-                                        self.set_open_inventory(None);
+                                    if player.open_inventory.lock().is_some() {
+                                        player.set_open_inventory(None);
                                     } else {
-                                        if *self.entity_data.creative.lock() {
-                                            self.set_open_inventory(Some((InventoryWrapper::Own(
+                                        if *player.creative.lock() {
+                                            player.set_open_inventory(Some((InventoryWrapper::Own(
                                     {
                                         let inventory = Inventory::new_owned(
                                             27,
-                                            Some(Box::new(move |inventory: &Inventory, entity: &Entity, slot: u32, _: MouseButton, _: bool| {
-                                                let hand_empty = entity.entity_data.hand_item.lock().is_none();
+                                            Some(Box::new(move |inventory: &Inventory, player: &PlayerData, slot: u32, _: MouseButton, _: bool| {
+                                                let mut hand_item = player.hand_item.lock();
+                                                let hand_empty = hand_item.is_none();
                                                 if hand_empty {
-                                                    entity.entity_data.set_inventory_hand(inventory.get_full_view().get_item(slot).unwrap().clone());
+                                                    *hand_item = inventory.get_full_view().get_item(slot).unwrap().clone();
                                                 } else {
-                                                    entity.entity_data.set_inventory_hand(None);
+                                                     *hand_item = None;
                                                 }
                                                 InteractionResult::Consumed
                                             })),
-                                            Some(Box::new(|inventory: &Inventory, entity: &Entity, slot: u32, _: i32, y: i32, _: bool| {
-                                                entity.entity_data.modify_inventory_hand(|item| {
+                                            Some(Box::new(|inventory: &Inventory, player: &PlayerData, slot: u32, _: i32, y: i32, _: bool| {
+                                                player.modify_inventory_hand(|item| {
                                                     match &mut *item {
                                                         Some(item) => {
                                                             item.add_count(if y < 0 { -1 } else { 1 });
@@ -1453,7 +1463,7 @@ impl Entity {
                                                 slot_range: 0..27
                                             })));
                                         } else {
-                                            self.set_open_inventory(Some((
+                                            player.set_open_inventory(Some((
                                                 InventoryWrapper::Entity(self.ptr()),
                                                 GuiInventoryData {
                                                     slots: {
@@ -1476,13 +1486,13 @@ impl Entity {
                             }
                             KeyboardKey::C => {
                                 if pressed {
-                                    if self.open_inventory.lock().is_some() {
-                                        self.set_open_inventory(None);
+                                    if player.open_inventory.lock().is_some() {
+                                        player.set_open_inventory(None);
                                     } else {
                                         let inventory = Inventory::new_owned(
                                         27,
                                         Some(Box::new(
-                                            move|inventory: &Inventory, player: &Entity, id: u32, _: MouseButton, _: bool| {
+                                            move|inventory: &Inventory, player: &PlayerData, id: u32, _: MouseButton, _: bool| {
                                                 let recipes: Array = inventory
                                                     .get_user_data()
                                                     .get_data_point_ref(&Identifier::new(
@@ -1498,10 +1508,11 @@ impl Entity {
                                                         .recipes
                                                         .by_id(&recipe.clone().cast::<Identifier>())
                                                         .unwrap();
+                                                    let entity = player.get_entity();
                                                     if let Ok(_) =
-                                                        recipe.consume_inputs(&player.inventory)
+                                                        recipe.consume_inputs(&entity.inventory)
                                                     {
-                                                        recipe.add_outputs(&player.inventory);
+                                                        recipe.add_outputs(&entity.inventory);
                                                     }
                                                 }
                                                 InteractionResult::Consumed
@@ -1530,7 +1541,7 @@ impl Entity {
                                             &Identifier::new("bb", "recipes"),
                                             Dynamic::from_array(recipes_user_map),
                                         );
-                                        self.set_open_inventory(Some((
+                                        player.set_open_inventory(Some((
                                             InventoryWrapper::Own(inventory),
                                             GuiInventoryData {
                                                 slots: {
@@ -1560,13 +1571,13 @@ impl Entity {
                                 */
                             }
                             KeyboardKey::Escape => {
-                                self.set_open_inventory(None);
+                                player.set_open_inventory(None);
                             }
                             _ => {}
                         }
                         if let Some(slot) = key.get_slot() {
                             if pressed {
-                                self.entity_data.set_hand_slot(slot as u32);
+                                self.set_hand_slot(slot as u32);
                             }
                         }
                     }
@@ -1574,17 +1585,18 @@ impl Entity {
                         {
                             let slot = self.inventory.resolve_slot(self.get_id(), element.as_str());
                             if let Some(slot) = slot {
-                                self.inventory.on_click_slot(self, slot, button, shifting);
+                                self.inventory
+                                    .on_click_slot(&player, slot, button, shifting);
                                 continue;
                             }
                         }
                         {
-                            if let Some(open_inventory) = &mut *self.open_inventory.lock() {
+                            if let Some(open_inventory) = &mut *player.open_inventory.lock() {
                                 let inventory = open_inventory.0.get_inventory();
                                 let slot =
                                     inventory.resolve_slot(&open_inventory.1, element.as_str());
                                 if let Some(slot) = slot {
-                                    inventory.on_click_slot(self, slot, button, shifting);
+                                    inventory.on_click_slot(&player, slot, button, shifting);
                                     continue;
                                 }
                             }
@@ -1594,17 +1606,17 @@ impl Entity {
                         {
                             let slot = self.inventory.resolve_slot(self.get_id(), element.as_str());
                             if let Some(slot) = slot {
-                                self.inventory.on_scroll_slot(self, slot, x, y, shifting);
+                                self.inventory.on_scroll_slot(&player, slot, x, y, shifting);
                                 continue;
                             }
                         }
                         {
-                            if let Some(open_inventory) = &mut *self.open_inventory.lock() {
+                            if let Some(open_inventory) = &mut *player.open_inventory.lock() {
                                 let inventory = open_inventory.0.get_inventory();
                                 let slot =
                                     inventory.resolve_slot(&open_inventory.1, element.as_str());
                                 if let Some(slot) = slot {
-                                    inventory.on_scroll_slot(self, slot, x, y, shifting);
+                                    inventory.on_scroll_slot(&player, slot, x, y, shifting);
                                     continue;
                                 }
                             }
@@ -1618,7 +1630,7 @@ impl Entity {
                             .set_animation(Some(if moved { 2 } else { 1 }));
                     }
                     NetworkMessageC2S::RequestBlockBreakTime(id, position) => {
-                        let block_break_time = if *self.entity_data.creative.lock() {
+                        let block_break_time = if *player.creative.lock() {
                             0.
                         } else {
                             let world = self.get_location().chunk.world.clone();
@@ -1652,11 +1664,10 @@ impl Entity {
                             block_break_time / block_tool.0
                         };
                         if block_break_time >= 0. {
-                            self.try_send_message(&NetworkMessageS2C::BlockBreakTimeResponse(
+                            player.send_message(&NetworkMessageS2C::BlockBreakTimeResponse(
                                 id,
                                 block_break_time,
-                            ))
-                            .unwrap();
+                            ));
                         }
                         //todo: check time
                     }
@@ -1665,7 +1676,7 @@ impl Entity {
                         world.break_block(block_position, BlockBreakParameters::from_entity(self));
                     }
                     NetworkMessageC2S::RightClickBlock(block_position, face, shifting) => {
-                        let hand_slot = self.entity_data.get_hand_slot();
+                        let hand_slot = *self.slot.lock();
                         let block = self
                             .get_location()
                             .chunk
@@ -1688,7 +1699,7 @@ impl Entity {
                                     right_click_result =
                                         stack.item_type.clone().on_right_click_block(
                                             stack,
-                                            self.this.upgrade().unwrap(),
+                                            player.clone(),
                                             block_position,
                                             face,
                                         );
@@ -1697,7 +1708,7 @@ impl Entity {
                             .unwrap();
                     }
                     NetworkMessageC2S::RightClick(_shifting) => {
-                        let hand_slot = self.entity_data.get_hand_slot();
+                        let hand_slot = *self.slot.lock();
                         let mut right_click_result = InteractionResult::Ignored;
                         self.inventory
                             .get_full_view()
@@ -1749,8 +1760,8 @@ impl Entity {
                         }
                     }
                     NetworkMessageC2S::MouseScroll(_scroll_x, scroll_y) => {
-                        let new_slot = self.entity_data.get_hand_slot() as i32 - scroll_y;
-                        self.entity_data.set_hand_slot(new_slot as u32);
+                        let new_slot = (*self.slot.lock() as i32 - scroll_y).rem_euclid(9);
+                        self.set_hand_slot(new_slot as u32);
                     }
                     NetworkMessageC2S::SendMessage(message) => {
                         if message.starts_with("/") {
@@ -1803,61 +1814,39 @@ impl Entity {
     }
     pub fn get_hand_item(&self) -> Option<ItemStack> {
         let inventory = self.inventory.get_full_view();
-        inventory.get_item(*self.entity_data.slot.lock()).unwrap()
+        inventory.get_item(*self.slot.lock()).unwrap()
     }
     pub fn remove(&self) {
         self.removed
             .store(true, std::sync::atomic::Ordering::Relaxed)
     }
     pub fn is_removed(&self) -> bool {
-        self.removed.load(std::sync::atomic::Ordering::Relaxed)
-            | self
-                .connection
-                .lock()
-                .as_ref()
-                .map(|connection| connection.is_closed())
-                .unwrap_or(false)
+        self.get_player()
+            .map(|player| player.connection.lock().is_closed())
+            .unwrap_or(self.removed.load(std::sync::atomic::Ordering::Relaxed))
     }
-    pub fn post_remove(&self) {
-        if self.is_player() {
-            let (world, position) = {
-                let location = self.location.lock();
-                (location.chunk.world.clone(), location.position)
-            };
-            let loading_chunks = Entity::get_chunks_to_load_at(&self.server, &position.clone());
-            for chunk_position in loading_chunks {
-                world.load_chunk(chunk_position).remove_viewer(self, false);
-            }
-        }
-        if let Some(inventory) = self.open_inventory.lock().as_ref() {
-            inventory.0.get_inventory().remove_viewer(self.get_id());
-        }
-    }
+    pub fn post_remove(&self) {}
     pub fn sync_main_hand_viewmodel(&self, item: Option<&ItemStack>) {
-        self.try_send_message(&NetworkMessageS2C::ModelItem(
-            ClientModelTarget::ViewModel,
-            0,
-            item.map(|item| item.item_type.client_id),
-        ))
-        .ok();
-        if item.is_some() {
-            self.try_send_message(&NetworkMessageS2C::ModelAnimation(
+        if let Some(player) = self.get_player() {
+            player.send_message(&NetworkMessageS2C::ModelItem(
                 ClientModelTarget::ViewModel,
                 0,
-            ))
-            .ok();
-            self.try_send_message(&NetworkMessageS2C::PlaySound(
-                "example:equip".to_string(),
-                self.get_location().position,
-                1.,
-                1.,
-                false,
-            ))
-            .ok();
+                item.map(|item| item.item_type.client_id),
+            ));
+            if item.is_some() {
+                player.send_message(&NetworkMessageS2C::ModelAnimation(
+                    ClientModelTarget::ViewModel,
+                    0,
+                ));
+                player.send_message(&NetworkMessageS2C::PlaySound(
+                    "example:equip".to_string(),
+                    self.get_location().position,
+                    1.,
+                    1.,
+                    false,
+                ));
+            }
         }
-    }
-    fn is_player(&self) -> bool {
-        self.connection.lock().is_some()
     }
     pub fn ptr(&self) -> Arc<Entity> {
         self.this.upgrade().unwrap()
@@ -1872,41 +1861,43 @@ impl Animatable for Entity {
                 animation,
             ));
     }
-    fn send_animation_to(&self, viewer: &Entity, animation: u32) {
-        viewer
-            .try_send_message(&NetworkMessageS2C::ModelAnimation(
-                ClientModelTarget::Entity(self.client_id),
-                animation,
-            ))
-            .ok();
+    fn send_animation_to(&self, viewer: &PlayerData, animation: u32) {
+        viewer.send_message(&NetworkMessageS2C::ModelAnimation(
+            ClientModelTarget::Entity(self.client_id),
+            animation,
+        ));
     }
 }
 pub struct ChunkLoadingManager {
     server: Arc<Server>,
-    entity: Weak<Entity>,
-    to_load: HashSet<Arc<Chunk>>,
+    player: Weak<PlayerData>,
+    to_load: Mutex<HashSet<Arc<Chunk>>>,
+    old_position: Mutex<ChunkPosition>,
+    old_world: Mutex<Arc<World>>,
 }
 impl ChunkLoadingManager {
-    pub fn new(entity: Weak<Entity>, server: Arc<Server>) -> Self {
+    pub fn new(player: Weak<PlayerData>, server: Arc<Server>, location: Location) -> Self {
         ChunkLoadingManager {
+            player,
             server,
-            entity,
-            to_load: HashSet::new(),
+            to_load: Mutex::new(HashSet::new()),
+            old_position: Mutex::new(location.position.to_chunk_pos()),
+            old_world: Mutex::new(location.world),
         }
     }
-    pub fn load(&mut self, chunk: Arc<Chunk>) {
-        self.to_load.insert(chunk);
+    pub fn load(&self, chunk: Arc<Chunk>) {
+        self.to_load.lock().insert(chunk);
     }
-    pub fn unload(&mut self, chunk: Arc<Chunk>) {
-        self.entity
+    pub fn unload(&self, chunk: Arc<Chunk>) {
+        self.player
             .upgrade()
             .unwrap()
-            .try_send_message(&NetworkMessageS2C::UnloadChunk(chunk.position))
-            .ok();
+            .send_message(&NetworkMessageS2C::UnloadChunk(chunk.position));
     }
-    pub fn tick(&mut self) {
+    pub fn tick(&self) {
         for chunk in self
             .to_load
+            .lock()
             .extract_if(|chunk| chunk.loading_stage.load(Ordering::Relaxed) >= 2)
             .take(
                 self.server
@@ -1914,7 +1905,7 @@ impl ChunkLoadingManager {
                     .get_i64("server.max_chunks_sent_per_tick", 200) as usize,
             )
         {
-            let entity = self.entity.upgrade().unwrap();
+            let entity = self.player.upgrade().unwrap();
             self.server.thread_pool.execute(Box::new(move || {
                 let mut palette = Vec::new();
                 let mut block_data = [[[0; 16]; 16]; 16];
@@ -1948,7 +1939,7 @@ impl ChunkLoadingManager {
                     palette,
                     encoder.finish().unwrap(),
                 );
-                entity.try_send_message(&load_message).ok();
+                entity.send_message(&load_message);
                 {
                     let blocks = chunk.blocks.lock();
                     for x in 0..16 {
@@ -1965,6 +1956,81 @@ impl ChunkLoadingManager {
                 }
             }));
         }
+    }
+    pub fn unload_chunks(&self) {
+        let world = self.old_world.lock();
+        for pos in Self::get_chunks_to_load_at(self, *self.old_position.lock()) {
+            world
+                .load_chunk(pos)
+                .remove_viewer(&self.player.upgrade().unwrap(), false);
+        }
+    }
+    pub fn load_initial_chunks(&self) {
+        let world = self.old_world.lock();
+        for pos in Self::get_chunks_to_load_at(self, *self.old_position.lock()) {
+            world
+                .load_chunk(pos)
+                .add_viewer(self.player.upgrade().unwrap());
+        }
+    }
+    pub fn transfer_world(&self, new_world: Arc<World>, new_position: ChunkPosition) {
+        let mut old_position = self.old_position.lock();
+        let old_loaded = Self::get_chunks_to_load_at(self, *old_position);
+        let new_loaded = Self::get_chunks_to_load_at(self, new_position);
+        let mut old_world = self.old_world.lock();
+        for pos in old_loaded {
+            old_world
+                .load_chunk(pos)
+                .remove_viewer(&self.player.upgrade().unwrap(), true);
+        }
+        for pos in new_loaded {
+            new_world
+                .load_chunk(pos)
+                .add_viewer(self.player.upgrade().unwrap());
+        }
+        *old_world = new_world;
+        *old_position = new_position;
+    }
+    pub fn transfer_position(&self, new_position: ChunkPosition) {
+        let mut old_position = self.old_position.lock();
+        let old_loaded = Self::get_chunks_to_load_at(self, *old_position);
+        let new_loaded = Self::get_chunks_to_load_at(self, new_position);
+        let world = self.old_world.lock();
+        for pos in old_loaded.difference(&new_loaded) {
+            world
+                .load_chunk(*pos)
+                .remove_viewer(&self.player.upgrade().unwrap(), true);
+        }
+        for pos in new_loaded.difference(&old_loaded) {
+            world
+                .load_chunk(*pos)
+                .add_viewer(self.player.upgrade().unwrap());
+        }
+
+        *old_position = new_position;
+    }
+    pub fn get_chunks_to_load_at(&self, position: ChunkPosition) -> FxHashSet<ChunkPosition> {
+        let vertical_view_distance =
+            self.server
+                .settings
+                .get_i64("server.view_distance.vertical", 16) as i32;
+        let horizontal_view_distance =
+            self.server
+                .settings
+                .get_i64("server.view_distance.horizontal", 8) as i32;
+        let mut positions = FxHashSet::default();
+        for x in (-vertical_view_distance)..=vertical_view_distance {
+            for y in (-horizontal_view_distance)..=horizontal_view_distance {
+                for z in (-vertical_view_distance)..=vertical_view_distance {
+                    positions.insert(ChunkPosition {
+                        x: position.x + x,
+                        y: position.y + y,
+                        z: position.z + z,
+                    });
+                }
+            }
+        }
+        positions
     }
 }
 
@@ -2028,7 +2094,7 @@ impl<T: Animatable> AnimationController<T> {
                 .send_animation_to_viewers(self.animation);
         }
     }
-    pub fn sync_to(&self, viewer: &Entity) {
+    pub fn sync_to(&self, viewer: &PlayerData) {
         self.viewable
             .upgrade()
             .unwrap()
@@ -2043,7 +2109,7 @@ impl<T: Animatable> AnimationController<T> {
 }
 pub trait Animatable {
     fn send_animation_to_viewers(&self, animation: u32);
-    fn send_animation_to(&self, viewer: &Entity, animation: u32);
+    fn send_animation_to(&self, viewer: &PlayerData, animation: u32);
 }
 #[derive(Clone)]
 pub struct Structure {
@@ -2178,21 +2244,19 @@ impl WorldBlock {
             this: this.clone(),
         })
     }
-    pub fn on_sent_to_client(&self, player: &Entity) {
+    pub fn on_sent_to_client(&self, player: &PlayerData) {
         self.animation_controller.sync_to(player);
         for (inventory_index, model_index) in &self.block.item_model_mapping.mapping {
-            player
-                .try_send_message(&NetworkMessageS2C::ModelItem(
-                    ClientModelTarget::Block(self.position),
-                    *model_index,
-                    self.inventory
-                        .get_full_view()
-                        .get_item(*inventory_index)
-                        .unwrap()
-                        .as_ref()
-                        .map(|item| item.item_type.client_id),
-                ))
-                .ok();
+            player.send_message(&NetworkMessageS2C::ModelItem(
+                ClientModelTarget::Block(self.position),
+                *model_index,
+                self.inventory
+                    .get_full_view()
+                    .get_item(*inventory_index)
+                    .unwrap()
+                    .as_ref()
+                    .map(|item| item.item_type.client_id),
+            ));
         }
     }
     pub fn tick(&self) {
@@ -2243,20 +2307,22 @@ impl WorldBlock {
     pub fn needs_ticking(&self) -> bool {
         self.block.machine_data.is_some()
     }
-    pub fn on_right_click(&self, player: &Entity) -> InteractionResult {
-        player.set_open_inventory(Some((
-            InventoryWrapper::Block(self.this.upgrade().unwrap()),
-            GuiInventoryData {
-                slots: {
-                    let mut slots = Vec::with_capacity(9);
-                    for i in 0..9 {
-                        slots.push((PositionAnchor::Center, ((i - 4) as f32 * 130.), 0.));
-                    }
-                    slots
+    pub fn on_right_click(&self, entity: &Entity) -> InteractionResult {
+        if let Some(player) = entity.get_player() {
+            player.set_open_inventory(Some((
+                InventoryWrapper::Block(self.this.upgrade().unwrap()),
+                GuiInventoryData {
+                    slots: {
+                        let mut slots = Vec::with_capacity(9);
+                        for i in 0..9 {
+                            slots.push((PositionAnchor::Center, ((i - 4) as f32 * 130.), 0.));
+                        }
+                        slots
+                    },
+                    slot_range: 0..9,
                 },
-                slot_range: 0..9,
-            },
-        )));
+            )));
+        }
         InteractionResult::Consumed
     }
     pub fn serialize(&self) -> BlockSaveData {
@@ -2300,13 +2366,11 @@ impl Animatable for WorldBlock {
                 animation,
             ));
     }
-    fn send_animation_to(&self, viewer: &Entity, animation: u32) {
-        viewer
-            .try_send_message(&NetworkMessageS2C::ModelAnimation(
-                ClientModelTarget::Block(self.position),
-                animation,
-            ))
-            .ok();
+    fn send_animation_to(&self, viewer: &PlayerData, animation: u32) {
+        viewer.send_message(&NetworkMessageS2C::ModelAnimation(
+            ClientModelTarget::Block(self.position),
+            animation,
+        ));
     }
 }
 
