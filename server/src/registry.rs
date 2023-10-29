@@ -180,6 +180,20 @@ impl BlockStatePropertyStorage {
         }
         Dynamic::from_map(map)
     }
+    pub fn dump_properties_to_string(&self, state: u32) -> String {
+        if self.total_states == 1 {
+            return String::new();
+        }
+        let mut output = Vec::new();
+        for (name, i) in &self.property_names {
+            output.push(format!(
+                "{}={}",
+                name.to_string(),
+                self.get_string_from_state(state, BlockStatePropertyKey::Id(*i))
+            ));
+        }
+        format!("{{{}}}", output.join(","))
+    }
     pub fn get_from_state(&self, state: u32, property: BlockStatePropertyKey) -> Dynamic {
         let (property, before_states) = self
             .properties
@@ -190,6 +204,17 @@ impl BlockStatePropertyStorage {
             .unwrap();
         let state = (state / before_states) % property.get_num_states();
         property.from_id_to_value(state)
+    }
+    pub fn get_string_from_state(&self, state: u32, property: BlockStatePropertyKey) -> String {
+        let (property, before_states) = self
+            .properties
+            .get(match property.to_id(&self.property_names) {
+                Some(id) => id,
+                None => panic!(),
+            })
+            .unwrap();
+        let state = (state / before_states) % property.get_num_states();
+        property.from_id_to_string(state)
     }
     pub fn set_state(
         &self,
@@ -317,6 +342,36 @@ impl BlockStateProperty {
                 })
             }
             BlockStateProperty::Bool => value.as_bool().ok().map(|value| if value { 1 } else { 0 }),
+        }
+    }
+    pub fn from_id_to_string(&self, id: u32) -> String {
+        match self {
+            BlockStateProperty::Face => match id {
+                0 => "front",
+                1 => "back",
+                2 => "up",
+                3 => "down",
+                4 => "left",
+                5 => "right",
+                _ => unreachable!(),
+            }
+            .to_string(),
+            BlockStateProperty::HorizontalFace => match id {
+                0 => "front",
+                1 => "back",
+                3 => "left",
+                4 => "right",
+                _ => unreachable!(),
+            }
+            .to_string(),
+            BlockStateProperty::Number(range) => (*range.start() + id as i32).to_string(),
+            BlockStateProperty::String(list) => list.get(id as usize).unwrap().clone(),
+            BlockStateProperty::Bool => match id {
+                0 => "false",
+                1 => "true",
+                _ => panic!(),
+            }
+            .to_string(),
         }
     }
     pub fn from_string_to_id(&self, text: &str) -> Option<u32> {
@@ -486,6 +541,17 @@ impl BlockState {
                 },
             );
         }
+    }
+}
+impl ToString for BlockState {
+    fn to_string(&self) -> String {
+        format!(
+            "{}{}",
+            self.parent.id.to_string(),
+            self.parent
+                .properties
+                .dump_properties_to_string(self.state_id)
+        )
     }
 }
 

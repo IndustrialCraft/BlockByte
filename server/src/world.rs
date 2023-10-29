@@ -2100,8 +2100,7 @@ impl Structure {
                 x:position.x,
                 y:position.y,
                 z:position.z,
-                id:state.parent.id.to_string(),
-                state: state.state_id
+                id:state.to_string(),
             });
         }
         object! {
