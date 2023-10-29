@@ -836,6 +836,7 @@ pub struct PlayerData {
     pub move_type: Mutex<MovementType>,
     pub creative: Mutex<bool>,
     pub hand_item: Mutex<Option<ItemStack>>,
+    pub user_data: Mutex<UserData>,
     pub server: Arc<Server>,
     this: Weak<PlayerData>,
 }
@@ -858,6 +859,7 @@ impl PlayerData {
             move_type: Mutex::new(MovementType::Normal),
             creative: Mutex::new(true),
             hand_item: Mutex::new(None),
+            user_data: Mutex::new(UserData::new()),
             server,
             this: this.clone(),
         });
@@ -1692,7 +1694,7 @@ impl Entity {
                                 .collect();
                             self.server.call_event(
                                 Identifier::new("bb", "command"),
-                                (self.this.upgrade().unwrap(), parts),
+                                (player.clone(), parts),
                             );
                         }
                     }

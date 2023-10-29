@@ -10,6 +10,12 @@ create_block("example:log", |p|{
 create_block("example:grass", |p|{
     create_cube("example:grass_side","example:grass_side","example:grass_side","example:grass_side","example:grass","example:dirt")
 }).register_item("example:grass_block","Grass Block").breaking_tool(ToolType::Shovel,1.).register();
+create_block("example:clay_grass", |p|{
+    create_cube("example:clay_grass_side","example:clay_grass_side","example:clay_grass_side","example:clay_grass_side","example:grass","example:clay")
+}).register_item("example:clay_grass_block","Clay Grass Block").breaking_tool(ToolType::Shovel,1.).register();
+create_block("example:clay", |p|{
+    create_cube("example:clay","example:clay","example:clay","example:clay","example:clay","example:clay")
+}).register_item("example:clay_block","Clay Block").breaking_tool(ToolType::Shovel,1.).register();
 create_block("example:dirt", |p|{
     create_cube("example:dirt","example:dirt","example:dirt","example:dirt","example:dirt","example:dirt")
 }).register_item("example:dirt_block","Dirt Block").breaking_tool(ToolType::Shovel,1.).register();
@@ -37,6 +43,9 @@ create_block("example:rock", |p|{
 create_block("example:grass_foliage", |p|{
     create_foliage("example:grass_foliage","example:grass_foliage","example:grass_foliage","example:grass_foliage").render_data(2).no_collide()
 }).loot("example:grass_foliage").register();
+create_block("example:clay_flower", |p|{
+    create_foliage("example:clay_flower","example:clay_flower","example:clay_flower","example:clay_flower").render_data(2).no_collide()
+}).register();
 create_block("example:branch", |p|{
     create_static("example:branch","example:log_side").no_collide().rotation(p.facing)
 }).loot("example:branch").add_property_horizontal_face("facing").register();
@@ -46,7 +55,7 @@ create_block("example:campfire", |p|{
 create_item("example:plank").client_model_texture("example:plank").client_name("Plank").register();
 create_item("example:selection_wand").on_right_click(|player,target|{
     if type_of(target) == "BlockPosition"{
-        if !player.is_shifting(){
+        if !player.get_entity().is_shifting(){
             player.insert_data_point("example:first_selection", target);
             player.send_message("first point selected at " + target);
         } else {
@@ -67,7 +76,8 @@ register_event("bb:command", |player,command|{
             player.send_message("second point not selected");
             return;
         }
-        player.insert_data_point("example:structure_selection", player.get_world().get_structure(first_selection,second_selection,player.get_position().to_block_position()));
+        let entity = player.get_entity();
+        player.insert_data_point("example:structure_selection", entity.get_world().get_structure(first_selection,second_selection,entity.get_position().to_block_position()));
         player.send_message("structure saved");
     }
     if command[0] == "/export"{
@@ -90,7 +100,7 @@ create_item("example:cut_grass").client_name("Cut Grass").client_model_texture("
 create_item("example:grass_twine").client_name("Grass Twine").client_model_texture("example:grass_twine").register();
 create_item("example:stick").client_name("Stick").client_model_texture("example:stick").register();
 
-create_biome("example:forest", "example:grass","example:dirt","example:stone","example:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.2, "example:grass_foliage").add_structure(0.02, "example:rock").add_structure(0.02, "example:branch").add_structure(0.0002, "example:malachite_chunk").add_structure(0.02, "example:tree").register();
+create_biome("example:forest", "example:grass","example:dirt","example:stone","example:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.2, "example:grass_foliage").add_structure(0.02, "example:rock").add_structure(0.02, "example:branch").add_structure(0.0002, "example:malachite_chunk").add_structure(0.0002, "example:clay_patch").add_structure(0.02, "example:tree").register();
 create_biome("example:ocean", "example:sand","example:sand","example:stone","example:water").spline_add_height(-1., 1.).spline_add_height(0., 0.).register();
 
 create_entity("bb:player").client_viewmodel("example:viewmodel", "").client_viewmodel_add_item("main_hand").client_viewmodel_add_animation("equip").client_model("example:player","example:player").client_add_item("main_hand").client_hitbox(0.6, 1.7, 0.6).register();
@@ -121,6 +131,10 @@ register_image("example:stone_chunk", "images/stone_chunk.png");
 register_image("example:stick", "images/stick.png");
 register_image("example:raw_beef", "images/raw_beef.png");
 register_image("example:cooked_beef", "images/cooked_beef.png");
+register_image("example:clay", "images/clay.png");
+register_image("example:clay_grass_side", load_image("images/clay.png").overlay(load_image("images/grass_side_mask.png").multiply(load_image("images/grass.png"))));
+register_image("example:clay_ball", "images/clay_ball.png");
+register_image("example:clay_flower", "images/clay_flower.png");
 
 register_image("example:player", "images/player.png");
 register_model("example:player", "models/player.bbm");

@@ -486,11 +486,32 @@ impl ModManager {
                     .put_data_point(&Identifier::parse(id).unwrap(), value)
             },
         );
+        engine.register_fn(
+            "get_data_point",
+            |player: &mut Arc<PlayerData>, id: &str| {
+                player
+                    .user_data
+                    .lock()
+                    .get_data_point_ref(&Identifier::parse(id).unwrap())
+                    .cloned()
+                    .unwrap_or(Dynamic::UNIT)
+            },
+        );
+        engine.register_fn(
+            "insert_data_point",
+            |player: &mut Arc<PlayerData>, id: &str, value: Dynamic| {
+                player
+                    .user_data
+                    .lock()
+                    .put_data_point(&Identifier::parse(id).unwrap(), value)
+            },
+        );
+        engine.register_fn("get_entity", |player: &mut Arc<PlayerData>| {
+            player.get_entity()
+        });
         //engine.register_type_with_name::<Arc<Entity>>("Entity");
-        engine.register_fn("send_message", |entity: Arc<Entity>, text: &str| {
-            if let Some(player) = entity.get_player() {
-                player.send_chat_message(text.to_string());
-            }
+        engine.register_fn("send_message", |player: Arc<PlayerData>, text: &str| {
+            player.send_chat_message(text.to_string());
         });
         engine.register_fn("get_position", |entity: Arc<Entity>| {
             entity.get_location().position
