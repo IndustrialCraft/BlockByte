@@ -1,7 +1,7 @@
 use crate::mods::ScriptingObject;
 use crate::Server;
 use block_byte_common::{BlockPosition, Position};
-use rhai::Engine;
+use rhai::{Dynamic, Engine};
 use serde::{Deserialize, Serialize};
 use std::sync::Weak;
 use std::{fmt::Display, sync::Arc};
@@ -46,7 +46,10 @@ impl ScriptingObject for Identifier {
         engine.register_fn("Identifier", |namespace: &str, key: &str| {
             Identifier::new(namespace, key)
         });
-        engine.register_fn("Identifier", |id: &str| Identifier::parse(id).unwrap());
+        engine.register_fn("Identifier", |id: &str| match Identifier::parse(id) {
+            Ok(id) => Dynamic::from(id),
+            Err(_) => Dynamic::UNIT,
+        });
         engine.register_fn("to_string", |identifier: &mut Identifier| {
             identifier.to_string()
         });
