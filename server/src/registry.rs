@@ -14,18 +14,19 @@ use block_byte_common::{BlockPosition, Face, HorizontalFace, Position};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rand::{thread_rng, Rng};
-use rhai::{Dynamic, Map};
+use rhai::{Dynamic, Engine, EvalAltResult, Map};
 use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
 
 use crate::inventory::{LootTableGenerationParameters, Recipe};
-use crate::mods::ModClientBlockData;
+use crate::mods::{ModClientBlockData, ScriptingObject};
 use crate::world::{BlockBreakParameters, PlayerData};
 use crate::{
     inventory::ItemStack,
     mods::{ClientContentData, ScriptCallback},
     util::{ChunkBlockLocation, Identifier},
     world::{BlockData, Chunk, Entity, WorldBlock},
+    Server,
 };
 
 pub struct BlockRegistry {
@@ -552,6 +553,16 @@ impl ToString for BlockState {
                 .properties
                 .dump_properties_to_string(self.state_id)
         )
+    }
+}
+impl ScriptingObject for BlockState {
+    fn engine_register(engine: &mut Engine) {
+        engine.register_fn("BlockState", |state: &str, server: Arc<Server>| {
+            server
+                .block_registry
+                .state_from_string(state)
+                .map_err(|_| Box::new(Into::<EvalAltResult>::into("unknown block state")))
+        });
     }
 }
 

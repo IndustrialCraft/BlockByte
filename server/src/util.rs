@@ -1,4 +1,6 @@
+use crate::mods::ScriptingObject;
 use block_byte_common::{BlockPosition, Position};
+use rhai::Engine;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Display, sync::Arc};
 
@@ -37,7 +39,19 @@ impl Display for Identifier {
         write!(f, "{}:{}", self.namespace, self.key)
     }
 }
+impl ScriptingObject for Identifier {
+    fn engine_register(engine: &mut Engine) {
+        engine.register_fn("Identifier", |namespace: &str, key: &str| {
+            Identifier::new(namespace, key)
+        });
+        engine.register_fn("Identifier", |id: &str| Identifier::parse(id));
+        engine.register_fn("to_string", |identifier: &mut Identifier| {
+            identifier.to_string()
+        });
+    }
+}
 
+#[derive(Clone)]
 pub struct Location {
     pub position: Position,
     pub world: Arc<World>,

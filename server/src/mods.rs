@@ -24,7 +24,9 @@ use std::{
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
-use crate::registry::{BlockMachineData, BlockStateProperty, BlockStatePropertyStorage};
+use crate::registry::{
+    BlockMachineData, BlockState, BlockStateProperty, BlockStatePropertyStorage,
+};
 use crate::world::{PlayerData, World};
 use crate::{
     inventory::{LootTable, Recipe},
@@ -388,7 +390,7 @@ impl ModManager {
                     .unwrap();
                 structures.insert(
                     id.clone(),
-                    Arc::new(Structure::from_json(id, json, block_registry)),
+                    Arc::new(Structure::from_json(json, block_registry)),
                 );
             }
         }
@@ -457,163 +459,123 @@ impl ModManager {
         recipes
     }
     pub fn runtime_engine_load(engine: &mut Engine, server: Weak<Server>) {
-        engine.register_type_with_name::<Position>("Position");
-        engine.register_type_with_name::<BlockPosition>("BlockPosition");
         {
             let server = server.clone();
             engine.register_fn("Server", move || server.upgrade().unwrap());
         }
-        engine.register_fn("take_data_point", |entity: &mut Arc<Entity>, id: &str| {
-            entity
-                .user_data
-                .lock()
-                .take_data_point(&Identifier::parse(id).unwrap())
-        });
-        engine.register_fn("get_data_point", |entity: &mut Arc<Entity>, id: &str| {
-            entity
-                .user_data
-                .lock()
-                .get_data_point_ref(&Identifier::parse(id).unwrap())
-                .cloned()
-                .unwrap_or(Dynamic::UNIT)
-        });
-        engine.register_fn(
-            "insert_data_point",
-            |entity: &mut Arc<Entity>, id: &str, value: Dynamic| {
-                entity
-                    .user_data
-                    .lock()
-                    .put_data_point(&Identifier::parse(id).unwrap(), value)
-            },
-        );
-        engine.register_fn(
-            "get_data_point",
-            |player: &mut Arc<PlayerData>, id: &str| {
-                player
-                    .user_data
-                    .lock()
-                    .get_data_point_ref(&Identifier::parse(id).unwrap())
-                    .cloned()
-                    .unwrap_or(Dynamic::UNIT)
-            },
-        );
-        engine.register_fn(
-            "insert_data_point",
-            |player: &mut Arc<PlayerData>, id: &str, value: Dynamic| {
-                player
-                    .user_data
-                    .lock()
-                    .put_data_point(&Identifier::parse(id).unwrap(), value)
-            },
-        );
-        engine.register_fn("get_entity", |player: &mut Arc<PlayerData>| {
-            player.get_entity()
-        });
-        //engine.register_type_with_name::<Arc<Entity>>("Entity");
-        engine.register_fn("send_message", |player: Arc<PlayerData>, text: &str| {
-            player.send_chat_message(text.to_string());
-        });
-        engine.register_fn("get_position", |entity: Arc<Entity>| {
-            entity.get_location().position
-        });
-        engine.register_fn("get_rotation", |entity: Arc<Entity>| {
-            entity.get_rotation() as f64
-        });
-        engine.register_fn("get_world", |entity: Arc<Entity>| {
-            entity.get_location().chunk.world.clone()
-        });
-        engine.register_fn("abilities", |player: Arc<PlayerData>| {
-            PlayerAbilitiesWrapper { player }
-        });
-        engine.register_fn(
-            "teleport_position",
-            |entity: &mut Arc<Entity>, position: Position| {
-                let position = position.clone();
-                let chunk = entity.get_location().chunk.clone();
-                let location = Location {
-                    position,
-                    world: chunk.world.clone(),
-                };
-                entity.teleport(&location, None);
-            },
-        );
-        engine.register_fn(
-            "teleport_position_rotation",
-            |entity: &mut Arc<Entity>, position: Position, rotation: f64| {
-                let position = position.clone();
-                let chunk = entity.get_location().chunk.clone();
-                let location = Location {
-                    position,
-                    world: chunk.world.clone(),
-                };
-                entity.teleport(&location, Some((rotation as f32, false)));
-            },
-        );
-        engine.register_fn("is_shifting", |entity: &mut Arc<Entity>| {
-            entity.is_shifting()
-        });
+        engine.register_static_module("MovementType", exported_module!(MovementTypeModule).into());
+        engine.register_static_module("MovementType", exported_module!(FaceModule).into());
 
+        Self::load_scripting_object::<PlayerData>(engine);
+        Self::load_scripting_object::<Entity>(engine);
+        Self::load_scripting_object::<World>(engine);
+        Self::load_scripting_object::<Location>(engine);
+        Self::load_scripting_object::<Position>(engine);
+        Self::load_scripting_object::<Identifier>(engine);
+        Self::load_scripting_object::<Structure>(engine);
+        Self::load_scripting_object::<BlockPosition>(engine);
+        Self::load_scripting_object::<BlockState>(engine);
+    }
+    fn load_scripting_object<T>(engine: &mut Engine)
+    where
+        T: ScriptingObject,
+    {
+        T::engine_register(engine);
+    }
+}
+pub trait ScriptingObject {
+    fn engine_register(engine: &mut Engine);
+}
+impl ScriptingObject for Location {
+    fn engine_register(engine: &mut Engine) {
+        engine.register_fn("Location", |position: Position, world: Arc<World>| {
+            Location { position, world }
+        });
+        engine.register_get_set(
+            "position",
+            |location: &mut Location| location.position,
+            |location: &mut Location, position: Position| {
+                location.position = position;
+            },
+        );
+        engine.register_get_set(
+            "world",
+            |location: &mut Location| location.world.clone(),
+            |location: &mut Location, world: Arc<World>| {
+                location.world = world;
+            },
+        );
+    }
+}
+impl ScriptingObject for Position {
+    fn engine_register(engine: &mut Engine) {
         engine.register_fn("Position", |x: f64, y: f64, z: f64| Position { x, y, z });
+        engine.register_fn("+", |first: Position, second: Position| first + second);
+        engine.register_fn("*", |first: Position, scalar: f64| first.multiply(scalar));
+        engine.register_fn("distance", |first: &mut Position, other: Position| {
+            first.distance(&other)
+        });
+        engine.register_get_set(
+            "x",
+            |position: &mut Position| position.x,
+            |position: &mut Position, x: f64| position.x = x,
+        );
+        engine.register_get_set(
+            "y",
+            |position: &mut Position| position.y,
+            |position: &mut Position, y: f64| position.y = y,
+        );
+        engine.register_get_set(
+            "z",
+            |position: &mut Position| position.z,
+            |position: &mut Position, z: f64| position.z = z,
+        );
         engine.register_fn("to_block_position", |position: &mut Position| {
             position.to_block_pos()
         });
+        engine.register_fn("to_string", |position: &mut Position| position.to_string());
+    }
+}
+impl ScriptingObject for BlockPosition {
+    fn engine_register(engine: &mut Engine) {
         engine.register_fn("BlockPosition", |x: i64, y: i64, z: i64| BlockPosition {
             x: x as i32,
             y: y as i32,
             z: z as i32,
         });
-        engine.register_fn("to_string", |block_position: &mut BlockPosition| {
-            block_position.to_string()
+        engine.register_fn("+", |first: BlockPosition, second: BlockPosition| {
+            first + second
         });
-        engine.register_fn("+", |first: Position, second: Position| first + second);
-        engine.register_fn("*", |first: Position, scalar: f64| first.multiply(scalar));
-        engine.register_fn("distance", Position::distance);
-        engine.register_get_set("x", Position::get_x, Position::set_x);
-        engine.register_get_set("y", Position::get_y, Position::set_y);
-        engine.register_get_set("z", Position::get_z, Position::set_z);
-
         engine.register_fn(
-            "get_structure",
-            |world: &mut Arc<World>,
-             first: BlockPosition,
-             second: BlockPosition,
-             origin: BlockPosition| {
-                Arc::new(Structure::from_world(
-                    Identifier::new("bb", "script_requested"),
-                    &world,
-                    first,
-                    second,
-                    origin,
-                ))
+            "distance",
+            |first: &mut BlockPosition, other: BlockPosition| first.distance(&other),
+        );
+        engine.register_get_set(
+            "x",
+            |position: &mut BlockPosition| position.x as i64,
+            |position: &mut BlockPosition, x: i64| {
+                position.x = x as i32;
             },
         );
-        engine.register_fn(
-            "place_structure",
-            |world: &mut Arc<World>, structure: Arc<Structure>, position: BlockPosition| {
-                world.place_structure(position, &structure, true);
+        engine.register_get_set(
+            "y",
+            |position: &mut BlockPosition| position.y as i64,
+            |position: &mut BlockPosition, y: i64| {
+                position.y = y as i32;
             },
         );
-        {
-            let server = server.clone();
-            engine.register_fn(
-                "export_structure",
-                move |structure: &mut Arc<Structure>, name: &str| {
-                    let server = server.upgrade().unwrap();
-                    let json = structure.export(&server.block_registry);
-                    server.export_file(name.to_string(), json.to_string().as_bytes().to_vec());
-                },
-            );
-        }
-
-        engine
-            .register_type_with_name::<PlayerAbilitiesWrapper>("PlayerAbilities")
-            .register_fn("speed", PlayerAbilitiesWrapper::set_speed)
-            .register_fn("movement_type", PlayerAbilitiesWrapper::set_movement_type)
-            .register_fn("creative", PlayerAbilitiesWrapper::set_creative);
-        engine.register_static_module("MovementType", exported_module!(MovementTypeModule).into());
+        engine.register_get_set(
+            "z",
+            |position: &mut BlockPosition| position.z as i64,
+            |position: &mut BlockPosition, z: i64| {
+                position.z = z as i32;
+            },
+        );
+        engine.register_fn("to_string", |position: &mut BlockPosition| {
+            position.to_string()
+        });
     }
 }
-
 #[derive(Clone)]
 pub struct BiomeBuilder {
     pub id: Identifier,
@@ -1128,23 +1090,21 @@ impl ScriptCallback {
     }
 }
 
-#[derive(Clone)]
-pub struct PlayerAbilitiesWrapper {
-    pub player: Arc<PlayerData>,
-}
-
-impl PlayerAbilitiesWrapper {
-    pub fn set_speed(&mut self, speed: f64) {
-        *self.player.speed.lock() = speed as f32;
-        self.player.resync_abilities();
-    }
-    pub fn set_movement_type(&mut self, move_type: MovementType) {
-        *self.player.move_type.lock() = move_type;
-        self.player.resync_abilities();
-    }
-    pub fn set_creative(&mut self, creative: bool) {
-        *self.player.creative.lock() = creative;
-    }
+#[export_module]
+#[allow(non_snake_case)]
+mod FaceModule {
+    #[allow(non_upper_case_globals)]
+    pub const Front: Face = Face::Front;
+    #[allow(non_upper_case_globals)]
+    pub const Back: Face = Face::Back;
+    #[allow(non_upper_case_globals)]
+    pub const Left: Face = Face::Left;
+    #[allow(non_upper_case_globals)]
+    pub const Right: Face = Face::Right;
+    #[allow(non_upper_case_globals)]
+    pub const Up: Face = Face::Up;
+    #[allow(non_upper_case_globals)]
+    pub const Down: Face = Face::Down;
 }
 
 #[export_module]

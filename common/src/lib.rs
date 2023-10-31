@@ -145,23 +145,10 @@ impl Position {
         ((self.x - other.x).powi(2) + (self.y - other.y).powi(2) + (self.z - other.z).powi(2))
             .sqrt()
     }
-    pub fn get_x(&mut self) -> f64 {
-        self.x
-    }
-    pub fn set_x(&mut self, value: f64) {
-        self.x = value;
-    }
-    pub fn get_y(&mut self) -> f64 {
-        self.y
-    }
-    pub fn set_y(&mut self, value: f64) {
-        self.y = value;
-    }
-    pub fn get_z(&mut self) -> f64 {
-        self.z
-    }
-    pub fn set_z(&mut self, value: f64) {
-        self.z = value;
+}
+impl Display for Position {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{},{},{}]", self.x, self.y, self.z)
     }
 }
 impl std::ops::Add for Position {
@@ -193,12 +180,16 @@ impl Neg for BlockPosition {
 }
 impl Display for BlockPosition {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({},{},{})", self.x, self.y, self.z)
+        write!(f, "[{},{},{}]", self.x, self.y, self.z)
     }
 }
 impl BlockPosition {
     pub fn offset_by_face(&self, face: Face) -> BlockPosition {
         *self + face.get_offset()
+    }
+    pub fn distance(&self, other: &BlockPosition) -> f64 {
+        (((self.x - other.x).pow(2) + (self.y - other.y).pow(2) + (self.z - other.z).pow(2)) as f64)
+            .sqrt()
     }
 }
 impl std::ops::Add for BlockPosition {

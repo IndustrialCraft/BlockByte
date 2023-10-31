@@ -27,11 +27,12 @@ use fxhash::{FxHashMap, FxHashSet};
 use json::{object, JsonValue};
 use parking_lot::Mutex;
 use rand::Rng;
-use rhai::{Array, Dynamic};
+use rhai::{Array, Dynamic, Engine};
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::inventory::{GuiInventoryData, GuiInventoryViewer, InventorySaveData, InventoryView};
+use crate::mods::ScriptingObject;
 use crate::registry::{Block, BlockState};
 use crate::{
     inventory::{Inventory, InventoryWrapper, ItemStack, WeakInventoryWrapper},
@@ -304,6 +305,22 @@ impl World {
         for chunk in self.chunks.lock().drain() {
             chunk.1.destroy();
         }
+    }
+}
+impl ScriptingObject for World {
+    fn engine_register(engine: &mut Engine) {
+        engine.register_fn(
+            "place_structure",
+            |world: &mut Arc<World>, structure: Arc<Structure>, position: BlockPosition| {
+                world.place_structure(position, &structure, true);
+            },
+        );
+        engine.register_fn(
+            "set_block",
+            |world: &mut Arc<World>, position: BlockPosition, block: BlockStateRef| {
+                world.set_block(position, block, true);
+            },
+        );
     }
 }
 impl Eq for World {}
@@ -984,6 +1001,36 @@ impl PlayerData {
     }
     pub fn ptr(&self) -> Arc<PlayerData> {
         self.this.upgrade().unwrap()
+    }
+}
+impl ScriptingObject for PlayerData {
+    fn engine_register(engine: &mut Engine) {
+        engine.register_fn("get_entity", |player: &mut Arc<PlayerData>| {
+            player.get_entity()
+        });
+        engine.register_fn(
+            "send_chat_message",
+            |player: &mut Arc<PlayerData>, message: &str| {
+                player.send_chat_message(message.to_string());
+            },
+        );
+        engine.register_fn(
+            "creative",
+            |player: &mut Arc<PlayerData>, creative: bool| {
+                *player.creative.lock() = creative;
+            },
+        );
+        engine.register_fn("speed", |player: &mut Arc<PlayerData>, speed: f64| {
+            *player.speed.lock() = speed as f32;
+            player.resync_abilities();
+        });
+        engine.register_fn(
+            "movement_type",
+            |player: &mut Arc<PlayerData>, movement_type: MovementType| {
+                *player.move_type.lock() = movement_type;
+                player.resync_abilities();
+            },
+        );
     }
 }
 
@@ -1774,6 +1821,16 @@ impl Entity {
         self.this.upgrade().unwrap()
     }
 }
+impl ScriptingObject for Entity {
+    fn engine_register(engine: &mut Engine) {
+        engine.register_fn("is_shifting", |entity: &mut Arc<Entity>| {
+            entity.is_shifting()
+        });
+        engine.register_fn("get_location", |entity: &mut Arc<Entity>| {
+            Into::<Location>::into(&entity.get_location())
+        });
+    }
+}
 impl Animatable for Entity {
     fn send_animation_to_viewers(&self, animation: u32) {
         self.get_location()
@@ -2035,12 +2092,11 @@ pub trait Animatable {
 }
 #[derive(Clone)]
 pub struct Structure {
-    id: Identifier,
     blocks: Vec<(BlockPosition, (BlockStateRef, f32))>,
 }
 
 impl Structure {
-    pub fn from_json(id: Identifier, json: JsonValue, block_registry: &BlockRegistry) -> Self {
+    pub fn from_json(json: JsonValue, block_registry: &BlockRegistry) -> Self {
         let mut blocks = Vec::new();
         for block in json["blocks"].members() {
             blocks.push((
@@ -2059,10 +2115,9 @@ impl Structure {
                 },
             ));
         }
-        Structure { blocks, id }
+        Structure { blocks }
     }
     pub fn from_world(
-        id: Identifier,
         world: &World,
         first: BlockPosition,
         second: BlockPosition,
@@ -2092,7 +2147,7 @@ impl Structure {
                 }
             }
         }
-        Structure { id, blocks }
+        Structure { blocks }
     }
     pub fn export(&self, block_registry: &BlockRegistry) -> JsonValue {
         let mut blocks = Vec::new();
@@ -2125,6 +2180,17 @@ impl Structure {
             chunks.insert((block_position.clone() + position).to_chunk_pos());
         }
         chunks
+    }
+}
+impl ScriptingObject for Structure {
+    fn engine_register(engine: &mut Engine) {
+        engine.register_fn(
+            "export",
+            |structure: &mut Structure, name: &str, server: Arc<Server>| {
+                let json = structure.export(&server.block_registry);
+                server.export_file(name.to_string(), json.to_string().as_bytes().to_vec());
+            },
+        );
     }
 }
 
