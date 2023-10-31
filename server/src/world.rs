@@ -25,14 +25,14 @@ use block_byte_common::{
 use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{object, JsonValue};
-use parking_lot::Mutex;
+use parking_lot::{Mutex, MutexGuard};
 use rand::Rng;
 use rhai::{Array, Dynamic, Engine};
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::inventory::{GuiInventoryData, GuiInventoryViewer, InventorySaveData, InventoryView};
-use crate::mods::ScriptingObject;
+use crate::mods::{ScriptingObject, UserDataProvider, UserDataWrapper};
 use crate::registry::{Block, BlockState};
 use crate::{
     inventory::{Inventory, InventoryWrapper, ItemStack, WeakInventoryWrapper},
@@ -1016,6 +1016,11 @@ impl PlayerData {
         self.this.upgrade().unwrap()
     }
 }
+impl UserDataProvider for PlayerData {
+    fn get_user_data(&self) -> MutexGuard<UserData> {
+        self.user_data.lock()
+    }
+}
 impl ScriptingObject for PlayerData {
     fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_fn("get_entity", |player: &mut Arc<PlayerData>| {
@@ -1044,6 +1049,11 @@ impl ScriptingObject for PlayerData {
                 player.resync_abilities();
             },
         );
+        engine.register_get("user_data", |player: &mut Arc<PlayerData>| {
+            UserDataWrapper {
+                user_data_provider: player.ptr(),
+            }
+        });
     }
 }
 

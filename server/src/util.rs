@@ -46,7 +46,7 @@ impl ScriptingObject for Identifier {
         engine.register_fn("Identifier", |namespace: &str, key: &str| {
             Identifier::new(namespace, key)
         });
-        engine.register_fn("Identifier", |id: &str| Identifier::parse(id));
+        engine.register_fn("Identifier", |id: &str| Identifier::parse(id).unwrap());
         engine.register_fn("to_string", |identifier: &mut Identifier| {
             identifier.to_string()
         });

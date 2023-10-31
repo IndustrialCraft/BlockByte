@@ -9,7 +9,7 @@ use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, Position};
 use image::io::Reader;
 use image::{ImageOutputFormat, Rgba, RgbaImage};
 use json::JsonValue;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, MutexGuard};
 use rhai::plugin::*;
 use rhai::{exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, AST};
 use splines::{Interpolation, Spline};
@@ -27,7 +27,7 @@ use walkdir::WalkDir;
 use crate::registry::{
     Block, BlockMachineData, BlockState, BlockStateProperty, BlockStatePropertyStorage,
 };
-use crate::world::{PlayerData, World};
+use crate::world::{PlayerData, UserData, World};
 use crate::{
     inventory::{LootTable, Recipe},
     registry::{BlockRegistry, ItemRegistry, ToolData, ToolType},
@@ -480,6 +480,7 @@ impl ModManager {
         Self::load_scripting_object::<BlockPosition>(engine, &server);
         Self::load_scripting_object::<BlockState>(engine, &server);
         Self::load_scripting_object::<Block>(engine, &server);
+        Self::load_scripting_object::<UserDataWrapper>(engine, &server);
     }
     fn load_scripting_object<T>(engine: &mut Engine, server: &Weak<Server>)
     where
@@ -581,6 +582,35 @@ impl ScriptingObject for BlockPosition {
         });
     }
 }
+
+pub trait UserDataProvider {
+    fn get_user_data(&self) -> MutexGuard<UserData>;
+}
+#[derive(Clone)]
+pub struct UserDataWrapper {
+    pub user_data_provider: Arc<dyn UserDataProvider + Send + Sync>,
+}
+impl ScriptingObject for UserDataWrapper {
+    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_indexer_get_set(
+            |user_data: &mut UserDataWrapper, id: Identifier| {
+                user_data
+                    .user_data_provider
+                    .get_user_data()
+                    .get_data_point_ref(&id)
+                    .cloned()
+                    .unwrap_or(Dynamic::UNIT)
+            },
+            |user_data: &mut UserDataWrapper, id: Identifier, value: Dynamic| {
+                user_data
+                    .user_data_provider
+                    .get_user_data()
+                    .put_data_point(&id, value);
+            },
+        );
+    }
+}
+
 #[derive(Clone)]
 pub struct BiomeBuilder {
     pub id: Identifier,
