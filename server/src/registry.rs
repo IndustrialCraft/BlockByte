@@ -278,6 +278,15 @@ pub struct Block {
     pub loottable: Option<Identifier>,
     pub properties: BlockStatePropertyStorage,
 }
+
+impl ScriptingObject for Block {
+    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_fn("get_default_state", |block: &mut Arc<Block>| {
+            block.get_state_ref(0)
+        });
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct BlockMachineData {
     pub recipe_type: Identifier,
@@ -544,6 +553,13 @@ impl BlockState {
             );
         }
     }
+    pub fn with_property(&self, property: &str, value: Dynamic) -> Result<BlockStateRef, ()> {
+        self.parent
+            .properties
+            .set_state(self.state_id, BlockStatePropertyKey::Name(property), value)
+            .map_err(|_| ())
+            .map(|state| self.parent.get_state_ref(state))
+    }
 }
 impl ToString for BlockState {
     fn to_string(&self) -> String {
@@ -558,18 +574,45 @@ impl ToString for BlockState {
 }
 impl ScriptingObject for BlockState {
     fn engine_register(engine: &mut Engine, server: &Weak<Server>) {
-        let server = server.clone();
-        engine.register_fn("BlockState", move |state: &str| {
-            match server
-                .upgrade()
-                .unwrap()
-                .block_registry
-                .state_from_string(state)
-            {
-                Ok(state) => Dynamic::from(state),
-                Err(_) => Dynamic::UNIT,
-            }
-        });
+        {
+            let server = server.clone();
+            engine.register_fn("BlockState", move |state: &str| {
+                match server
+                    .upgrade()
+                    .unwrap()
+                    .block_registry
+                    .state_from_string(state)
+                {
+                    Ok(state) => Dynamic::from(state),
+                    Err(_) => Dynamic::UNIT,
+                }
+            });
+        }
+        {
+            let server = server.clone();
+            engine.register_fn(
+                "with_property",
+                move |state: &mut BlockStateRef, property: &str, value: Dynamic| {
+                    let server = server.upgrade().unwrap();
+                    let block_state = server.block_registry.state_by_ref(state);
+                    match block_state.with_property(property, value) {
+                        Ok(state) => Dynamic::from(state),
+                        Err(_) => Dynamic::UNIT,
+                    }
+                },
+            );
+        }
+        {
+            let server = server.clone();
+            engine.register_fn("to_string", move |state: &mut BlockStateRef| {
+                server
+                    .upgrade()
+                    .unwrap()
+                    .block_registry
+                    .state_by_ref(state)
+                    .to_string()
+            });
+        }
     }
 }
 

@@ -223,7 +223,7 @@ impl World {
             true,
         );
     }
-    pub fn get_block_load(&self, position: &BlockPosition) -> BlockData {
+    pub fn get_block_load(&self, position: BlockPosition) -> BlockData {
         let chunk_offset = position.chunk_offset();
         self.load_chunk(position.to_chunk_pos()).get_block(
             chunk_offset.0,
@@ -319,6 +319,19 @@ impl ScriptingObject for World {
             "set_block",
             |world: &mut Arc<World>, position: BlockPosition, block: BlockStateRef| {
                 world.set_block(position, block, true);
+            },
+        );
+        engine.register_fn(
+            "get_block",
+            |world: &mut Arc<World>, position: BlockPosition| {
+                world.get_block_load(position).get_block_state()
+            },
+        );
+        engine.register_fn(
+            "get_block_data",
+            |world: &mut Arc<World>, position: BlockPosition| match world.get_block_load(position) {
+                BlockData::Simple(_) => Dynamic::UNIT,
+                BlockData::Data(data) => Dynamic::from(data),
             },
         );
     }
@@ -1603,7 +1616,7 @@ impl Entity {
                             0.
                         } else {
                             let world = self.get_location().chunk.world.clone();
-                            let block_state = world.get_block_load(&position).get_block_state();
+                            let block_state = world.get_block_load(position).get_block_state();
                             let block_state =
                                 world.server.block_registry.state_by_ref(&block_state);
                             let block_tool = &block_state.parent.breaking_data;
@@ -1650,7 +1663,7 @@ impl Entity {
                             .get_location()
                             .chunk
                             .world
-                            .get_block_load(&block_position);
+                            .get_block_load(block_position);
                         let mut right_click_result = InteractionResult::Ignored;
                         if !shifting {
                             right_click_result = match block {
@@ -2041,7 +2054,7 @@ impl AABB {
                 predicate.call((world
                     .server
                     .block_registry
-                    .state_by_ref(&world.get_block_load(position).get_block_state()),))
+                    .state_by_ref(&world.get_block_load(*position).get_block_state()),))
             })
             .is_some()
     }

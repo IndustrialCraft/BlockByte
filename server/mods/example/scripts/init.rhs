@@ -95,6 +95,12 @@ register_event("bb:command", |player,command|{
         world.set_block(BlockPosition(parse_int(command[1]),parse_int(command[2]),parse_int(command[3])), BlockState(command[4]));
     }
 });
+register_event("bb:command", |player,command|{
+    if command[0] == "eval"{
+        command.remove(0);
+        eval(command.reduce(|total,cmd|total+" "+cmd,""));
+    }
+});
 
 create_item("example:copper_axe").client_name("Copper Axe").client_model_texture("example:copper_axe").tool(64, 1., 1.).tool_add_type(ToolType::Axe).register();
 create_item("example:copper_shovel").client_name("Copper Shovel").client_model_texture("example:copper_shovel").tool(64, 1., 1.).tool_add_type(ToolType::Shovel).register();

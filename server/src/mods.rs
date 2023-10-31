@@ -25,7 +25,7 @@ use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
 use crate::registry::{
-    BlockMachineData, BlockState, BlockStateProperty, BlockStatePropertyStorage,
+    Block, BlockMachineData, BlockState, BlockStateProperty, BlockStatePropertyStorage,
 };
 use crate::world::{PlayerData, World};
 use crate::{
@@ -464,7 +464,11 @@ impl ModManager {
             engine.register_fn("Server", move || server.upgrade().unwrap());
         }
         engine.register_static_module("MovementType", exported_module!(MovementTypeModule).into());
-        engine.register_static_module("MovementType", exported_module!(FaceModule).into());
+        engine.register_static_module("Face", exported_module!(FaceModule).into());
+        engine.register_static_module(
+            "HorizontalFace",
+            exported_module!(HorizontalFaceModule).into(),
+        );
 
         Self::load_scripting_object::<PlayerData>(engine, &server);
         Self::load_scripting_object::<Entity>(engine, &server);
@@ -475,6 +479,7 @@ impl ModManager {
         Self::load_scripting_object::<Structure>(engine, &server);
         Self::load_scripting_object::<BlockPosition>(engine, &server);
         Self::load_scripting_object::<BlockState>(engine, &server);
+        Self::load_scripting_object::<Block>(engine, &server);
     }
     fn load_scripting_object<T>(engine: &mut Engine, server: &Weak<Server>)
     where
@@ -1105,6 +1110,18 @@ mod FaceModule {
     pub const Up: Face = Face::Up;
     #[allow(non_upper_case_globals)]
     pub const Down: Face = Face::Down;
+}
+#[export_module]
+#[allow(non_snake_case)]
+mod HorizontalFaceModule {
+    #[allow(non_upper_case_globals)]
+    pub const Front: HorizontalFace = HorizontalFace::Front;
+    #[allow(non_upper_case_globals)]
+    pub const Back: HorizontalFace = HorizontalFace::Back;
+    #[allow(non_upper_case_globals)]
+    pub const Left: HorizontalFace = HorizontalFace::Left;
+    #[allow(non_upper_case_globals)]
+    pub const Right: HorizontalFace = HorizontalFace::Right;
 }
 
 #[export_module]
