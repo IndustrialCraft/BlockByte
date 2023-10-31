@@ -1,5 +1,6 @@
 use std::ops::RangeInclusive;
 use std::str::FromStr;
+use std::sync::Weak;
 use std::{
     collections::{hash_map::Keys, HashMap},
     hash::BuildHasherDefault,
@@ -14,7 +15,7 @@ use block_byte_common::{BlockPosition, Face, HorizontalFace, Position};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rand::{thread_rng, Rng};
-use rhai::{Dynamic, Engine, EvalAltResult, Map};
+use rhai::{Dynamic, Engine, Map};
 use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
 
@@ -556,12 +557,18 @@ impl ToString for BlockState {
     }
 }
 impl ScriptingObject for BlockState {
-    fn engine_register(engine: &mut Engine) {
-        engine.register_fn("BlockState", |state: &str, server: Arc<Server>| {
-            server
+    fn engine_register(engine: &mut Engine, server: &Weak<Server>) {
+        let server = server.clone();
+        engine.register_fn("BlockState", move |state: &str| {
+            match server
+                .upgrade()
+                .unwrap()
                 .block_registry
                 .state_from_string(state)
-                .map_err(|_| Box::new(Into::<EvalAltResult>::into("unknown block state")))
+            {
+                Ok(state) => Dynamic::from(state),
+                Err(_) => Dynamic::UNIT,
+            }
         });
     }
 }

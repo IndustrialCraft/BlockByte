@@ -308,7 +308,7 @@ impl World {
     }
 }
 impl ScriptingObject for World {
-    fn engine_register(engine: &mut Engine) {
+    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_fn(
             "place_structure",
             |world: &mut Arc<World>, structure: Arc<Structure>, position: BlockPosition| {
@@ -1004,7 +1004,7 @@ impl PlayerData {
     }
 }
 impl ScriptingObject for PlayerData {
-    fn engine_register(engine: &mut Engine) {
+    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_fn("get_entity", |player: &mut Arc<PlayerData>| {
             player.get_entity()
         });
@@ -1822,7 +1822,7 @@ impl Entity {
     }
 }
 impl ScriptingObject for Entity {
-    fn engine_register(engine: &mut Engine) {
+    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_fn("is_shifting", |entity: &mut Arc<Entity>| {
             entity.is_shifting()
         });
@@ -2183,14 +2183,15 @@ impl Structure {
     }
 }
 impl ScriptingObject for Structure {
-    fn engine_register(engine: &mut Engine) {
-        engine.register_fn(
-            "export",
-            |structure: &mut Structure, name: &str, server: Arc<Server>| {
-                let json = structure.export(&server.block_registry);
-                server.export_file(name.to_string(), json.to_string().as_bytes().to_vec());
-            },
-        );
+    fn engine_register(engine: &mut Engine, server: &Weak<Server>) {
+        let server = server.clone();
+        engine.register_fn("export", move |structure: &mut Structure, name: &str| {
+            let json = structure.export(&server.upgrade().unwrap().block_registry);
+            server
+                .upgrade()
+                .unwrap()
+                .export_file(name.to_string(), json.to_string().as_bytes().to_vec());
+        });
     }
 }
 

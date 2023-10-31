@@ -92,10 +92,7 @@ register_event("bb:command", |player,command|{
 register_event("bb:command", |player,command|{
     if command[0] == "setblock" {
         let world = player.get_entity().get_location().world;
-        world.set_block(BlockPosition(parse_int(command[1]),parse_int(command[2]),parse_int(command[3])), BlockState(command[4], Server()));
-    }
-    if command[0] == "error"{
-        BlockState("aaa", Server());
+        world.set_block(BlockPosition(parse_int(command[1]),parse_int(command[2]),parse_int(command[3])), BlockState(command[4]));
     }
 });
 

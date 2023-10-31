@@ -1,7 +1,9 @@
 use crate::mods::ScriptingObject;
+use crate::Server;
 use block_byte_common::{BlockPosition, Position};
 use rhai::Engine;
 use serde::{Deserialize, Serialize};
+use std::sync::Weak;
 use std::{fmt::Display, sync::Arc};
 
 use crate::world::{Chunk, World};
@@ -40,7 +42,7 @@ impl Display for Identifier {
     }
 }
 impl ScriptingObject for Identifier {
-    fn engine_register(engine: &mut Engine) {
+    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_fn("Identifier", |namespace: &str, key: &str| {
             Identifier::new(namespace, key)
         });

@@ -466,28 +466,28 @@ impl ModManager {
         engine.register_static_module("MovementType", exported_module!(MovementTypeModule).into());
         engine.register_static_module("MovementType", exported_module!(FaceModule).into());
 
-        Self::load_scripting_object::<PlayerData>(engine);
-        Self::load_scripting_object::<Entity>(engine);
-        Self::load_scripting_object::<World>(engine);
-        Self::load_scripting_object::<Location>(engine);
-        Self::load_scripting_object::<Position>(engine);
-        Self::load_scripting_object::<Identifier>(engine);
-        Self::load_scripting_object::<Structure>(engine);
-        Self::load_scripting_object::<BlockPosition>(engine);
-        Self::load_scripting_object::<BlockState>(engine);
+        Self::load_scripting_object::<PlayerData>(engine, &server);
+        Self::load_scripting_object::<Entity>(engine, &server);
+        Self::load_scripting_object::<World>(engine, &server);
+        Self::load_scripting_object::<Location>(engine, &server);
+        Self::load_scripting_object::<Position>(engine, &server);
+        Self::load_scripting_object::<Identifier>(engine, &server);
+        Self::load_scripting_object::<Structure>(engine, &server);
+        Self::load_scripting_object::<BlockPosition>(engine, &server);
+        Self::load_scripting_object::<BlockState>(engine, &server);
     }
-    fn load_scripting_object<T>(engine: &mut Engine)
+    fn load_scripting_object<T>(engine: &mut Engine, server: &Weak<Server>)
     where
         T: ScriptingObject,
     {
-        T::engine_register(engine);
+        T::engine_register(engine, server);
     }
 }
 pub trait ScriptingObject {
-    fn engine_register(engine: &mut Engine);
+    fn engine_register(engine: &mut Engine, server: &Weak<Server>);
 }
 impl ScriptingObject for Location {
-    fn engine_register(engine: &mut Engine) {
+    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_fn("Location", |position: Position, world: Arc<World>| {
             Location { position, world }
         });
@@ -508,7 +508,7 @@ impl ScriptingObject for Location {
     }
 }
 impl ScriptingObject for Position {
-    fn engine_register(engine: &mut Engine) {
+    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_fn("Position", |x: f64, y: f64, z: f64| Position { x, y, z });
         engine.register_fn("+", |first: Position, second: Position| first + second);
         engine.register_fn("*", |first: Position, scalar: f64| first.multiply(scalar));
@@ -537,7 +537,7 @@ impl ScriptingObject for Position {
     }
 }
 impl ScriptingObject for BlockPosition {
-    fn engine_register(engine: &mut Engine) {
+    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_fn("BlockPosition", |x: i64, y: i64, z: i64| BlockPosition {
             x: x as i32,
             y: y as i32,
