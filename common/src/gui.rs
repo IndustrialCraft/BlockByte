@@ -1,7 +1,7 @@
 use crate::{Color, Position, Vec2};
 use serde::{Deserialize, Serialize};
 
-#[derive(Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Eq, PartialEq, Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum PositionAnchor {
     Top,
     Bottom,

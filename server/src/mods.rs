@@ -24,10 +24,11 @@ use std::{
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
+use crate::inventory::InventoryWrapper;
 use crate::registry::{
     Block, BlockMachineData, BlockState, BlockStateProperty, BlockStatePropertyStorage,
 };
-use crate::world::{PlayerData, UserData, World};
+use crate::world::{PlayerData, UserData, World, WorldBlock};
 use crate::{
     inventory::{LootTable, Recipe},
     registry::{BlockRegistry, ItemRegistry, ToolData, ToolType},
@@ -466,6 +467,10 @@ impl ModManager {
         engine.register_static_module("MovementType", exported_module!(MovementTypeModule).into());
         engine.register_static_module("Face", exported_module!(FaceModule).into());
         engine.register_static_module(
+            "PositionAnchorModule",
+            exported_module!(PositionAnchorModule).into(),
+        );
+        engine.register_static_module(
             "HorizontalFace",
             exported_module!(HorizontalFaceModule).into(),
         );
@@ -481,6 +486,7 @@ impl ModManager {
         Self::load_scripting_object::<BlockState>(engine, &server);
         Self::load_scripting_object::<Block>(engine, &server);
         Self::load_scripting_object::<UserDataWrapper>(engine, &server);
+        Self::load_scripting_object::<InventoryWrapper>(engine, &server);
     }
     fn load_scripting_object<T>(engine: &mut Engine, server: &Weak<Server>)
     where
@@ -583,29 +589,35 @@ impl ScriptingObject for BlockPosition {
     }
 }
 
-pub trait UserDataProvider {
-    fn get_user_data(&self) -> MutexGuard<UserData>;
-}
 #[derive(Clone)]
-pub struct UserDataWrapper {
-    pub user_data_provider: Arc<dyn UserDataProvider + Send + Sync>,
+pub enum UserDataWrapper {
+    Player(Arc<PlayerData>),
+    Entity(Arc<Entity>),
+    Block(Arc<WorldBlock>),
+    Inventory(InventoryWrapper),
+}
+impl UserDataWrapper {
+    fn get_user_data(&self) -> MutexGuard<UserData> {
+        match self {
+            UserDataWrapper::Player(player) => player.user_data.lock(),
+            UserDataWrapper::Entity(entity) => entity.user_data.lock(),
+            UserDataWrapper::Block(block) => block.user_data.lock(),
+            UserDataWrapper::Inventory(inventory) => inventory.get_inventory().user_data.lock(),
+        }
+    }
 }
 impl ScriptingObject for UserDataWrapper {
     fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_indexer_get_set(
             |user_data: &mut UserDataWrapper, id: Identifier| {
                 user_data
-                    .user_data_provider
                     .get_user_data()
                     .get_data_point_ref(&id)
                     .cloned()
                     .unwrap_or(Dynamic::UNIT)
             },
             |user_data: &mut UserDataWrapper, id: Identifier, value: Dynamic| {
-                user_data
-                    .user_data_provider
-                    .get_user_data()
-                    .put_data_point(&id, value);
+                user_data.get_user_data().put_data_point(&id, value);
             },
         );
     }
@@ -1124,7 +1136,32 @@ impl ScriptCallback {
         }
     }
 }
+#[export_module]
+#[allow(non_snake_case)]
+mod PositionAnchorModule {
+    use block_byte_common::gui::PositionAnchor;
 
+    #[allow(non_upper_case_globals)]
+    pub const Top: PositionAnchor = PositionAnchor::Top;
+    #[allow(non_upper_case_globals)]
+    pub const Bottom: PositionAnchor = PositionAnchor::Bottom;
+    #[allow(non_upper_case_globals)]
+    pub const Left: PositionAnchor = PositionAnchor::Left;
+    #[allow(non_upper_case_globals)]
+    pub const Right: PositionAnchor = PositionAnchor::Right;
+    #[allow(non_upper_case_globals)]
+    pub const TopLeft: PositionAnchor = PositionAnchor::TopLeft;
+    #[allow(non_upper_case_globals)]
+    pub const TopRight: PositionAnchor = PositionAnchor::TopRight;
+    #[allow(non_upper_case_globals)]
+    pub const BottomLeft: PositionAnchor = PositionAnchor::BottomLeft;
+    #[allow(non_upper_case_globals)]
+    pub const BottomRight: PositionAnchor = PositionAnchor::BottomRight;
+    #[allow(non_upper_case_globals)]
+    pub const Center: PositionAnchor = PositionAnchor::Center;
+    #[allow(non_upper_case_globals)]
+    pub const Cursor: PositionAnchor = PositionAnchor::Cursor;
+}
 #[export_module]
 #[allow(non_snake_case)]
 mod FaceModule {

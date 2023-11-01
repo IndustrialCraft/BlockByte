@@ -12,16 +12,19 @@ use fxhash::FxHashMap;
 use json::{object, JsonValue};
 use parking_lot::{Mutex, MutexGuard};
 use rand::{thread_rng, Rng};
+use rhai::Engine;
 use serde::{Deserialize, Serialize};
 use splines::Spline;
 use uuid::Uuid;
 
+use crate::mods::{ScriptingObject, UserDataWrapper};
 use crate::registry::ToolType;
 use crate::world::{PlayerData, UserData};
 use crate::{
     registry::{InteractionResult, Item, ItemRegistry},
     util::Identifier,
     world::{Entity, WorldBlock},
+    Server,
 };
 
 #[derive(Clone)]
@@ -401,6 +404,7 @@ impl Inventory {
 pub struct InventorySaveData {
     items: Vec<Option<(String, u32)>>,
 }
+#[derive(Clone)]
 pub struct OwnedInventoryView {
     slot_range: Range<u32>,
     inventory: InventoryWrapper,
@@ -591,6 +595,26 @@ impl InventoryWrapper {
             Self::Block(block) => WeakInventoryWrapper::Block(Arc::downgrade(block)),
             Self::Own(own) => WeakInventoryWrapper::Own(Arc::downgrade(own)),
         }
+    }
+}
+impl ScriptingObject for InventoryWrapper {
+    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_fn("create_inventory", |size: i64| {
+            //todo: verify size
+            InventoryWrapper::Own(Inventory::new_owned(size as u32, None, None, None))
+        });
+        engine.register_fn(
+            "view",
+            |inventory: &mut InventoryWrapper, inventory_range: Range<u32>| {
+                OwnedInventoryView::new(inventory_range, inventory.clone())
+            },
+        );
+        engine.register_fn("full_view", |inventory: &mut InventoryWrapper| {
+            OwnedInventoryView::new(0..inventory.get_inventory().get_size(), inventory.clone())
+        });
+        engine.register_get("user_data", |inventory: &mut InventoryWrapper| {
+            UserDataWrapper::Inventory(inventory.clone())
+        });
     }
 }
 #[derive(Clone)]

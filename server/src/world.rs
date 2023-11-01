@@ -1,5 +1,5 @@
 use std::hash::Hasher;
-use std::ops::Add;
+use std::ops::{Add, Range};
 use std::sync::atomic::Ordering;
 use std::{
     collections::{HashMap, HashSet},
@@ -25,14 +25,14 @@ use block_byte_common::{
 use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{object, JsonValue};
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::Mutex;
 use rand::Rng;
-use rhai::{Array, Dynamic, Engine};
+use rhai::{Array, Dynamic, Engine, FnPtr};
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::inventory::{GuiInventoryData, GuiInventoryViewer, InventorySaveData, InventoryView};
-use crate::mods::{ScriptingObject, UserDataProvider, UserDataWrapper};
+use crate::mods::{ScriptCallback, ScriptingObject, UserDataWrapper};
 use crate::registry::{Block, BlockState};
 use crate::{
     inventory::{Inventory, InventoryWrapper, ItemStack, WeakInventoryWrapper},
@@ -1016,11 +1016,6 @@ impl PlayerData {
         self.this.upgrade().unwrap()
     }
 }
-impl UserDataProvider for PlayerData {
-    fn get_user_data(&self) -> MutexGuard<UserData> {
-        self.user_data.lock()
-    }
-}
 impl ScriptingObject for PlayerData {
     fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_fn("get_entity", |player: &mut Arc<PlayerData>| {
@@ -1050,10 +1045,44 @@ impl ScriptingObject for PlayerData {
             },
         );
         engine.register_get("user_data", |player: &mut Arc<PlayerData>| {
-            UserDataWrapper {
-                user_data_provider: player.ptr(),
-            }
+            UserDataWrapper::Player(player.ptr())
         });
+        engine.register_fn("close_inventory", |player: &mut Arc<PlayerData>| {
+            player.set_open_inventory(None);
+        });
+        engine.register_fn(
+            "open_inventory",
+            |player: &mut Arc<PlayerData>, inventory: InventoryWrapper, range: Range<i64>| {
+                player.set_open_inventory(Some((
+                    inventory,
+                    GuiInventoryData {
+                        slot_range: Range::<u32> {
+                            start: range.start as u32,
+                            end: range.end as u32,
+                        },
+                        slots: {
+                            let mut slots = Vec::new();
+                            for i in range {
+                                let i = i as i32;
+                                slots.push((
+                                    PositionAnchor::Center,
+                                    (((i % 9) - 4) as f32 * 130.),
+                                    ((i / 9) - (slots.len() / 18) as i32) as f32 * 130.,
+                                ));
+                            }
+                            slots
+                        },
+                    },
+                )));
+            },
+        );
+        engine.register_fn(
+            "get_open_inventory",
+            |player: &mut Arc<PlayerData>| match &*player.open_inventory.lock() {
+                Some(open_inventory) => Dynamic::from(open_inventory.0.clone()),
+                None => Dynamic::UNIT,
+            },
+        );
     }
 }
 
@@ -1852,6 +1881,12 @@ impl ScriptingObject for Entity {
         engine.register_fn("get_location", |entity: &mut Arc<Entity>| {
             Into::<Location>::into(&entity.get_location())
         });
+        engine.register_get("user_data", |entity: &mut Arc<Entity>| {
+            UserDataWrapper::Entity(entity.ptr())
+        });
+        engine.register_fn("get_inventory", |entity: &mut Arc<Entity>| {
+            InventoryWrapper::Entity(entity.ptr())
+        });
     }
 }
 impl Animatable for Entity {
@@ -2225,7 +2260,7 @@ pub struct WorldBlock {
     pub state: BlockStateRef,
     pub block: Arc<Block>,
     pub inventory: Inventory,
-    user_data: Mutex<UserData>,
+    pub(crate) user_data: Mutex<UserData>,
     animation_controller: AnimationController<WorldBlock>,
 }
 
@@ -2365,6 +2400,16 @@ impl WorldBlock {
     }
     pub fn ptr(&self) -> Arc<WorldBlock> {
         self.this.upgrade().unwrap()
+    }
+}
+impl ScriptingObject for WorldBlock {
+    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_get("user_data", |block: &mut Arc<WorldBlock>| {
+            UserDataWrapper::Block(block.ptr())
+        });
+        engine.register_fn("get_inventory", |block: &mut Arc<WorldBlock>| {
+            InventoryWrapper::Block(block.ptr())
+        });
     }
 }
 impl Animatable for WorldBlock {
