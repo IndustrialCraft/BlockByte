@@ -149,7 +149,8 @@ impl Server {
                                 mapping.mapping.insert(0, 0);
                                 mapping
                             },
-                            machine_data: block_data.machine_data.clone(),
+                            ticker: block_data.ticker.clone(),
+                            right_click_action: block_data.right_click_action.clone(),
                             breaking_data: block_data.breaking_data.clone(),
                             loottable: block_data.loot.clone(),
                             properties: block_data.properties.clone(),
@@ -158,7 +159,10 @@ impl Server {
                     |state, block| {
                         block_data
                             .client
-                            .call(&loaded_mods.8, (block.properties.dump_properties(state),))
+                            .call_function(
+                                &loaded_mods.8,
+                                (block.properties.dump_properties(state),),
+                            )
                             .cast::<ModClientBlockData>()
                     },
                 )
@@ -337,7 +341,7 @@ impl Server {
     pub fn call_event(&self, id: Identifier, args: impl FuncArgs + Clone) {
         if let Some(event_list) = self.events.get(&id) {
             for event in event_list {
-                let _ = event.call(&self.engine, args.clone());
+                let _ = event.call_function(&self.engine, args.clone());
             }
         }
     }

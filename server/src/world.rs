@@ -27,13 +27,14 @@ use fxhash::{FxHashMap, FxHashSet};
 use json::{object, JsonValue};
 use parking_lot::Mutex;
 use rand::Rng;
-use rhai::{Array, Dynamic, Engine, FnPtr};
+use rhai::{Array, Dynamic, Engine};
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::inventory::{GuiInventoryData, GuiInventoryViewer, InventorySaveData, InventoryView};
-use crate::mods::{ScriptCallback, ScriptingObject, UserDataWrapper};
+use crate::mods::{ScriptingObject, UserDataWrapper};
 use crate::registry::{Block, BlockState};
+use crate::util::BlockLocation;
 use crate::{
     inventory::{Inventory, InventoryWrapper, ItemStack, WeakInventoryWrapper},
     net::PlayerConnection,
@@ -1382,7 +1383,7 @@ impl Entity {
             *self.teleport.lock() = None;
         }
         if let Some(ticker) = &*self.entity_type.ticker.lock() {
-            let _ = ticker.call(&self.server.engine, (self.this.upgrade().unwrap(),));
+            let _ = ticker.call_function(&self.server.engine, (self.this.upgrade().unwrap(),));
         }
         if let Some(player) = self.get_player() {
             let messages = player.connection.lock().receive_messages();
@@ -1531,9 +1532,9 @@ impl Entity {
                                                         .unwrap();
                                                     let entity = player.get_entity();
                                                     if let Ok(_) =
-                                                        recipe.consume_inputs(&entity.inventory)
+                                                        recipe.consume_inputs(&entity.inventory.get_full_view())
                                                     {
-                                                        recipe.add_outputs(&entity.inventory);
+                                                        recipe.add_outputs(&entity.inventory.get_full_view()).ok();
                                                     }
                                                 }
                                                 InteractionResult::Consumed
@@ -1707,7 +1708,7 @@ impl Entity {
                         if !shifting {
                             right_click_result = match block {
                                 BlockData::Simple(_) => InteractionResult::Ignored,
-                                BlockData::Data(block) => block.on_right_click(self),
+                                BlockData::Data(block) => block.on_right_click(&player),
                             };
                         }
                         if right_click_result == InteractionResult::Consumed {
@@ -1881,10 +1882,16 @@ impl ScriptingObject for Entity {
         engine.register_fn("get_location", |entity: &mut Arc<Entity>| {
             Into::<Location>::into(&entity.get_location())
         });
+        engine.register_fn(
+            "teleport",
+            |entity: &mut Arc<Entity>, location: Location| {
+                entity.teleport(&location, None);
+            },
+        );
         engine.register_get("user_data", |entity: &mut Arc<Entity>| {
             UserDataWrapper::Entity(entity.ptr())
         });
-        engine.register_fn("get_inventory", |entity: &mut Arc<Entity>| {
+        engine.register_get("inventory", |entity: &mut Arc<Entity>| {
             InventoryWrapper::Entity(entity.ptr())
         });
     }
@@ -2266,26 +2273,27 @@ pub struct WorldBlock {
 
 impl WorldBlock {
     pub fn new(location: ChunkBlockLocation, state: BlockStateRef) -> Arc<WorldBlock> {
+        let block = location
+            .chunk
+            .world
+            .server
+            .block_registry
+            .state_by_ref(&state)
+            .parent
+            .clone();
         Arc::new_cyclic(|this| WorldBlock {
             chunk: Arc::downgrade(&location.chunk),
             position: location.position,
             state,
             inventory: Inventory::new(
                 WeakInventoryWrapper::Block(this.clone()),
-                9,
+                block.data_container.as_ref().unwrap().0,
                 None,
                 None,
                 None,
             ),
             animation_controller: AnimationController::new(this.clone(), 0),
-            block: location
-                .chunk
-                .world
-                .server
-                .block_registry
-                .state_by_ref(&state)
-                .parent
-                .clone(),
+            block,
             user_data: Mutex::new(UserData::new()),
             this: this.clone(),
         })
@@ -2306,7 +2314,13 @@ impl WorldBlock {
         }
     }
     pub fn tick(&self) {
-        let recipe_time_identifier = Identifier::new("bb", "recipe_time");
+        let _ = self
+            .block
+            .ticker
+            .as_ref()
+            .unwrap()
+            .call_function(&self.chunk().world.server.engine, (self.ptr(),));
+        /*let recipe_time_identifier = Identifier::new("bb", "recipe_time");
         let mut user_data = self.user_data.lock();
         if let Some(time) = user_data.take_data_point(&recipe_time_identifier) {
             let mut time = time.as_int().unwrap();
@@ -2345,16 +2359,26 @@ impl WorldBlock {
                     break;
                 }
             }
-        }
+        }*/
     }
     pub fn get_inputs_view_for_side(&self, _side: Face) -> InventoryView {
         self.inventory.get_full_view()
     }
     pub fn needs_ticking(&self) -> bool {
-        self.block.machine_data.is_some()
+        self.block.ticker.is_some()
     }
-    pub fn on_right_click(&self, entity: &Entity) -> InteractionResult {
-        if let Some(player) = entity.get_player() {
+    pub fn on_right_click(&self, entity: &PlayerData) -> InteractionResult {
+        match &self.block.right_click_action {
+            Some(action) => action
+                .call_function(
+                    &self.chunk().world.server.engine,
+                    (self.ptr(), entity.ptr()),
+                )
+                .try_cast::<InteractionResult>()
+                .unwrap_or(InteractionResult::Ignored),
+            None => InteractionResult::Ignored,
+        }
+        /*if let Some(player) = entity.get_player() {
             player.set_open_inventory(Some((
                 InventoryWrapper::Block(self.this.upgrade().unwrap()),
                 GuiInventoryData {
@@ -2369,7 +2393,7 @@ impl WorldBlock {
                 },
             )));
         }
-        InteractionResult::Consumed
+        InteractionResult::Consumed*/
     }
     pub fn serialize(&self) -> BlockSaveData {
         BlockSaveData {
@@ -2401,14 +2425,21 @@ impl WorldBlock {
     pub fn ptr(&self) -> Arc<WorldBlock> {
         self.this.upgrade().unwrap()
     }
+    pub fn chunk(&self) -> Arc<Chunk> {
+        self.chunk.upgrade().unwrap()
+    }
 }
 impl ScriptingObject for WorldBlock {
     fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_get("user_data", |block: &mut Arc<WorldBlock>| {
             UserDataWrapper::Block(block.ptr())
         });
-        engine.register_fn("get_inventory", |block: &mut Arc<WorldBlock>| {
+        engine.register_get("inventory", |block: &mut Arc<WorldBlock>| {
             InventoryWrapper::Block(block.ptr())
+        });
+        engine.register_get("location", |block: &mut Arc<WorldBlock>| BlockLocation {
+            position: block.position,
+            world: block.chunk().world.clone(),
         });
     }
 }

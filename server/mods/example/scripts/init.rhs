@@ -27,10 +27,10 @@ create_block("example:leaves", |p|{
 }).register_item("example:leaves_block","Leaves Block").register();
 create_block("example:test_model", |p|{
     create_air().dynamic("example:player","example:player").dynamic_add_animation("walk").dynamic_add_item("main_hand")
-}).data_container().register_item("example:mode_test_block","Model Test Block").register();
+}).data_container(0).register_item("example:mode_test_block","Model Test Block").register();
 create_block("example:barrel", |p|{
     create_cube("example:barrel","example:barrel","example:barrel","example:barrel","example:barrel","example:barrel")
-}).register_item("example:barrel_block","Barrel Block").data_container().register();
+}).register_item("example:barrel_block","Barrel Block").data_container(9).register();
 create_block("example:malachite", |p|{
     create_cube("example:malachite","example:malachite","example:malachite","example:malachite","example:malachite","example:malachite")
 }).breaking_tool(ToolType::Pickaxe,1.).loot("example:malachite_ore").register_item("example:malachite_block","Malachite Block").register();
@@ -51,7 +51,33 @@ create_block("example:branch", |p|{
 }).loot("example:branch").add_property_horizontal_face("facing").register();
 create_block("example:campfire", |p|{
     create_air().dynamic("example:campfire","example:campfire").dynamic_add_item("main")
-}).machine("example:campfire",1.,1).register_item("example:campfire", "Campfire").data_container().register();
+}).ticker(|block|{
+    let machine_run_time = Identifier("example","machine_run_time");
+    let machine_run_recipe = Identifier("example","machine_run_recipe");
+    let time = block.user_data[machine_run_time];
+    if time != () {
+        time -= 1;
+        if time <= 0{
+            let recipe = Recipe(block.user_data[machine_run_recipe]);
+            if recipe.has_ingredients(block.inventory.view(0..1)) && recipe.has_output_space(block.inventory.view(1..2)){
+                recipe.consume_inputs(block.inventory.view(0..1));
+                recipe.add_outputs(block.inventory.view(1..2));
+            }
+            time = ();
+        }
+        block.user_data[machine_run_time] = time;
+    } else {
+        for recipe in recipes_by_type(Identifier("example:campfire")){
+            if recipe.has_ingredients(block.inventory.view(0..1)) && recipe.has_output_space(block.inventory.view(1..2)) {
+                block.user_data[machine_run_time] = 20;
+                block.user_data[machine_run_recipe] = recipe.id;
+                break;
+            }
+        }
+    }
+}).right_click_action(|block,player|{
+    player.open_inventory(block.inventory, 0..2);
+}).register_item("example:campfire", "Campfire").data_container(2).register();
 create_item("example:plank").client_model_texture("example:plank").client_name("Plank").register();
 create_item("example:selection_wand").on_right_click(|player,target|{
     if type_of(target) == "BlockPosition"{

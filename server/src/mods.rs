@@ -25,9 +25,8 @@ use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
 use crate::inventory::InventoryWrapper;
-use crate::registry::{
-    Block, BlockMachineData, BlockState, BlockStateProperty, BlockStatePropertyStorage,
-};
+use crate::registry::{Block, BlockState, BlockStateProperty, BlockStatePropertyStorage};
+use crate::util::BlockLocation;
 use crate::world::{PlayerData, UserData, World, WorldBlock};
 use crate::{
     inventory::{LootTable, Recipe},
@@ -163,7 +162,8 @@ impl ModManager {
             .register_fn("add_property_face", BlockBuilder::add_property_face)
             .register_fn("breaking_tool", BlockBuilder::breaking_tool)
             .register_fn("loot", BlockBuilder::loot)
-            .register_fn("machine", BlockBuilder::machine)
+            .register_fn("ticker", BlockBuilder::ticker)
+            .register_fn("right_click_action", BlockBuilder::right_click_action)
             .register_fn("breaking_speed", BlockBuilder::breaking_speed)
             .register_fn("create_air", ModClientBlockData::create_air)
             .register_fn("create_cube", ModClientBlockData::create_cube)
@@ -477,8 +477,10 @@ impl ModManager {
 
         Self::load_scripting_object::<PlayerData>(engine, &server);
         Self::load_scripting_object::<Entity>(engine, &server);
+        Self::load_scripting_object::<WorldBlock>(engine, &server);
         Self::load_scripting_object::<World>(engine, &server);
         Self::load_scripting_object::<Location>(engine, &server);
+        Self::load_scripting_object::<BlockLocation>(engine, &server);
         Self::load_scripting_object::<Position>(engine, &server);
         Self::load_scripting_object::<Identifier>(engine, &server);
         Self::load_scripting_object::<Structure>(engine, &server);
@@ -487,6 +489,7 @@ impl ModManager {
         Self::load_scripting_object::<Block>(engine, &server);
         Self::load_scripting_object::<UserDataWrapper>(engine, &server);
         Self::load_scripting_object::<InventoryWrapper>(engine, &server);
+        Self::load_scripting_object::<Recipe>(engine, &server);
     }
     fn load_scripting_object<T>(engine: &mut Engine, server: &Weak<Server>)
     where
@@ -497,27 +500,6 @@ impl ModManager {
 }
 pub trait ScriptingObject {
     fn engine_register(engine: &mut Engine, server: &Weak<Server>);
-}
-impl ScriptingObject for Location {
-    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
-        engine.register_fn("Location", |position: Position, world: Arc<World>| {
-            Location { position, world }
-        });
-        engine.register_get_set(
-            "position",
-            |location: &mut Location| location.position,
-            |location: &mut Location, position: Position| {
-                location.position = position;
-            },
-        );
-        engine.register_get_set(
-            "world",
-            |location: &mut Location| location.world.clone(),
-            |location: &mut Location, world: Arc<World>| {
-                location.world = world;
-            },
-        );
-    }
 }
 impl ScriptingObject for Position {
     fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
@@ -700,10 +682,11 @@ impl BiomeBuilder {
 pub struct BlockBuilder {
     pub id: Identifier,
     pub client: ScriptCallback,
-    pub data_container: bool,
+    pub data_container: Option<(u32,)>,
     pub breaking_data: (f32, Option<(ToolType, f32)>),
     pub loot: Option<Identifier>,
-    pub machine_data: Option<BlockMachineData>,
+    pub ticker: Option<ScriptCallback>,
+    pub right_click_action: Option<ScriptCallback>,
     pub properties: BlockStatePropertyStorage,
 }
 
@@ -712,10 +695,11 @@ impl BlockBuilder {
         Arc::new(Mutex::new(BlockBuilder {
             id: Identifier::parse(id).unwrap(),
             client: ScriptCallback::new(client),
-            data_container: false,
+            data_container: None,
             breaking_data: (1., None),
             loot: None,
-            machine_data: None,
+            ticker: None,
+            right_click_action: None,
             properties: BlockStatePropertyStorage::new(),
         }))
     }
@@ -734,17 +718,12 @@ impl BlockBuilder {
             .register_property(name.to_string(), BlockStateProperty::Face);
         this.clone()
     }
-    pub fn machine(
-        this: &mut Arc<Mutex<Self>>,
-        recipe_type: &str,
-        base_speed: f64,
-        tier: i64,
-    ) -> Arc<Mutex<Self>> {
-        this.lock().machine_data = Some(BlockMachineData {
-            recipe_type: Identifier::parse(recipe_type).unwrap(),
-            base_speed: base_speed as f32,
-            tier: tier as u32,
-        });
+    pub fn ticker(this: &mut Arc<Mutex<Self>>, ticker: FnPtr) -> Arc<Mutex<Self>> {
+        this.lock().ticker = Some(ScriptCallback::new(ticker));
+        this.clone()
+    }
+    pub fn right_click_action(this: &mut Arc<Mutex<Self>>, ticker: FnPtr) -> Arc<Mutex<Self>> {
+        this.lock().right_click_action = Some(ScriptCallback::new(ticker));
         this.clone()
     }
     pub fn breaking_speed(this: &mut Arc<Mutex<Self>>, breaking_speed: f64) -> Arc<Mutex<Self>> {
@@ -764,8 +743,11 @@ impl BlockBuilder {
         this.lock().breaking_data.1 = Some((tool_type, hardness as f32));
         this.clone()
     }
-    pub fn mark_data_container(this: &mut Arc<Mutex<Self>>) -> Arc<Mutex<Self>> {
-        this.lock().data_container = true;
+    pub fn mark_data_container(
+        this: &mut Arc<Mutex<Self>>,
+        inventory_size: i64,
+    ) -> Arc<Mutex<Self>> {
+        this.lock().data_container = Some((inventory_size as u32,));
         this.clone()
     }
 }
@@ -1123,7 +1105,7 @@ impl ScriptCallback {
     pub fn new(function: FnPtr) -> Self {
         Self { function }
     }
-    pub fn call(&self, engine: &Engine, args: impl FuncArgs) -> Dynamic {
+    pub fn call_function(&self, engine: &Engine, args: impl FuncArgs) -> Dynamic {
         match self
             .function
             .call::<Dynamic>(engine, Self::AST.get_or_init(|| AST::empty()), args)

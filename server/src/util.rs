@@ -61,6 +61,27 @@ pub struct Location {
     pub position: Position,
     pub world: Arc<World>,
 }
+impl ScriptingObject for Location {
+    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_fn("Location", |position: Position, world: Arc<World>| {
+            Location { position, world }
+        });
+        engine.register_get_set(
+            "position",
+            |location: &mut Location| location.position,
+            |location: &mut Location, position: Position| {
+                location.position = position;
+            },
+        );
+        engine.register_get_set(
+            "world",
+            |location: &mut Location| location.world.clone(),
+            |location: &mut Location, world: Arc<World>| {
+                location.world = world;
+            },
+        );
+    }
+}
 impl PartialEq for Location {
     fn eq(&self, other: &Self) -> bool {
         self.position == self.position && Arc::ptr_eq(&self.world, &other.world)
@@ -101,10 +122,32 @@ impl From<&Location> for ChunkLocation {
         }
     }
 }
-
+#[derive(Clone)]
 pub struct BlockLocation {
     pub position: BlockPosition,
     pub world: Arc<World>,
+}
+impl ScriptingObject for BlockLocation {
+    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_fn(
+            "BlockLocation",
+            |position: BlockPosition, world: Arc<World>| BlockLocation { position, world },
+        );
+        engine.register_get_set(
+            "position",
+            |location: &mut BlockLocation| location.position,
+            |location: &mut BlockLocation, position: BlockPosition| {
+                location.position = position;
+            },
+        );
+        engine.register_get_set(
+            "world",
+            |location: &mut BlockLocation| location.world.clone(),
+            |location: &mut BlockLocation, world: Arc<World>| {
+                location.world = world;
+            },
+        );
+    }
 }
 impl PartialEq for BlockLocation {
     fn eq(&self, other: &Self) -> bool {

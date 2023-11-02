@@ -50,14 +50,15 @@ impl BlockRegistry {
                     Arc::new(Block {
                         id,
                         default_state,
-                        data_container: false,
+                        data_container: None,
                         item_model_mapping: ItemModelMapping {
                             mapping: HashMap::new(),
                         },
-                        machine_data: None,
                         breaking_data: (0., None),
                         loottable: None,
                         properties: BlockStatePropertyStorage::new(),
+                        ticker: None,
+                        right_click_action: None,
                     })
                 },
                 |_, _| ModClientBlockData {
@@ -271,12 +272,13 @@ impl<'a> BlockStatePropertyKey<'a> {
 pub struct Block {
     pub id: Identifier,
     pub default_state: u32,
-    pub data_container: bool,
-    pub machine_data: Option<BlockMachineData>,
+    pub data_container: Option<(u32,)>,
     pub item_model_mapping: ItemModelMapping,
     pub breaking_data: (f32, Option<(ToolType, f32)>),
     pub loottable: Option<Identifier>,
     pub properties: BlockStatePropertyStorage,
+    pub ticker: Option<ScriptCallback>,
+    pub right_click_action: Option<ScriptCallback>,
 }
 
 impl ScriptingObject for Block {
@@ -285,13 +287,6 @@ impl ScriptingObject for Block {
             block.get_state_ref(0)
         });
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct BlockMachineData {
-    pub recipe_type: Identifier,
-    pub base_speed: f32,
-    pub tier: u32,
 }
 
 impl Block {
@@ -484,7 +479,7 @@ pub struct BlockState {
 
 impl BlockState {
     pub fn to_block_data(&self, chunk: &Chunk, position: BlockPosition) -> BlockData {
-        if self.parent.data_container {
+        if self.parent.data_container.is_some() {
             BlockData::Data(WorldBlock::new(
                 ChunkBlockLocation::new(position, chunk.ptr()).unwrap(),
                 self.get_ref(),
@@ -703,7 +698,8 @@ impl Item {
         }
         if let Some(right_click) = &self.on_right_click {
             //todo: supply itemstack parameter
-            let _ = right_click.call(&player.server.clone().engine, (player, block_position));
+            let _ =
+                right_click.call_function(&player.server.clone().engine, (player, block_position));
             return InteractionResult::Consumed;
         }
         InteractionResult::Ignored
@@ -711,14 +707,15 @@ impl Item {
     pub fn on_right_click(&self, _item: &mut ItemStack, player: Arc<Entity>) -> InteractionResult {
         if let Some(right_click) = &self.on_right_click {
             //todo: supply itemstack parameter
-            let _ = right_click.call(&player.server.clone().engine, (player, Dynamic::UNIT));
+            let _ =
+                right_click.call_function(&player.server.clone().engine, (player, Dynamic::UNIT));
             return InteractionResult::Consumed;
         }
         InteractionResult::Ignored
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 pub enum InteractionResult {
     Consumed,
     Ignored,

@@ -12,7 +12,7 @@ use fxhash::FxHashMap;
 use json::{object, JsonValue};
 use parking_lot::{Mutex, MutexGuard};
 use rand::{thread_rng, Rng};
-use rhai::Engine;
+use rhai::{Dynamic, Engine};
 use serde::{Deserialize, Serialize};
 use splines::Spline;
 use uuid::Uuid;
@@ -465,6 +465,13 @@ impl<'a> InventoryView<'a> {
             Err(())
         }
     }
+    pub fn export_content(&self) -> Box<[Option<ItemStack>]> {
+        let mut items = Vec::with_capacity(self.get_size() as usize);
+        for i in 0..self.get_size() {
+            items.push(self.get_item(i).unwrap());
+        }
+        items.into_boxed_slice()
+    }
     pub fn get_item(&self, index: u32) -> Result<Option<ItemStack>, ()> {
         self.inventory
             .items
@@ -605,8 +612,14 @@ impl ScriptingObject for InventoryWrapper {
         });
         engine.register_fn(
             "view",
-            |inventory: &mut InventoryWrapper, inventory_range: Range<u32>| {
-                OwnedInventoryView::new(inventory_range, inventory.clone())
+            |inventory: &mut InventoryWrapper, inventory_range: Range<i64>| {
+                OwnedInventoryView::new(
+                    Range::<u32> {
+                        start: inventory_range.start as u32,
+                        end: inventory_range.end as u32,
+                    },
+                    inventory.clone(),
+                )
             },
         );
         engine.register_fn("full_view", |inventory: &mut InventoryWrapper| {
@@ -665,33 +678,102 @@ impl Recipe {
     pub fn get_type(&self) -> &Identifier {
         &self.recipe_type
     }
-    pub fn can_craft(&self, inventory: &Inventory) -> bool {
-        let content = inventory.export_content();
-        let inventory_copy = inventory.get_full_view();
+    pub fn has_ingredients(&self, inventory: &InventoryView) -> bool {
+        let inventory_copy = Inventory::new_owned(inventory.get_size(), None, None, None);
+        let inventory_copy_view = inventory_copy.get_full_view();
+        inventory_copy.load_content(inventory.export_content());
         for input_item in &self.input_items {
-            if let Some(_) = inventory_copy.remove_item(input_item) {
-                inventory.load_content(content);
+            if let Some(_) = inventory_copy_view.remove_item(input_item) {
                 return false;
             }
         }
-        inventory.load_content(content);
         true
     }
-    pub fn consume_inputs(&self, inventory: &Inventory) -> Result<(), ()> {
-        if !self.can_craft(inventory) {
+    pub fn has_output_space(&self, inventory: &InventoryView) -> bool {
+        let inventory_copy = Inventory::new_owned(inventory.get_size(), None, None, None);
+        let inventory_copy_view = inventory_copy.get_full_view();
+        inventory_copy.load_content(inventory.export_content());
+        for input_item in &self.output_items {
+            if let Some(_) = inventory_copy_view.add_item(input_item) {
+                return false;
+            }
+        }
+        true
+    }
+    pub fn consume_inputs(&self, inventory: &InventoryView) -> Result<(), ()> {
+        if !self.has_ingredients(inventory) {
             return Err(());
         }
-        let inventory = inventory.get_full_view();
         for item in &self.input_items {
             inventory.remove_item(item);
         }
         Ok(())
     }
-    pub fn add_outputs(&self, inventory: &Inventory) {
-        let inventory = inventory.get_full_view();
+    pub fn add_outputs(&self, inventory: &InventoryView) -> Result<(), ()> {
+        if !self.has_output_space(inventory) {
+            return Err(());
+        }
         for item in &self.output_items {
             inventory.add_item(item);
         }
+        Ok(())
+    }
+}
+impl ScriptingObject for Recipe {
+    fn engine_register(engine: &mut Engine, server: &Weak<Server>) {
+        {
+            let server = server.clone();
+            engine.register_fn("Recipe", move |id: Identifier| {
+                match server.upgrade().unwrap().recipes.by_id(&id) {
+                    Some(recipe) => Dynamic::from(recipe),
+                    None => Dynamic::UNIT,
+                }
+            });
+        }
+        {
+            let server = server.clone();
+            engine.register_fn("recipes_by_type", move |id: Identifier| {
+                server
+                    .upgrade()
+                    .unwrap()
+                    .recipes
+                    .by_type(&id)
+                    .iter()
+                    .map(|recipe| Dynamic::from(recipe.clone()))
+                    .collect::<rhai::Array>()
+            });
+        }
+        engine.register_fn(
+            "has_ingredients",
+            |recipe: &mut Arc<Recipe>, inventory: OwnedInventoryView| {
+                recipe.has_ingredients(&inventory.view())
+            },
+        );
+        engine.register_fn(
+            "has_output_space",
+            |recipe: &mut Arc<Recipe>, inventory: OwnedInventoryView| {
+                recipe.has_output_space(&inventory.view())
+            },
+        );
+        engine.register_fn(
+            "consume_inputs",
+            |recipe: &mut Arc<Recipe>, inventory: OwnedInventoryView| match recipe
+                .consume_inputs(&inventory.view())
+            {
+                Ok(_) => true,
+                Err(_) => false,
+            },
+        );
+        engine.register_fn(
+            "add_outputs",
+            |recipe: &mut Arc<Recipe>, inventory: OwnedInventoryView| match recipe
+                .add_outputs(&inventory.view())
+            {
+                Ok(_) => true,
+                Err(_) => false,
+            },
+        );
+        engine.register_get("id", |recipe: &mut Arc<Recipe>| recipe.id.clone());
     }
 }
 
