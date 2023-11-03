@@ -66,17 +66,24 @@ create_block("example:campfire", |p|{
             time = ();
         }
         block.user_data[machine_run_time] = time;
+        block.inventory.set_client_property(Identifier("example:progress"), time);
     } else {
         for recipe in recipes_by_type(Identifier("example:campfire")){
             if recipe.has_ingredients(block.inventory.view(0..1)) && recipe.has_output_space(block.inventory.view(1..2)) {
-                block.user_data[machine_run_time] = 20;
+                time = 20;
+                block.user_data[machine_run_time] = time;
+                block.inventory.set_client_property(Identifier("example:progress"), time);
                 block.user_data[machine_run_recipe] = recipe.id;
                 break;
             }
         }
     }
 }).right_click_action(|block,player|{
-    player.open_inventory(block.inventory, 0..2);
+    player.open_inventory(block.inventory, 0..2, Identifier("example:layout_campfire"), |player,id,value|{
+        if id.to_string() == "example:progress"{
+            player.send_chat_message("progress: " + value);
+        }
+    });
 }).register_item("example:campfire", "Campfire").data_container(2).register();
 create_item("example:plank").client_model_texture("example:plank").client_name("Plank").register();
 create_item("example:selection_wand").on_right_click(|player,target|{

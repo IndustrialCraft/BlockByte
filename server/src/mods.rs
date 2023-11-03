@@ -24,7 +24,7 @@ use std::{
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
-use crate::inventory::InventoryWrapper;
+use crate::inventory::{GUILayout, InventoryWrapper};
 use crate::registry::{Block, BlockState, BlockStateProperty, BlockStatePropertyStorage};
 use crate::util::BlockLocation;
 use crate::world::{PlayerData, UserData, World, WorldBlock};
@@ -458,6 +458,31 @@ impl ModManager {
             }
         }
         recipes
+    }
+    pub fn load_gui_layouts(&self) -> HashMap<Identifier, Arc<GUILayout>> {
+        let mut layouts = HashMap::new();
+        for loaded_mod in &self.mods {
+            let mut path = loaded_mod.1.path.clone();
+            path.push("gui");
+            for layout_path in WalkDir::new(&path)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|entry| entry.metadata().unwrap().is_file())
+            {
+                let path_diff = pathdiff::diff_paths(layout_path.path(), &path).unwrap();
+                let id = path_diff
+                    .as_os_str()
+                    .to_str()
+                    .unwrap()
+                    .split_once(".")
+                    .unwrap()
+                    .0;
+                let id = Identifier::new(loaded_mod.1.namespace.clone(), id);
+                let json = fs::read_to_string(layout_path.path()).unwrap();
+                layouts.insert(id.clone(), Arc::new(GUILayout::load(json.as_str())));
+            }
+        }
+        layouts
     }
     pub fn runtime_engine_load(engine: &mut Engine, server: Weak<Server>) {
         {
@@ -1097,24 +1122,30 @@ enum ContentType {
 
 #[derive(Clone, Debug)]
 pub struct ScriptCallback {
-    function: FnPtr,
+    function: Option<FnPtr>,
 }
 
 impl ScriptCallback {
     const AST: OnceCell<AST> = OnceCell::new();
     pub fn new(function: FnPtr) -> Self {
-        Self { function }
+        Self {
+            function: Some(function),
+        }
+    }
+    pub fn empty() -> Self {
+        Self { function: None }
     }
     pub fn call_function(&self, engine: &Engine, args: impl FuncArgs) -> Dynamic {
-        match self
-            .function
-            .call::<Dynamic>(engine, Self::AST.get_or_init(|| AST::empty()), args)
-        {
-            Ok(ret) => ret,
-            Err(error) => {
-                println!("callback error: {error:#?}");
-                Dynamic::UNIT
+        if let Some(function) = &self.function {
+            match function.call::<Dynamic>(engine, Self::AST.get_or_init(|| AST::empty()), args) {
+                Ok(ret) => ret,
+                Err(error) => {
+                    println!("callback error: {error:#?}");
+                    Dynamic::UNIT
+                }
             }
+        } else {
+            Dynamic::UNIT
         }
     }
 }

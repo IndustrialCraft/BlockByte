@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::{
     ops::Range,
     sync::{Arc, Weak},
@@ -17,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use splines::Spline;
 use uuid::Uuid;
 
-use crate::mods::{ScriptingObject, UserDataWrapper};
+use crate::mods::{ScriptCallback, ScriptingObject, UserDataWrapper};
 use crate::registry::ToolType;
 use crate::world::{PlayerData, UserData};
 use crate::{
@@ -80,6 +81,7 @@ pub struct Inventory {
     click_handler: Option<InventoryClickHandler>,
     scroll_handler: Option<InventoryScrollHandler>,
     set_item_handler: Option<InventorySetItemHandler>,
+    client_properties: Mutex<UserData>,
 }
 impl Inventory {
     pub fn new_owned(
@@ -96,6 +98,7 @@ impl Inventory {
             scroll_handler,
             set_item_handler,
             owner: WeakInventoryWrapper::Own(this.clone()),
+            client_properties: Mutex::new(UserData::new()),
         });
         inventory
     }
@@ -117,7 +120,17 @@ impl Inventory {
             scroll_handler,
             set_item_handler,
             owner: owner.into(),
+            client_properties: Mutex::new(UserData::new()),
         }
+    }
+    pub fn set_client_property(&self, id: &Identifier, value: Dynamic, server: &Server) {
+        for viewer in self.viewers.lock().iter() {
+            let _ = viewer.1.client_property_listener.call_function(
+                &server.engine,
+                (viewer.1.viewer.clone(), id.clone(), value.clone()),
+            );
+        }
+        self.client_properties.lock().put_data_point(id, value);
     }
     pub fn get_user_data(&self) -> MutexGuard<UserData> {
         self.user_data.lock()
@@ -141,22 +154,28 @@ impl Inventory {
     fn sync_slot(&self, index: u32, only_count: bool) {
         let item = &self.items.lock()[index as usize];
         for viewer in self.viewers.lock().values() {
-            viewer
-                .viewer
-                .send_message(&NetworkMessageS2C::GuiEditElement(
-                    self.get_slot_id(viewer, index),
-                    GUIElementEdit {
-                        component_type: GUIComponentEdit::SlotComponent {
-                            item_id: Some(
-                                item.as_ref()
-                                    .map(|item| (item.item_type.client_id, item.item_count)),
-                            ),
-                            size: None,
-                            background: None,
+            if viewer.slot_range.contains(&index) {
+                viewer
+                    .viewer
+                    .send_message(&NetworkMessageS2C::GuiEditElement(
+                        format!(
+                            "{}_{}",
+                            viewer.id.to_string().as_str(),
+                            (index - viewer.slot_range.start).to_string()
+                        ),
+                        GUIElementEdit {
+                            component_type: GUIComponentEdit::SlotComponent {
+                                item_id: Some(
+                                    item.as_ref()
+                                        .map(|item| (item.item_type.client_id, item.item_count)),
+                                ),
+                                size: None,
+                                background: None,
+                            },
+                            ..Default::default()
                         },
-                        ..Default::default()
-                    },
-                ));
+                    ));
+            }
         }
         if !only_count {
             match &self.owner.upgrade().unwrap() {
@@ -196,30 +215,44 @@ impl Inventory {
         if self.viewers.lock().contains_key(id) {
             return;
         }
-        let real_view = viewer.view(self);
-        for (slot, slot_data) in viewer.slots.iter().enumerate() {
-            let item = real_view.get_item(slot as u32).unwrap();
+        viewer
+            .layout
+            .send_to_player(&viewer.viewer, viewer.id.to_string().as_str());
+        for slot in viewer.slot_range.clone() {
+            let item = self
+                .items
+                .lock()
+                .get(slot as usize)
+                .unwrap()
+                .as_ref()
+                .map(|item| (item.item_type.client_id, item.item_count));
             viewer
                 .viewer
-                .send_message(&NetworkMessageS2C::GuiSetElement(
-                    self.get_slot_id(&viewer, real_view.map_slot(slot as u32).unwrap()),
-                    GUIElement {
-                        component_type: GUIComponent::SlotComponent {
-                            background: "bb:slot".to_string(),
-                            size: Vec2 { x: 100., y: 100. },
-                            item_id: item
-                                .as_ref()
-                                .map(|item| (item.item_type.client_id, item.item_count)),
+                .send_message(&NetworkMessageS2C::GuiEditElement(
+                    format!(
+                        "{}_{}",
+                        viewer.id.to_string().as_str(),
+                        (slot - viewer.slot_range.start).to_string()
+                    ),
+                    GUIElementEdit {
+                        component_type: GUIComponentEdit::SlotComponent {
+                            item_id: Some(item),
+                            size: None,
+                            background: None,
                         },
-                        position: Position {
-                            x: slot_data.1 as f64,
-                            y: slot_data.2 as f64,
-                            z: 0.,
-                        },
-                        anchor: slot_data.0,
-                        base_color: Color::WHITE,
+                        ..Default::default()
                     },
                 ));
+        }
+        for property in self.client_properties.lock().data_points() {
+            let _ = viewer.client_property_listener.call_function(
+                &viewer.viewer.server.engine,
+                (
+                    viewer.viewer.clone(),
+                    property.0.clone(),
+                    property.1.clone(),
+                ),
+            );
         }
         self.viewers.lock().insert(id.clone(), viewer);
     }
@@ -229,9 +262,6 @@ impl Inventory {
                 .viewer
                 .send_message(&NetworkMessageS2C::GuiRemoveElements(viewer.id.to_string()));
         }
-    }
-    pub fn get_slot_id(&self, viewer: &GuiInventoryViewer, slot: u32) -> String {
-        viewer.id.to_string() + slot.to_string().as_str()
     }
     pub fn get_slot_id_entity(&self, entity: &Entity, slot: u32) -> String {
         self.viewers
@@ -280,7 +310,7 @@ impl Inventory {
         if id.starts_with(&viewer.id.to_string()) {
             Some(
                 id.to_string()
-                    .replace(&viewer.id.to_string(), "")
+                    .replace(format!("{}_", &viewer.id.to_string()).as_str(), "")
                     .parse()
                     .unwrap(),
             )
@@ -424,23 +454,26 @@ impl OwnedInventoryView {
 }
 pub struct GuiInventoryData {
     pub slot_range: Range<u32>,
-    pub slots: Vec<(PositionAnchor, f32, f32)>,
+    pub client_property_listener: ScriptCallback,
+    pub layout: Arc<GUILayout>,
 }
 impl GuiInventoryData {
     pub fn into_viewer(self, viewer: Arc<PlayerData>) -> GuiInventoryViewer {
         GuiInventoryViewer {
-            slots: self.slots,
             slot_range: self.slot_range,
             viewer,
             id: Uuid::new_v4(),
+            client_property_listener: self.client_property_listener,
+            layout: self.layout,
         }
     }
 }
 pub struct GuiInventoryViewer {
     pub slot_range: Range<u32>,
-    pub slots: Vec<(PositionAnchor, f32, f32)>,
     pub viewer: Arc<PlayerData>,
     pub id: Uuid,
+    pub client_property_listener: ScriptCallback,
+    pub layout: Arc<GUILayout>,
 }
 impl GuiInventoryViewer {
     pub fn view<'a>(&self, inventory: &'a Inventory) -> InventoryView<'a> {
@@ -605,7 +638,7 @@ impl InventoryWrapper {
     }
 }
 impl ScriptingObject for InventoryWrapper {
-    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register(engine: &mut Engine, server: &Weak<Server>) {
         engine.register_fn("create_inventory", |size: i64| {
             //todo: verify size
             InventoryWrapper::Own(Inventory::new_owned(size as u32, None, None, None))
@@ -628,6 +661,19 @@ impl ScriptingObject for InventoryWrapper {
         engine.register_get("user_data", |inventory: &mut InventoryWrapper| {
             UserDataWrapper::Inventory(inventory.clone())
         });
+        {
+            let server = server.clone();
+            engine.register_fn(
+                "set_client_property",
+                move |inventory: &mut InventoryWrapper, id: Identifier, value: Dynamic| {
+                    inventory.get_inventory().set_client_property(
+                        &id,
+                        value,
+                        &server.upgrade().unwrap(),
+                    );
+                },
+            );
+        }
     }
 }
 #[derive(Clone)]
@@ -847,5 +893,50 @@ impl LootTable {
                 consumer.call((ItemStack::new(&table.0, count),));
             }
         }
+    }
+}
+#[derive(Serialize, Deserialize)]
+pub struct GUILayout {
+    elements: HashMap<String, GUIElement>,
+}
+impl GUILayout {
+    pub fn load(input: &str) -> GUILayout {
+        serde_json::from_str(input).unwrap()
+    }
+    pub fn send_to_player(&self, player: &PlayerData, container_id: &str) {
+        for element in &self.elements {
+            player.send_message(&NetworkMessageS2C::GuiSetElement(
+                format!("{}_{}", container_id, element.0),
+                element.1.clone(),
+            ));
+        }
+    }
+    pub fn create_9x(rows: u32) -> GUILayout {
+        let mut elements = HashMap::new();
+        for y in 0..rows {
+            for x in 0..9 {
+                elements.insert(
+                    (x + (y * 9)).to_string(),
+                    GUIElement {
+                        position: Position {
+                            x: ((x as f64 - 4.) * 130.),
+                            y: (y as f64 - (rows as f64 / 2.)) * 130.,
+                            z: 0.,
+                        },
+                        anchor: PositionAnchor::Center,
+                        base_color: Color::WHITE,
+                        component_type: GUIComponent::SlotComponent {
+                            item_id: None,
+                            background: "bb:slot".to_string(),
+                            size: Vec2 { x: 100., y: 100. },
+                        },
+                    },
+                );
+            }
+        }
+        GUILayout { elements }
+    }
+    pub fn export_to_json(&self) -> String {
+        serde_json::to_string(self).unwrap()
     }
 }

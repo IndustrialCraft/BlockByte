@@ -31,6 +31,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+use crate::inventory::GUILayout;
 use crate::mods::{ClientModItemModel, ModClientBlockData};
 use crate::registry::RecipeManager;
 use crate::world::PlayerData;
@@ -54,6 +55,14 @@ use world::{Entity, Structure, World};
 use worldgen::{BasicWorldGenerator, Biome};
 
 fn main() {
+    /*for layout in [1, 3, 5] {
+        std::fs::write(
+            format!("save/layout{}.json", layout),
+            GUILayout::create_9x(layout).export_to_json(),
+        )
+        .unwrap();
+    }
+    std::process::exit(0);*/
     let running = Arc::new(AtomicBool::new(true));
     {
         let ctrlc_running = running.clone();
@@ -117,6 +126,7 @@ pub struct Server {
     settings: ServerSettings,
     loot_tables: HashMap<Identifier, Arc<LootTable>>,
     players: Mutex<Vec<Arc<PlayerData>>>,
+    gui_layouts: HashMap<Identifier, Arc<GUILayout>>,
 }
 
 impl Server {
@@ -272,6 +282,7 @@ impl Server {
         let structures = loaded_mods.0.load_structures(&block_registry.borrow());
         let recipes = loaded_mods.0.load_recipes(&item_registry.borrow());
         let loottables = loaded_mods.0.load_loot_tables(&item_registry.borrow());
+        let gui_layouts = loaded_mods.0.load_gui_layouts();
         let block_registry = block_registry.into_inner();
         Arc::new_cyclic(|this| Server {
             this: this.clone(),
@@ -328,6 +339,7 @@ impl Server {
             save_directory,
             loot_tables: loottables,
             players: Mutex::new(Vec::new()),
+            gui_layouts,
         })
     }
     pub fn export_file(&self, filename: String, data: Vec<u8>) {

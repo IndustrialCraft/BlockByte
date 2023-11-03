@@ -27,12 +27,12 @@ use fxhash::{FxHashMap, FxHashSet};
 use json::{object, JsonValue};
 use parking_lot::Mutex;
 use rand::Rng;
-use rhai::{Array, Dynamic, Engine};
+use rhai::{Array, Dynamic, Engine, FnPtr};
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::inventory::{GuiInventoryData, GuiInventoryViewer, InventorySaveData, InventoryView};
-use crate::mods::{ScriptingObject, UserDataWrapper};
+use crate::mods::{ScriptCallback, ScriptingObject, UserDataWrapper};
 use crate::registry::{Block, BlockState};
 use crate::util::BlockLocation;
 use crate::{
@@ -856,6 +856,9 @@ impl UserData {
     pub fn get_data_point_ref(&mut self, id: &Identifier) -> Option<&mut Dynamic> {
         self.data.get_mut(id)
     }
+    pub fn data_points(&self) -> std::collections::hash_map::Iter<Identifier, Dynamic> {
+        self.data.iter()
+    }
 }
 
 pub struct PlayerData {
@@ -1018,7 +1021,7 @@ impl PlayerData {
     }
 }
 impl ScriptingObject for PlayerData {
-    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register(engine: &mut Engine, server: &Weak<Server>) {
         engine.register_fn("get_entity", |player: &mut Arc<PlayerData>| {
             player.get_entity()
         });
@@ -1051,32 +1054,35 @@ impl ScriptingObject for PlayerData {
         engine.register_fn("close_inventory", |player: &mut Arc<PlayerData>| {
             player.set_open_inventory(None);
         });
-        engine.register_fn(
-            "open_inventory",
-            |player: &mut Arc<PlayerData>, inventory: InventoryWrapper, range: Range<i64>| {
-                player.set_open_inventory(Some((
-                    inventory,
-                    GuiInventoryData {
-                        slot_range: Range::<u32> {
-                            start: range.start as u32,
-                            end: range.end as u32,
+        {
+            let server = server.clone();
+            engine.register_fn(
+                "open_inventory",
+                move |player: &mut Arc<PlayerData>,
+                      inventory: InventoryWrapper,
+                      range: Range<i64>,
+                      layout: Identifier,
+                      client_property_listener: FnPtr| {
+                    player.set_open_inventory(Some((
+                        inventory,
+                        GuiInventoryData {
+                            slot_range: Range::<u32> {
+                                start: range.start as u32,
+                                end: range.end as u32,
+                            },
+                            layout: server
+                                .upgrade()
+                                .unwrap()
+                                .gui_layouts
+                                .get(&layout)
+                                .unwrap()
+                                .clone(),
+                            client_property_listener: ScriptCallback::new(client_property_listener),
                         },
-                        slots: {
-                            let mut slots = Vec::new();
-                            for i in range {
-                                let i = i as i32;
-                                slots.push((
-                                    PositionAnchor::Center,
-                                    (((i % 9) - 4) as f32 * 130.),
-                                    ((i / 9) - (slots.len() / 18) as i32) as f32 * 130.,
-                                ));
-                            }
-                            slots
-                        },
-                    },
-                )));
-            },
-        );
+                    )));
+                },
+            );
+        }
         engine.register_fn(
             "get_open_inventory",
             |player: &mut Arc<PlayerData>| match &*player.open_inventory.lock() {
@@ -1154,15 +1160,15 @@ impl Entity {
         ));
         self.inventory.add_viewer(GuiInventoryViewer {
             slot_range: 0..9,
-            slots: {
-                let mut slots = Vec::with_capacity(9);
-                for i in 0..9 {
-                    slots.push((PositionAnchor::Bottom, ((i - 4) as f32 * 130.), 100.));
-                }
-                slots
-            },
+            layout: self
+                .server
+                .gui_layouts
+                .get(&Identifier::new("example", "layout_hotbar"))
+                .unwrap()
+                .clone(),
             id: self.get_id().clone(),
             viewer: player.clone(),
+            client_property_listener: ScriptCallback::empty(),
         });
 
         *self.player.lock() = Some(Arc::downgrade(&player));
@@ -1470,36 +1476,29 @@ impl Entity {
                                         inventory
                                     },
                                 ), GuiInventoryData{
-                                                slots: {
-                                                    let mut slots = Vec::with_capacity(27);
-                                                    for y in 0..3 {
-                                                        for x in 0..9 {
-                                                            slots.push((PositionAnchor::Center,
-                                                                        ((x-4) as f32 * 130.),
-                                                                        (y-1) as f32 * 130.,
-                                                            ));
-                                                        }
-                                                    }
-                                                    slots
-                                                },
+                                                layout: self
+                                                    .server
+                                                    .gui_layouts
+                                                    .get(&Identifier::new("example", "layout3"))
+                                                    .unwrap()
+                                                    .clone(),
                                                 slot_range: 0..27
+                                                ,client_property_listener: ScriptCallback::empty(),
+
                                             })));
                                         } else {
                                             player.set_open_inventory(Some((
                                                 InventoryWrapper::Entity(self.ptr()),
                                                 GuiInventoryData {
-                                                    slots: {
-                                                        let mut slots = Vec::with_capacity(9);
-                                                        for i in 0..9 {
-                                                            slots.push((
-                                                                PositionAnchor::Center,
-                                                                ((i - 4) as f32 * 130.),
-                                                                0.,
-                                                            ));
-                                                        }
-                                                        slots
-                                                    },
+                                                    layout: self
+                                                        .server
+                                                        .gui_layouts
+                                                        .get(&Identifier::new("example", "layout1"))
+                                                        .unwrap()
+                                                        .clone(),
                                                     slot_range: 9..18,
+                                                    client_property_listener: ScriptCallback::empty(
+                                                    ),
                                                 },
                                             )));
                                         }
@@ -1566,20 +1565,14 @@ impl Entity {
                                         player.set_open_inventory(Some((
                                             InventoryWrapper::Own(inventory),
                                             GuiInventoryData {
-                                                slots: {
-                                                    let mut slots = Vec::with_capacity(27);
-                                                    for y in 0..3 {
-                                                        for x in 0..9 {
-                                                            slots.push((
-                                                                PositionAnchor::Center,
-                                                                ((x - 4) as f32 * 130.),
-                                                                (y - 1) as f32 * 130.,
-                                                            ));
-                                                        }
-                                                    }
-                                                    slots
-                                                },
+                                                layout: self
+                                                    .server
+                                                    .gui_layouts
+                                                    .get(&Identifier::new("example", "layout3"))
+                                                    .unwrap()
+                                                    .clone(),
                                                 slot_range: 0..27,
+                                                client_property_listener: ScriptCallback::empty(),
                                             },
                                         )));
                                     }

@@ -74,22 +74,24 @@ impl<'a> GUIRenderer<'a> {
         let aspect_ratio = size.width as f32 / size.height as f32;
         for (id, element) in &self.elements {
             let size = match &element.component_type {
-                GUIComponent::ImageComponent { size, .. } => size,
-                GUIComponent::TextComponent { .. } => unimplemented!(),
-                GUIComponent::SlotComponent { size, .. } => size,
+                GUIComponent::ImageComponent { size, .. } => Some(size),
+                GUIComponent::TextComponent { .. } => None,
+                GUIComponent::SlotComponent { size, .. } => Some(size),
             };
-            if Self::mouse_hovers(
-                mouse,
-                element.anchor,
-                Vec2 {
-                    x: element.position.x as f32,
-                    y: element.position.y as f32,
-                },
-                *size,
-                self.gui_scale,
-                aspect_ratio,
-            ) {
-                return Some((id.as_str(), element));
+            if let Some(size) = size {
+                if Self::mouse_hovers(
+                    mouse,
+                    element.anchor,
+                    Vec2 {
+                        x: element.position.x as f32,
+                        y: element.position.y as f32,
+                    },
+                    *size,
+                    self.gui_scale,
+                    aspect_ratio,
+                ) {
+                    return Some((id.as_str(), element));
+                }
             }
         }
         None
@@ -212,7 +214,29 @@ impl<'a> GUIRenderer<'a> {
                         }
                     }
                 }
-                _ => {}
+                GUIComponent::TextComponent { text, font_size } => {
+                    self.text_renderer.render(
+                        &mut vertices,
+                        element.anchor,
+                        Vec2 {
+                            x: element.position.x as f32,
+                            y: element.position.y as f32,
+                        },
+                        *font_size,
+                        text,
+                        Color {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 255,
+                        },
+                        &self.texture_atlas,
+                        aspect_ratio,
+                        self.gui_scale,
+                        mouse,
+                        element.position.z as f32,
+                    );
+                }
             }
         }
         if let Some((_, element)) = self.get_selected(mouse_physical, size) {
