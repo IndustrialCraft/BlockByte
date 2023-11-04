@@ -127,7 +127,14 @@ impl Inventory {
         for viewer in self.viewers.lock().iter() {
             let _ = viewer.1.client_property_listener.call_function(
                 &server.engine,
-                (viewer.1.viewer.clone(), id.clone(), value.clone()),
+                (
+                    ModGuiViewer {
+                        viewer: viewer.1.viewer.clone(),
+                        id: viewer.1.id.clone(),
+                    },
+                    id.clone(),
+                    value.clone(),
+                ),
             );
         }
         self.client_properties.lock().put_data_point(id, value);
@@ -248,7 +255,10 @@ impl Inventory {
             let _ = viewer.client_property_listener.call_function(
                 &viewer.viewer.server.engine,
                 (
-                    viewer.viewer.clone(),
+                    ModGuiViewer {
+                        viewer: viewer.viewer.clone(),
+                        id: viewer.id.clone(),
+                    },
                     property.0.clone(),
                     property.1.clone(),
                 ),
@@ -466,6 +476,32 @@ impl GuiInventoryData {
             client_property_listener: self.client_property_listener,
             layout: self.layout,
         }
+    }
+}
+#[derive(Clone)]
+pub struct ModGuiViewer {
+    viewer: Arc<PlayerData>,
+    id: Uuid,
+}
+impl ScriptingObject for ModGuiViewer {
+    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_fn(
+            "set_text",
+            |viewer: &mut ModGuiViewer, element_id: &str, text: &str| {
+                viewer
+                    .viewer
+                    .send_message(&NetworkMessageS2C::GuiEditElement(
+                        format!("{}_{}", viewer.id.to_string(), element_id),
+                        GUIElementEdit {
+                            component_type: GUIComponentEdit::TextComponent {
+                                text: Some(text.to_string()),
+                                font_size: None,
+                            },
+                            ..Default::default()
+                        },
+                    ));
+            },
+        );
     }
 }
 pub struct GuiInventoryViewer {

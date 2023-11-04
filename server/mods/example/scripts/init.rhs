@@ -79,9 +79,9 @@ create_block("example:campfire", |p|{
         }
     }
 }).right_click_action(|block,player|{
-    player.open_inventory(block.inventory, 0..2, Identifier("example:layout_campfire"), |player,id,value|{
+    player.open_inventory(block.inventory, 0..2, Identifier("example:layout_campfire"), |viewer,id,value|{
         if id.to_string() == "example:progress"{
-            player.send_chat_message("progress: " + value);
+            viewer.set_text("progress", value.to_string());
         }
     });
 }).register_item("example:campfire", "Campfire").data_container(2).register();

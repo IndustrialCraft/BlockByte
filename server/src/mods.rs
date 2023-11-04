@@ -24,7 +24,7 @@ use std::{
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
-use crate::inventory::{GUILayout, InventoryWrapper};
+use crate::inventory::{GUILayout, InventoryWrapper, ModGuiViewer};
 use crate::registry::{Block, BlockState, BlockStateProperty, BlockStatePropertyStorage};
 use crate::util::BlockLocation;
 use crate::world::{PlayerData, UserData, World, WorldBlock};
@@ -515,6 +515,7 @@ impl ModManager {
         Self::load_scripting_object::<UserDataWrapper>(engine, &server);
         Self::load_scripting_object::<InventoryWrapper>(engine, &server);
         Self::load_scripting_object::<Recipe>(engine, &server);
+        Self::load_scripting_object::<ModGuiViewer>(engine, &server);
     }
     fn load_scripting_object<T>(engine: &mut Engine, server: &Weak<Server>)
     where
