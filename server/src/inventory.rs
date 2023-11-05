@@ -318,12 +318,10 @@ impl Inventory {
         let viewers = self.viewers.lock();
         let viewer = viewers.get(view_id).unwrap();
         if id.starts_with(&viewer.id.to_string()) {
-            Some(
-                id.to_string()
-                    .replace(format!("{}_", &viewer.id.to_string()).as_str(), "")
-                    .parse()
-                    .unwrap(),
-            )
+            id.to_string()
+                .replace(format!("{}_", &viewer.id.to_string()).as_str(), "")
+                .parse()
+                .ok()
         } else {
             None
         }
