@@ -108,7 +108,11 @@ impl<'a> GUIRenderer<'a> {
         let mut vertices: Vec<GUIVertex> = Vec::new();
         for element in self.elements.values() {
             match &element.component_type {
-                GUIComponent::ImageComponent { texture: uv, size } => {
+                GUIComponent::ImageComponent {
+                    texture: uv,
+                    size,
+                    slice,
+                } => {
                     Self::add_rect_vertices(
                         &mut vertices,
                         element.anchor,
@@ -123,6 +127,7 @@ impl<'a> GUIRenderer<'a> {
                         self.gui_scale,
                         mouse,
                         element.position.z as f32,
+                        slice.as_ref(),
                     );
                 }
                 GUIComponent::SlotComponent {
@@ -145,6 +150,7 @@ impl<'a> GUIRenderer<'a> {
                             self.gui_scale,
                             mouse,
                             element.position.z as f32,
+                            None,
                         );
                     }
                     if let Some(item_id) = item_id.as_ref() {
@@ -169,6 +175,7 @@ impl<'a> GUIRenderer<'a> {
                                     self.gui_scale,
                                     mouse,
                                     element.position.z as f32 + 0.1,
+                                    None,
                                 );
                             }
                             ItemModel::Block { front, .. } => {
@@ -186,6 +193,7 @@ impl<'a> GUIRenderer<'a> {
                                     self.gui_scale,
                                     mouse,
                                     element.position.z as f32 + 0.1,
+                                    None,
                                 );
                             }
                         }
@@ -310,6 +318,7 @@ impl<'a> GUIRenderer<'a> {
         gui_scale: f32,
         mouse: Vec2,
         depth: f32,
+        slice: Option<&(Vec2, Vec2)>,
     ) {
         let anchor = anchor.get_center(mouse);
         let position = Vec2 {
@@ -320,8 +329,23 @@ impl<'a> GUIRenderer<'a> {
             x: size.x * gui_scale / aspect_ratio,
             y: size.y * gui_scale,
         };
+        let slice = slice.unwrap_or(&(Vec2::ZERO, Vec2 { x: 1., y: 1. }));
+        let p1 = Vec2 {
+            x: position.x + (size.x * slice.0.x),
+            y: position.y + (size.y * slice.0.y),
+        };
+        let p2 = Vec2 {
+            x: position.x + (size.x * slice.1.x),
+            y: position.y + (size.y * slice.1.y),
+        };
+        let uv = uv.map_sub(&TexCoords {
+            u1: slice.0.x,
+            u2: slice.1.x,
+            v1: slice.0.y,
+            v2: slice.1.y,
+        });
         let vertex_4 = GUIVertex {
-            position: [position.x, position.y, depth],
+            position: [p1.x, p1.y, depth],
             tex_coords: [uv.u1, uv.v2],
             color: (color.r as u32)
                 + ((color.g as u32) << 8)
@@ -329,7 +353,7 @@ impl<'a> GUIRenderer<'a> {
                 + ((color.a as u32) << 24),
         };
         let vertex_3 = GUIVertex {
-            position: [position.x + size.x, position.y, depth],
+            position: [p2.x, p1.y, depth],
             tex_coords: [uv.u2, uv.v2],
             color: (color.r as u32)
                 + ((color.g as u32) << 8)
@@ -337,7 +361,7 @@ impl<'a> GUIRenderer<'a> {
                 + ((color.a as u32) << 24),
         };
         let vertex_2 = GUIVertex {
-            position: [position.x + size.x, position.y + size.y, depth],
+            position: [p2.x, p2.y, depth],
             tex_coords: [uv.u2, uv.v1],
             color: (color.r as u32)
                 + ((color.g as u32) << 8)
@@ -345,7 +369,7 @@ impl<'a> GUIRenderer<'a> {
                 + ((color.a as u32) << 24),
         };
         let vertex_1 = GUIVertex {
-            position: [position.x, position.y + size.y, depth],
+            position: [p1.x, p2.y, depth],
             tex_coords: [uv.u1, uv.v1],
             color: (color.r as u32)
                 + ((color.g as u32) << 8)
@@ -404,6 +428,7 @@ impl<'a> TextRenderer<'a> {
                     gui_scale,
                     mouse,
                     depth,
+                    None,
                 );
             }
         }

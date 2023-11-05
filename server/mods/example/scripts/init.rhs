@@ -81,7 +81,12 @@ create_block("example:campfire", |p|{
 }).right_click_action(|block,player|{
     player.open_inventory(block.inventory, 0..2, Identifier("example:layout_campfire"), |viewer,id,value|{
         if id.to_string() == "example:progress"{
-            viewer.set_text("progress", value.to_string());
+            let progress = if value == (){
+                0.
+            } else {
+                (20. - value.to_float()) / 20.
+            };
+            viewer.set_slice("progress", 0., 0., progress, 1.);
         }
     });
 }).register_item("example:campfire", "Campfire").data_container(2).register();
@@ -183,6 +188,8 @@ register_image("example:clay", "images/clay.png");
 register_image("example:clay_grass_side", load_image("images/clay.png").overlay(load_image("images/grass_side_mask.png").multiply(load_image("images/grass.png"))));
 register_image("example:clay_ball", "images/clay_ball.png");
 register_image("example:clay_flower", "images/clay_flower.png");
+
+register_image("example:arrow", "images/arrow.png");
 
 register_image("example:player", "images/player.png");
 register_model("example:player", "models/player.bbm");

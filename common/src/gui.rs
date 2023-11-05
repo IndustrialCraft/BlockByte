@@ -56,6 +56,7 @@ pub enum GUIComponent {
     ImageComponent {
         texture: String,
         size: Vec2,
+        slice: Option<(Vec2, Vec2)>,
     },
     TextComponent {
         font_size: f32,
@@ -71,10 +72,15 @@ impl GUIComponent {
     pub fn edit(&mut self, edit: GUIComponentEdit) {
         match (self, edit) {
             (
-                GUIComponent::ImageComponent { texture, size },
+                GUIComponent::ImageComponent {
+                    texture,
+                    size,
+                    slice,
+                },
                 GUIComponentEdit::ImageComponent {
                     texture: texture_edit,
                     size: size_edit,
+                    slice: slice_edit,
                 },
             ) => {
                 if let Some(texture_edit) = texture_edit {
@@ -82,6 +88,9 @@ impl GUIComponent {
                 }
                 if let Some(size_edit) = size_edit {
                     *size = size_edit;
+                }
+                if let Some(slice_edit) = slice_edit {
+                    *slice = slice_edit;
                 }
             }
             (
@@ -139,6 +148,7 @@ pub enum GUIComponentEdit {
     ImageComponent {
         texture: Option<String>,
         size: Option<Vec2>,
+        slice: Option<Option<(Vec2, Vec2)>>,
     },
     TextComponent {
         font_size: Option<f32>,

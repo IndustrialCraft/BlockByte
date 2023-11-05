@@ -502,6 +502,51 @@ impl ScriptingObject for ModGuiViewer {
                     ));
             },
         );
+        engine.register_fn(
+            "set_slice",
+            |viewer: &mut ModGuiViewer, element_id: &str, u1: f64, v1: f64, u2: f64, v2: f64| {
+                viewer
+                    .viewer
+                    .send_message(&NetworkMessageS2C::GuiEditElement(
+                        format!("{}_{}", viewer.id.to_string(), element_id),
+                        GUIElementEdit {
+                            component_type: GUIComponentEdit::ImageComponent {
+                                slice: Some(Some((
+                                    Vec2 {
+                                        x: u1 as f32,
+                                        y: v1 as f32,
+                                    },
+                                    Vec2 {
+                                        x: u2 as f32,
+                                        y: v2 as f32,
+                                    },
+                                ))),
+                                size: None,
+                                texture: None,
+                            },
+                            ..Default::default()
+                        },
+                    ));
+            },
+        );
+        engine.register_fn(
+            "clear_slice",
+            |viewer: &mut ModGuiViewer, element_id: &str| {
+                viewer
+                    .viewer
+                    .send_message(&NetworkMessageS2C::GuiEditElement(
+                        format!("{}_{}", viewer.id.to_string(), element_id),
+                        GUIElementEdit {
+                            component_type: GUIComponentEdit::ImageComponent {
+                                slice: Some(None),
+                                size: None,
+                                texture: None,
+                            },
+                            ..Default::default()
+                        },
+                    ));
+            },
+        );
     }
 }
 pub struct GuiInventoryViewer {

@@ -1007,6 +1007,7 @@ impl PlayerData {
                     component_type: GUIComponent::ImageComponent {
                         size: Vec2 { x: 50., y: 50. },
                         texture: "bb:cursor".to_string(),
+                        slice: None,
                     },
                 },
             ));
