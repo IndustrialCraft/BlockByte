@@ -190,6 +190,7 @@ register_image("example:clay_ball", "images/clay_ball.png");
 register_image("example:clay_flower", "images/clay_flower.png");
 
 register_image("example:arrow", "images/arrow.png");
+register_image("example:arrow_background", "images/arrow_background.png");
 
 register_image("example:player", "images/player.png");
 register_model("example:player", "models/player.bbm");
