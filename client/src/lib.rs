@@ -258,10 +258,10 @@ pub async fn run() {
             let dt = dt.as_secs_f32();
             camera.update_position(&keys, dt, &world);
             render_state.window().set_title(&format!(
-                "BlockByte x: {:.1} y: {:.1} z: {:.1} fps: {:.0} {}",
-                camera.position.x,
-                camera.position.y,
-                camera.position.z,
+                "BlockByte x: {} y: {} z: {} fps: {} {}",
+                (camera.position.x * 10.).floor() / 10.,
+                (camera.position.y * 10.).floor() / 10.,
+                (camera.position.z * 10.).floor() / 10.,
                 1. / dt,
                 block_breaking_manager
                     .breaking_animation

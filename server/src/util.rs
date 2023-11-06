@@ -151,7 +151,7 @@ impl ScriptingObject for BlockLocation {
 }
 impl PartialEq for BlockLocation {
     fn eq(&self, other: &Self) -> bool {
-        self.position == self.position && Arc::ptr_eq(&self.world, &other.world)
+        self.position == other.position && Arc::ptr_eq(&self.world, &other.world)
     }
 }
 impl From<&ChunkBlockLocation> for BlockLocation {

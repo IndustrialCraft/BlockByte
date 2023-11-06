@@ -37,7 +37,7 @@ impl HorizontalFace {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Face {
     Front,
     Back,
@@ -460,14 +460,14 @@ impl AABB {
     pub fn iter_blocks(&self) -> AABBBlockIterator {
         let second_point = self.calc_second_point();
         let iterator = AABBBlockIterator {
-            start_x: (self.x + 0.05).floor() as i32,
-            start_y: (self.y + 0.05).floor() as i32,
-            end_x: (second_point.0 - 0.05).ceil() as i32 - 1,
-            end_y: (second_point.1 - 0.05).ceil() as i32 - 1,
-            end_z: (second_point.2 - 0.05).ceil() as i32 - 1,
-            x: (self.x + 0.05).floor() as i32,
-            y: (self.y + 0.05).floor() as i32,
-            z: (self.z + 0.05).floor() as i32,
+            start_x: self.x.floor() as i32,
+            start_y: self.y.floor() as i32,
+            end_x: second_point.0.ceil() as i32 - 1,
+            end_y: second_point.1.ceil() as i32 - 1,
+            end_z: second_point.2.ceil() as i32 - 1,
+            x: self.x.floor() as i32,
+            y: self.y.floor() as i32,
+            z: self.z.floor() as i32,
             finished: false,
         };
         iterator
