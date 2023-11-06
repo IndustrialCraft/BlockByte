@@ -26,6 +26,7 @@ use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use json::{object, JsonValue};
 use parking_lot::Mutex;
+use pathfinding::prelude::astar;
 use rand::Rng;
 use rhai::{Array, Dynamic, Engine, FnPtr};
 use serde::Deserialize;
@@ -1110,6 +1111,7 @@ pub struct Entity {
     pub user_data: Mutex<UserData>,
     pub(crate) slot: Mutex<u32>,
     pub player: Mutex<Option<Weak<PlayerData>>>,
+    pathfinder: Mutex<Pathfinder>
 }
 
 static ENTITY_CLIENT_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
@@ -1121,7 +1123,6 @@ impl Entity {
         let server = location.chunk.world.server.clone();
         let entity = Arc::new_cyclic(|weak| Entity {
             server: server.clone(),
-            location: Mutex::new(location),
             entity_type: entity_type.clone(),
             removed: AtomicBool::new(false),
             this: weak.clone(),
@@ -1141,7 +1142,17 @@ impl Entity {
             user_data: Mutex::new(UserData::new()),
             slot: Mutex::new(0),
             player: Mutex::new(None),
+            pathfinder: Mutex::new(Pathfinder::new((&location).into())),
+            location: Mutex::new(location.clone()),
         });
+        entity.pathfinder.lock().set_target(Some(BlockLocation{
+            world: location.chunk.world.clone(),
+            position: BlockPosition{
+                x: 5,
+                y: 3,
+                z: 5,
+            }
+        }));
         chunk.add_entity(entity.clone());
         let add_message = entity.create_add_messages(entity.get_location().position);
         for viewer in chunk.viewers.lock().iter() {
@@ -1342,6 +1353,8 @@ impl Entity {
             }))
         }
         if let Some(teleport_location) = teleport_location {
+            println!("here");
+            self.pathfinder.lock().set_current_location((&teleport_location).into());
             let old_location = { self.location.lock().clone() };
             let new_location: ChunkLocation = teleport_location.clone();
             {
@@ -1904,6 +1917,50 @@ impl Animatable for Entity {
             ClientModelTarget::Entity(self.client_id),
             animation,
         ));
+    }
+}
+pub struct Pathfinder{
+    current_location: BlockLocation,
+    target_location: Option<BlockLocation>,
+}
+impl Pathfinder{
+    pub fn new(location: BlockLocation) -> Self{
+        Pathfinder{
+            current_location: location,
+            target_location: None
+        }
+    }
+    pub fn set_current_location(&mut self, location: BlockLocation){
+        if self.current_location == location{
+            return;
+        }
+        self.current_location = location;
+        self.recalculate_path();
+    }
+    pub fn set_target(&mut self, target: Option<BlockLocation>){
+        if self.target_location == target{
+            return;
+        }
+        self.target_location = target;
+        self.recalculate_path();
+    }
+    pub fn recalculate_path(&self){
+        if let Some(target_location) = &self.target_location{
+            if !Arc::ptr_eq(&target_location.world, &self.current_location.world) {
+                return;
+            }
+            let path = astar(&self.current_location.position, |position|{
+                let mut vec = Vec::with_capacity(6);
+                for face in Face::all(){
+                    let position = position.offset_by_face(*face);
+                    if self.current_location.world.get_block(&position).map(|block|block.is_air()).unwrap_or(false) && !self.current_location.world.get_block(&position.offset_by_face(Face::Down)).map(|block|block.is_air()).unwrap_or(true){
+                        vec.push((position,1));
+                    }
+                }
+                vec
+            }, |position|position.to_position().distance(&target_location.position.to_position()) as u32, |position|*position==target_location.position).map(|path|path.0);
+            println!("path: {:?}", path);
+        }
     }
 }
 pub struct ChunkLoadingManager {

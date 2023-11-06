@@ -55,14 +55,6 @@ use world::{Entity, Structure, World};
 use worldgen::{BasicWorldGenerator, Biome};
 
 fn main() {
-    /*for layout in [1, 3, 5] {
-        std::fs::write(
-            format!("save/layout{}.json", layout),
-            GUILayout::create_9x(layout).export_to_json(),
-        )
-        .unwrap();
-    }
-    std::process::exit(0);*/
     let running = Arc::new(AtomicBool::new(true));
     {
         let ctrlc_running = running.clone();

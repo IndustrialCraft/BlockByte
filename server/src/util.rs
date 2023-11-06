@@ -162,6 +162,14 @@ impl From<&ChunkBlockLocation> for BlockLocation {
         }
     }
 }
+impl From<&ChunkLocation> for BlockLocation {
+    fn from(value: &ChunkLocation) -> Self {
+        BlockLocation {
+            position: value.position.to_block_pos(),
+            world: value.chunk.world.clone(),
+        }
+    }
+}
 #[derive(Clone)]
 pub struct ChunkBlockLocation {
     pub position: BlockPosition,
