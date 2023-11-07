@@ -176,7 +176,7 @@ impl RenderState {
             });
         let model_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Chunk Render Pipeline Layout"),
+                label: Some("Model Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &texture.texture_bind_group_layout,
                     &camera_bind_group_layout,
