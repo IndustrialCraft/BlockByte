@@ -274,13 +274,16 @@ impl Inventory {
         }
     }
     pub fn get_slot_id_entity(&self, entity: &Entity, slot: u32) -> String {
-        self.viewers
-            .lock()
-            .get(entity.get_id())
-            .unwrap()
-            .id
-            .to_string()
-            + slot.to_string().as_str()
+        format!(
+            "{}_{}",
+            self.viewers
+                .lock()
+                .get(entity.get_id())
+                .unwrap()
+                .id
+                .to_string(),
+            slot
+        )
     }
     fn item_to_json(item: &Option<ItemStack>) -> Option<JsonValue> {
         item.as_ref()
