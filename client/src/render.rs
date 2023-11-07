@@ -36,6 +36,8 @@ pub struct RenderState {
     camera_uniform: CameraUniform,
     camera_buffer: Buffer,
     camera_bind_group: wgpu::BindGroup,
+    time_buffer: Buffer,
+    time_bind_group: wgpu::BindGroup,
     depth_texture: (wgpu::Texture, Sampler, TextureView),
     pub(crate) mouse: PhysicalPosition<f64>,
 }
@@ -134,9 +136,45 @@ impl RenderState {
             }],
             label: Some("camera_bind_group"),
         });
-
+        let time_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Time Buffer"),
+            contents: bytemuck::cast_slice(&[0f32]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let time_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("time_bind_group_layout"),
+            });
+        let time_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &time_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: time_buffer.as_entire_binding(),
+            }],
+            label: Some("time_bind_group"),
+        });
         let depth_texture = texture::create_depth_texture(&device, &config, "depth_texture");
         let chunk_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Chunk Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &texture.texture_bind_group_layout,
+                    &camera_bind_group_layout,
+                    &time_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+        let model_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Chunk Render Pipeline Layout"),
                 bind_group_layouts: &[
@@ -152,7 +190,7 @@ impl RenderState {
                 vertex: wgpu::VertexState {
                     module: &chunk_shader,
                     entry_point: "vs_main",
-                    buffers: &[Vertex::desc()],
+                    buffers: &[ChunkVertex::desc()],
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &chunk_shader,
@@ -193,7 +231,7 @@ impl RenderState {
                 vertex: wgpu::VertexState {
                     module: &chunk_shader,
                     entry_point: "vs_main",
-                    buffers: &[Vertex::desc()],
+                    buffers: &[ChunkVertex::desc()],
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &chunk_shader,
@@ -234,7 +272,7 @@ impl RenderState {
                 vertex: wgpu::VertexState {
                     module: &chunk_shader,
                     entry_point: "vs_main",
-                    buffers: &[Vertex::desc()],
+                    buffers: &[ChunkVertex::desc()],
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &chunk_shader,
@@ -317,7 +355,7 @@ impl RenderState {
         let model_render_pipeline =
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Model Render Pipeline"),
-                layout: Some(&chunk_render_pipeline_layout),
+                layout: Some(&model_render_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &model_shader,
                     entry_point: "vs_main",
@@ -412,6 +450,8 @@ impl RenderState {
             camera_uniform,
             camera_buffer,
             camera_bind_group,
+            time_bind_group,
+            time_buffer,
             depth_texture,
             mouse: PhysicalPosition::new(0., 0.),
             device,
@@ -447,6 +487,7 @@ impl RenderState {
         item_registry: &ItemRegistry,
         entity_registry: &EntityRegistry,
         viewmodel: Option<(&Model, &ModelInstanceData)>,
+        time: f32,
     ) -> Result<(), wgpu::SurfaceError> {
         self.camera_uniform
             .load_view_proj_matrix(camera, self.size.width as f32 / self.size.height as f32);
@@ -455,6 +496,8 @@ impl RenderState {
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
+        self.queue
+            .write_buffer(&self.time_buffer, 0, bytemuck::cast_slice(&[time]));
 
         let output = self.surface.get_current_texture()?;
         let view = output
@@ -495,6 +538,8 @@ impl RenderState {
             render_pass.set_pipeline(&self.chunk_render_pipeline);
             render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(2, &self.time_bind_group, &[]);
+
             world.tick(&self.device);
             for chunk in &mut world.chunks {
                 if let Some(vertex_buffer) = chunk.1.get_vertices().0 {
@@ -612,6 +657,7 @@ impl RenderState {
             render_pass.set_pipeline(&self.chunk_foliage_render_pipeline);
             render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(2, &self.time_bind_group, &[]);
             for chunk in &mut world.chunks {
                 if let Some(vertex_buffer) = chunk.1.get_vertices().2 {
                     render_pass.set_vertex_buffer(0, vertex_buffer.0);
@@ -642,6 +688,8 @@ impl RenderState {
             render_pass.set_pipeline(&self.chunk_transparent_render_pipeline);
             render_pass.set_bind_group(0, &self.texture.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(2, &self.time_bind_group, &[]);
+
             for chunk in &mut world.chunks {
                 if let Some(vertex_buffer) = chunk.1.get_vertices().1 {
                     render_pass.set_vertex_buffer(0, vertex_buffer.0);
@@ -846,6 +894,28 @@ impl OutlineRenderer {
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_vertex_buffer(0, self.buffer.slice(..));
         render_pass.draw(0..24, 0..1);
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ChunkVertex {
+    pub position: [f32; 3],
+    pub tex_coords: [f32; 2],
+    pub render_data: u32,
+}
+impl ChunkVertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 3] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Uint32];
+
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        use std::mem;
+
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBS,
+        }
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::content::{BlockRegistry, BlockRenderDataType, EntityRegistry};
 use crate::game::RaycastResult::{Block, Entity};
 use crate::model::ModelInstanceData;
-use crate::render::{FaceVerticesExtension, Vertex};
+use crate::render::{ChunkVertex, FaceVerticesExtension};
 use block_byte_common::messages::MovementType;
 use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position, Vec3, AABB};
 use cgmath::{point3, Deg, ElementWise, InnerSpace, Matrix4, Point3, Vector3};
@@ -299,9 +299,9 @@ impl Chunk {
         device: &Device,
         neighbor_chunks: FaceStorage<&Chunk>,
     ) {
-        let mut vertices: Vec<Vertex> = Vec::new();
-        let mut transparent_vertices: Vec<Vertex> = Vec::new();
-        let mut foliage_vertices: Vec<Vertex> = Vec::new();
+        let mut vertices: Vec<ChunkVertex> = Vec::new();
+        let mut transparent_vertices: Vec<ChunkVertex> = Vec::new();
+        let mut foliage_vertices: Vec<ChunkVertex> = Vec::new();
         for x in 0..16 {
             for y in 0..16 {
                 for z in 0..16 {
@@ -342,18 +342,23 @@ impl Chunk {
 
                                 let texture = cube_data.by_face(*face);
                                 face.add_vertices(texture, &mut |position, coords| {
+                                    let position_flags = ((position.x > 0.5) as u32)
+                                        | (((position.y > 0.5) as u32) << 1)
+                                        | (((position.z > 0.5) as u32) << 2);
                                     (if block.transparent {
                                         &mut transparent_vertices
                                     } else {
                                         &mut vertices
                                     })
-                                    .push(Vertex {
+                                    .push(ChunkVertex {
                                         position: [
                                             (base_position.x + position.x) as f32,
                                             (base_position.y + position.y) as f32,
                                             (base_position.z + position.z) as f32,
                                         ],
                                         tex_coords: [coords.0, coords.1],
+                                        render_data: block.render_data as u32
+                                            | (position_flags << 8),
                                     })
                                 });
                             }
@@ -364,13 +369,18 @@ impl Chunk {
                                 &ModelInstanceData::new(),
                                 None,
                                 &mut |position, coords| {
-                                    vertices.push(Vertex {
+                                    let position_flags = ((position.x > 0.5) as u32)
+                                        | (((position.y > 0.5) as u32) << 1)
+                                        | (((position.z > 0.5) as u32) << 2);
+                                    vertices.push(ChunkVertex {
                                         position: [
                                             (base_position.x + position.x) as f32 + 0.5,
                                             (base_position.y + position.y) as f32,
                                             (base_position.z + position.z) as f32 + 0.5,
                                         ],
                                         tex_coords: [coords.0, coords.1],
+                                        render_data: block.render_data as u32
+                                            | (position_flags << 8),
                                     })
                                 },
                             );
@@ -386,8 +396,11 @@ impl Chunk {
                                         _ => unreachable!(),
                                     },
                                     &mut |position, coords| {
+                                        let position_flags = ((position.x > 0.5) as u32)
+                                            | (((position.y > 0.5) as u32) << 1)
+                                            | (((position.z > 0.5) as u32) << 2);
                                         let shift = face.opposite().get_offset();
-                                        foliage_vertices.push(Vertex {
+                                        foliage_vertices.push(ChunkVertex {
                                             position: [
                                                 (base_position.x + position.x) as f32
                                                     + (shift.x as f32 * 0.3),
@@ -396,6 +409,8 @@ impl Chunk {
                                                     + (shift.z as f32 * 0.3),
                                             ],
                                             tex_coords: [coords.0, coords.1],
+                                            render_data: block.render_data as u32
+                                                | (position_flags << 8),
                                         });
                                     },
                                 );

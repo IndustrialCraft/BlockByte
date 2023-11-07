@@ -92,6 +92,7 @@ pub async fn run() {
     let mut connection = SocketConnection::new(args.get(2).unwrap());
     let mut first_teleport = false;
     let mut last_render_time = Instant::now();
+    let start_time = Instant::now();
     let mut fluid_selectable = false;
 
     let mut last_position_sent = Instant::now();
@@ -526,6 +527,7 @@ pub async fn run() {
                     .map(|id| entity_registry.get_entity(*id))
                     .and_then(|entity| entity.viewmodel.as_ref())
                     .map(|model| (model, &viewmodel_instance)),
+                now.duration_since(start_time).as_millis() as f32 / 1000.,
             ) {
                 Ok(_) => {}
                 Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
