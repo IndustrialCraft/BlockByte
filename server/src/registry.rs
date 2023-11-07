@@ -99,7 +99,7 @@ impl BlockRegistry {
             block_states.push(BlockState {
                 parent: block.clone(),
                 state_id: i,
-                collidable: !client_data.client.no_collide,
+                collidable: !(client_data.client.no_collide | client_data.client.fluid),
                 client_data: client_data.client,
                 hangs_on: client_data.hangs_on,
             });

@@ -383,6 +383,14 @@ impl BlockData {
             BlockData::Data(_) => false,
         }
     }
+    pub fn is_collidable(&self, block_registry: &BlockRegistry) -> bool {
+        let state = match self {
+            BlockData::Simple(id) => BlockStateRef::from_state_id(*id),
+            BlockData::Data(data) => data.state,
+        };
+        let state = block_registry.state_by_ref(&state);
+        state.collidable
+    }
 }
 
 pub struct Chunk {
@@ -1312,6 +1320,7 @@ impl Entity {
             velocity.1 *= 0.8;
             velocity.2 *= 0.8;
             velocity.1 -= 2. / 20.;
+
             let mut physics_aabb = self.get_collider();
             let world = if let Some(teleport_location) = &teleport_location {
                 physics_aabb.set_position(teleport_location.position);
@@ -1319,6 +1328,17 @@ impl Entity {
             } else {
                 self.get_location().chunk.world.clone()
             };
+            let is_on_ground = physics_aabb
+                .move_by(0., -0.1, 0.)
+                .has_block(&world, |block| block.collidable);
+            if let Some(face) = self.pathfinder.lock().get_required_face() {
+                let offset = face.get_offset();
+                velocity.0 = offset.x as f64 * 0.2;
+                if is_on_ground && offset.y > 0 {
+                    velocity.1 = offset.y as f64 * 0.6;
+                }
+                velocity.2 = offset.z as f64 * 0.2;
+            }
             {
                 let x_moved_physics_aabb = physics_aabb.move_by(velocity.0, 0., 0.);
                 if !x_moved_physics_aabb.has_block(&world, |state| state.collidable) {
@@ -1964,19 +1984,40 @@ impl Pathfinder {
                     let mut vec = Vec::with_capacity(6);
                     for face in Face::all() {
                         let position = position.offset_by_face(*face);
+                        if position.distance(&self.current_location.position) > 20.
+                        /* todo: config option*/
+                        {
+                            continue;
+                        }
+                        let block_registry = &self.current_location.world.server.block_registry;
                         if self
                             .current_location
                             .world
                             .get_block(&position)
-                            .map(|block| block.is_air())
+                            .map(|block| !block.is_collidable(block_registry))
                             .unwrap_or(false)
-                            && !self
+                        {
+                            if (self
                                 .current_location
                                 .world
                                 .get_block(&position.offset_by_face(Face::Down))
-                                .map(|block| block.is_air())
+                                .map(|block| !block.is_collidable(block_registry))
                                 .unwrap_or(true)
-                        {
+                                && face.get_offset().y == 0)
+                                || (face.get_offset().y != 0
+                                    && self
+                                        .current_location
+                                        .world
+                                        .get_block(
+                                            &position
+                                                .offset_by_face(Face::Down)
+                                                .offset_by_face(Face::Down),
+                                        )
+                                        .map(|block| !block.is_collidable(block_registry))
+                                        .unwrap_or(true))
+                            {
+                                continue;
+                            }
                             vec.push(((position, *face), 1));
                         }
                     }
