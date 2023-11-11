@@ -311,6 +311,7 @@ impl World {
 }
 impl ScriptingObject for World {
     fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_type_with_name::<Arc<World>>("World");
         engine.register_fn(
             "place_structure",
             |world: &mut Arc<World>, structure: Arc<Structure>, position: BlockPosition| {
@@ -1032,6 +1033,7 @@ impl PlayerData {
 }
 impl ScriptingObject for PlayerData {
     fn engine_register(engine: &mut Engine, server: &Weak<Server>) {
+        engine.register_type_with_name::<Arc<PlayerData>>("Player");
         engine.register_fn("get_entity", |player: &mut Arc<PlayerData>| {
             player.get_entity()
         });
@@ -1761,10 +1763,8 @@ impl Entity {
                             .modify_item(hand_slot, |stack| {
                                 if let Some(stack) = stack {
                                     //todo: send shifting state
-                                    right_click_result = stack
-                                        .item_type
-                                        .clone()
-                                        .on_right_click(stack, self.this.upgrade().unwrap());
+                                    right_click_result =
+                                        stack.item_type.clone().on_right_click(stack, player.ptr());
                                 }
                             })
                             .unwrap();
@@ -1900,6 +1900,7 @@ impl Entity {
 }
 impl ScriptingObject for Entity {
     fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_type_with_name::<Arc<Entity>>("Entity");
         engine.register_fn("is_shifting", |entity: &mut Arc<Entity>| {
             entity.is_shifting()
         });
@@ -2379,6 +2380,7 @@ impl Structure {
 }
 impl ScriptingObject for Structure {
     fn engine_register(engine: &mut Engine, server: &Weak<Server>) {
+        engine.register_type_with_name::<Arc<Structure>>("Structure");
         let server = server.clone();
         engine.register_fn("export", move |structure: &mut Structure, name: &str| {
             let json = structure.export(&server.upgrade().unwrap().block_registry);
@@ -2561,6 +2563,7 @@ impl WorldBlock {
 }
 impl ScriptingObject for WorldBlock {
     fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_type_with_name::<Arc<WorldBlock>>("WorldBlock");
         engine.register_get("user_data", |block: &mut Arc<WorldBlock>| {
             UserDataWrapper::Block(block.ptr())
         });

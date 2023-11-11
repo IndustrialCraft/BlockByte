@@ -26,7 +26,7 @@ use crate::{
     inventory::ItemStack,
     mods::{ClientContentData, ScriptCallback},
     util::{ChunkBlockLocation, Identifier},
-    world::{BlockData, Chunk, Entity, WorldBlock},
+    world::{BlockData, Chunk, WorldBlock},
     Server,
 };
 
@@ -283,6 +283,7 @@ pub struct Block {
 
 impl ScriptingObject for Block {
     fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_type_with_name::<Arc<Block>>("Block");
         engine.register_fn("get_default_state", |block: &mut Arc<Block>| {
             block.get_state_ref(0)
         });
@@ -569,6 +570,7 @@ impl ToString for BlockState {
 }
 impl ScriptingObject for BlockState {
     fn engine_register(engine: &mut Engine, server: &Weak<Server>) {
+        engine.register_type_with_name::<BlockStateRef>("BlockState");
         {
             let server = server.clone();
             engine.register_fn("BlockState", move |state: &str| {
@@ -704,7 +706,11 @@ impl Item {
         }
         InteractionResult::Ignored
     }
-    pub fn on_right_click(&self, _item: &mut ItemStack, player: Arc<Entity>) -> InteractionResult {
+    pub fn on_right_click(
+        &self,
+        _item: &mut ItemStack,
+        player: Arc<PlayerData>,
+    ) -> InteractionResult {
         if let Some(right_click) = &self.on_right_click {
             //todo: supply itemstack parameter
             let _ =

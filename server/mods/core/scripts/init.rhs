@@ -1,38 +1,38 @@
 create_item("core:selection_wand").on_right_click(|player,target|{
     if type_of(target) == "BlockPosition"{
         if !player.get_entity().is_shifting(){
-            player.insert_data_point("core:first_selection", target);
-            player.send_message("first point selected at " + target);
+            player.user_data[Identifier("core:first_selection")] = target;
+            player.send_chat_message("first point selected at " + target);
         } else {
-            player.insert_data_point("core:second_selection", target);
-            player.send_message("second point selected at " + target);
+            player.user_data[Identifier("core:second_selection")] = target;
+            player.send_chat_message("second point selected at " + target);
         }
     }
 }).register();
 register_event("bb:command", |player,command|{
     if command[0] == "/copy"{
-        let first_selection = player.get_data_point("core:first_selection");
-        let second_selection = player.get_data_point("core:second_selection");
+        let first_selection = player.user_data[Identifier("core:first_selection")];
+        let second_selection = player.user_data[Identifier("core:second_selection")];
         if type_of(first_selection) == (){
-            player.send_message("first point not selected");
+            player.send_chat_message("first point not selected");
             return;
         }
         if type_of(second_selection) == (){
-            player.send_message("second point not selected");
+            player.send_chat_message("second point not selected");
             return;
         }
         let entity = player.get_entity();
-        player.insert_data_point("core:structure_selection", entity.get_world().get_structure(first_selection,second_selection,entity.get_position().to_block_position()));
-        player.send_message("structure saved");
+        player.user_data[Identifier("core:structure_selection")] = entity.get_world().get_structure(first_selection,second_selection,entity.get_position().to_block_position());
+        player.send_chat_message("structure saved");
     }
     if command[0] == "/export"{
-        let block_structure = player.get_data_point("core:structure_selection");
+        let block_structure = player.user_data[Identifier("core:structure_selection")];
         block_structure.export_structure(command[1] + ".json");
-        player.send_message("structure exported");
+        player.send_chat_message("structure exported");
     }
     if command[0] == "setblock" {
         let world = player.get_entity().get_location().world;
-        world.set_block(BlockPosition(parse_int(command[1]),parse_int(command[2]),parse_int(command[3])), BlockState(command[4]));
+        world.set_chat_block(BlockPosition(parse_int(command[1]),parse_int(command[2]),parse_int(command[3])), BlockState(command[4]));
     }
     if command[0] == "eval"{
         command.remove(0);
@@ -41,12 +41,12 @@ register_event("bb:command", |player,command|{
     if command[0] == "creative"{
         switch command[1]{
             "true" => {
-                player.abilities().creative(true);
-                player.send_message("You are now in creative");
+                player.creative(true);
+                player.send_chat_message("You are now in creative");
             }
             "false" => {
-                player.abilities().creative(false);
-                player.send_message("You are no longer in creative");
+                player.creative(false);
+                player.send_chat_message("You are no longer in creative");
             }
             _ => {}
         }
@@ -54,24 +54,24 @@ register_event("bb:command", |player,command|{
     if command[0] == "movetype"{
         switch command[1]{
             "noclip" => {
-                player.abilities().movement_type(MovementType::NoClip);
-                player.send_message("You are now in noclip");
+                player.movement_type(MovementType::NoClip);
+                player.send_chat_message("You are now in noclip");
             }
             "fly" => {
-                player.abilities().movement_type(MovementType::Fly);
-                player.send_message("You are now flying");
+                player.movement_type(MovementType::Fly);
+                player.send_chat_message("You are now flying");
             }
             "normal" => {
-                player.abilities().movement_type(MovementType::Normal);
-                player.send_message("You are now moving normally");
+                player.movement_type(MovementType::Normal);
+                player.send_chat_message("You are now moving normally");
             }
             _ => {}
         }
     }
     if command[0] == "speed"{
         let speed = parse_float(command[1]);
-        player.abilities().speed(speed);
-        player.send_message("You are moving at speed of " + speed);
+        player.speed(speed);
+        player.send_chat_message("You are moving at speed of " + speed);
     }
 });
 

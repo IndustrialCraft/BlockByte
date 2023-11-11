@@ -535,6 +535,7 @@ pub trait ScriptingObject {
 }
 impl ScriptingObject for Position {
     fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_type_with_name::<Position>("Position");
         engine.register_fn("Position", |x: f64, y: f64, z: f64| Position { x, y, z });
         engine.register_fn("+", |first: Position, second: Position| first + second);
         engine.register_fn("*", |first: Position, scalar: f64| first.multiply(scalar));
@@ -564,6 +565,7 @@ impl ScriptingObject for Position {
 }
 impl ScriptingObject for BlockPosition {
     fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_type_with_name::<BlockPosition>("BlockPosition");
         engine.register_fn("BlockPosition", |x: i64, y: i64, z: i64| BlockPosition {
             x: x as i32,
             y: y as i32,
@@ -622,6 +624,7 @@ impl UserDataWrapper {
 }
 impl ScriptingObject for UserDataWrapper {
     fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_type_with_name::<UserDataWrapper>("UserData");
         engine.register_indexer_get_set(
             |user_data: &mut UserDataWrapper, id: Identifier| {
                 user_data
