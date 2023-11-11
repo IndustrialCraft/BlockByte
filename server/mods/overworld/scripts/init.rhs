@@ -1,0 +1,47 @@
+create_block("overworld:stone", |p|{
+    create_cube("overworld:stone","overworld:stone","overworld:stone","overworld:stone","overworld:stone","overworld:stone")
+}).register_item("overworld:stone_block","Stone Block").breaking_tool(ToolType::Pickaxe,1.).register();
+create_block("overworld:water", |p|{
+    create_cube("overworld:water","overworld:water","overworld:water","overworld:water","overworld:water","overworld:water").transparent(true).render_data(1).fluid(true)
+}).register();
+create_block("overworld:log", |p|{
+    create_cube("overworld:log_side","overworld:log_side","overworld:log_side","overworld:log_side","overworld:log_base","overworld:log_base").hangs_on(p.hang_side)
+}).breaking_tool(ToolType::Axe,1.).register_item("overworld:log_block","Log Block").add_property_face("hang_side").register();
+create_block("overworld:grass", |p|{
+    create_cube("overworld:grass_side","overworld:grass_side","overworld:grass_side","overworld:grass_side","overworld:grass","overworld:dirt")
+}).register_item("overworld:grass_block","Grass Block").breaking_tool(ToolType::Shovel,1.).register();
+create_block("overworld:dirt", |p|{
+    create_cube("overworld:dirt","overworld:dirt","overworld:dirt","overworld:dirt","overworld:dirt","overworld:dirt")
+}).register_item("overworld:dirt_block","Dirt Block").breaking_tool(ToolType::Shovel,1.).register();
+create_block("overworld:sand", |p|{
+    create_cube("overworld:sand","overworld:sand","overworld:sand","overworld:sand","overworld:sand","overworld:sand")
+}).register_item("overworld:sand_block","Sand Block").breaking_tool(ToolType::Shovel,1.).register();
+create_block("overworld:leaves", |p|{
+    create_cube("overworld:leaves","overworld:leaves","overworld:leaves","overworld:leaves","overworld:leaves","overworld:leaves").transparent(true)
+}).register_item("overworld:leaves_block","Leaves Block").register();
+create_block("overworld:rock", |p|{
+    create_static("overworld:rock","overworld:stone").no_collide().rotation(if p.rotated {HorizontalFace::Left} else {HorizontalFace::Front})
+}).add_property_bool("rotated").register();
+create_block("overworld:grass_foliage", |p|{
+    create_foliage("overworld:grass_foliage","overworld:grass_foliage","overworld:grass_foliage","overworld:grass_foliage").render_data(2).no_collide()
+}).register();
+create_block("overworld:branch", |p|{
+    create_static("overworld:branch","overworld:log_side").no_collide().rotation(p.facing)
+}).add_property_horizontal_face("facing").register();
+
+create_biome("overworld:forest", "overworld:grass","overworld:dirt","overworld:stone","overworld:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.2, "overworld:grass_foliage").add_structure(0.02, "overworld:rock").add_structure(0.02, "overworld:branch").add_structure(0.02, "overworld:tree").register();
+create_biome("overworld:ocean", "overworld:sand","overworld:sand","overworld:stone","overworld:water").spline_add_height(-1., 1.).spline_add_height(0., 0.).register();
+
+register_image("overworld:stone", "images/stone.png");
+register_image("overworld:water", "images/water.png");
+register_image("overworld:log_side", "images/log_side.png");
+register_image("overworld:log_base", "images/log_base.png");
+register_image("overworld:grass", "images/grass.png");
+register_image("overworld:grass_side", load_image("images/dirt.png").overlay(load_image("images/grass_side_mask.png").multiply(load_image("images/grass.png"))));
+register_image("overworld:dirt", "images/dirt.png");
+register_image("overworld:leaves", "images/leaves.png");
+register_image("overworld:sand", "images/sand.png");
+register_image("overworld:grass_foliage", "images/grass_foliage.png");
+
+register_model("overworld:rock", "models/rock.bbm");
+register_model("overworld:branch", "models/branch.bbm");

@@ -3,27 +3,27 @@
         "x":0, 
         "y":0, 
         "z":0, 
-        "id":"example:branch"
+        "id":"overworld:branch"
     },
     {
         "x":0,
         "y":0,
         "z":0,
-        "id":"example:branch{facing=right}",
+        "id":"overworld:branch{facing=right}",
         "chance":0.5
     },
     {
         "x":0,
         "y":0,
         "z":0,
-        "id":"example:branch{facing=back}",
+        "id":"overworld:branch{facing=back}",
         "chance": 0.33
     },
     {
         "x":0,
         "y":0,
         "z":0,
-        "id":"example:branch{facing=left}",
+        "id":"overworld:branch{facing=left}",
         "chance": 0.25
     }
 ]}

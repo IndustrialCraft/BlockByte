@@ -160,6 +160,7 @@ impl ModManager {
                 BlockBuilder::add_property_horizontal_face,
             )
             .register_fn("add_property_face", BlockBuilder::add_property_face)
+            .register_fn("add_property_bool", BlockBuilder::add_property_bool)
             .register_fn("breaking_tool", BlockBuilder::breaking_tool)
             .register_fn("loot", BlockBuilder::loot)
             .register_fn("ticker", BlockBuilder::ticker)
@@ -257,6 +258,11 @@ impl ModManager {
                 registered_biomes.lock().push(this.clone())
             });
         loading_engine.register_static_module("ToolType", exported_module!(ToolTypeModule).into());
+        loading_engine.register_static_module("Face", exported_module!(FaceModule).into());
+        loading_engine.register_static_module(
+            "HorizontalFace",
+            exported_module!(HorizontalFaceModule).into(),
+        );
 
         /*loading_engine.register_fn(
             "create_biome",
@@ -304,7 +310,7 @@ impl ModManager {
             if !full_path.starts_with(start_path) {
                 panic!("path traversal attack");
             }
-            ModImage::load(std::fs::read(full_path).unwrap())
+            ModImage::load(std::fs::read(full_path).unwrap(), path)
         });
         loading_engine.register_fn("multiply", |first: &mut ModImage, second: ModImage| {
             first.multiply(&second)
@@ -742,6 +748,12 @@ impl BlockBuilder {
         this.lock()
             .properties
             .register_property(name.to_string(), BlockStateProperty::Face);
+        this.clone()
+    }
+    pub fn add_property_bool(this: &mut Arc<Mutex<Self>>, name: &str) -> Arc<Mutex<Self>> {
+        this.lock()
+            .properties
+            .register_property(name.to_string(), BlockStateProperty::Bool);
         this.clone()
     }
     pub fn ticker(this: &mut Arc<Mutex<Self>>, ticker: FnPtr) -> Arc<Mutex<Self>> {
@@ -1261,13 +1273,13 @@ pub struct ModImage {
     image: RgbaImage,
 }
 impl ModImage {
-    pub fn load(data: Vec<u8>) -> ModImage {
+    pub fn load(data: Vec<u8>, name: &str) -> ModImage {
         ModImage {
             image: Reader::new(std::io::Cursor::new(data))
                 .with_guessed_format()
                 .unwrap()
                 .decode()
-                .unwrap()
+                .expect(format!("couldn't load {}", name).as_str())
                 .into_rgba8(),
         }
     }

@@ -1179,7 +1179,7 @@ impl Entity {
             layout: self
                 .server
                 .gui_layouts
-                .get(&Identifier::new("example", "layout_hotbar"))
+                .get(&Identifier::new("core", "layout_hotbar"))
                 .unwrap()
                 .clone(),
             id: self.get_id().clone(),
@@ -1510,7 +1510,7 @@ impl Entity {
                                                 layout: self
                                                     .server
                                                     .gui_layouts
-                                                    .get(&Identifier::new("example", "layout3"))
+                                                    .get(&Identifier::new("core", "layout3"))
                                                     .unwrap()
                                                     .clone(),
                                                 slot_range: 0..27
@@ -1524,7 +1524,7 @@ impl Entity {
                                                     layout: self
                                                         .server
                                                         .gui_layouts
-                                                        .get(&Identifier::new("example", "layout1"))
+                                                        .get(&Identifier::new("core", "layout1"))
                                                         .unwrap()
                                                         .clone(),
                                                     slot_range: 9..18,
@@ -1599,7 +1599,7 @@ impl Entity {
                                                 layout: self
                                                     .server
                                                     .gui_layouts
-                                                    .get(&Identifier::new("example", "layout3"))
+                                                    .get(&Identifier::new("core", "layout3"))
                                                     .unwrap()
                                                     .clone(),
                                                 slot_range: 0..27,
@@ -1612,7 +1612,7 @@ impl Entity {
                                 let recipe = self
                                     .server
                                     .recipes
-                                    .by_id(&Identifier::new("example", "planks"))
+                                    .by_id(&Identifier::new("core", "planks"))
                                     .unwrap();
                                 */
                             }
@@ -1885,7 +1885,7 @@ impl Entity {
                     0,
                 ));
                 player.send_message(&NetworkMessageS2C::PlaySound(
-                    "example:equip".to_string(),
+                    "core:equip".to_string(),
                     self.get_location().position,
                     1.,
                     1.,

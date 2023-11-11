@@ -689,7 +689,7 @@ impl Item {
                     world
                         .server
                         .item_registry
-                        .item_by_identifier(&Identifier::new("example", "log_block"))
+                        .item_by_identifier(&Identifier::new("core", "log_block"))
                         .unwrap()
                         .client_id,
                 ),

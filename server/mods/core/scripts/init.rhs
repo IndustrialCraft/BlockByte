@@ -1,0 +1,89 @@
+create_item("core:selection_wand").on_right_click(|player,target|{
+    if type_of(target) == "BlockPosition"{
+        if !player.get_entity().is_shifting(){
+            player.insert_data_point("core:first_selection", target);
+            player.send_message("first point selected at " + target);
+        } else {
+            player.insert_data_point("core:second_selection", target);
+            player.send_message("second point selected at " + target);
+        }
+    }
+}).register();
+register_event("bb:command", |player,command|{
+    if command[0] == "/copy"{
+        let first_selection = player.get_data_point("core:first_selection");
+        let second_selection = player.get_data_point("core:second_selection");
+        if type_of(first_selection) == (){
+            player.send_message("first point not selected");
+            return;
+        }
+        if type_of(second_selection) == (){
+            player.send_message("second point not selected");
+            return;
+        }
+        let entity = player.get_entity();
+        player.insert_data_point("core:structure_selection", entity.get_world().get_structure(first_selection,second_selection,entity.get_position().to_block_position()));
+        player.send_message("structure saved");
+    }
+    if command[0] == "/export"{
+        let block_structure = player.get_data_point("core:structure_selection");
+        block_structure.export_structure(command[1] + ".json");
+        player.send_message("structure exported");
+    }
+    if command[0] == "setblock" {
+        let world = player.get_entity().get_location().world;
+        world.set_block(BlockPosition(parse_int(command[1]),parse_int(command[2]),parse_int(command[3])), BlockState(command[4]));
+    }
+    if command[0] == "eval"{
+        command.remove(0);
+        eval(command.reduce(|total,cmd|total+" "+cmd,""));
+    }
+    if command[0] == "creative"{
+        switch command[1]{
+            "true" => {
+                player.abilities().creative(true);
+                player.send_message("You are now in creative");
+            }
+            "false" => {
+                player.abilities().creative(false);
+                player.send_message("You are no longer in creative");
+            }
+            _ => {}
+        }
+    }
+    if command[0] == "movetype"{
+        switch command[1]{
+            "noclip" => {
+                player.abilities().movement_type(MovementType::NoClip);
+                player.send_message("You are now in noclip");
+            }
+            "fly" => {
+                player.abilities().movement_type(MovementType::Fly);
+                player.send_message("You are now flying");
+            }
+            "normal" => {
+                player.abilities().movement_type(MovementType::Normal);
+                player.send_message("You are now moving normally");
+            }
+            _ => {}
+        }
+    }
+    if command[0] == "speed"{
+        let speed = parse_float(command[1]);
+        player.abilities().speed(speed);
+        player.send_message("You are moving at speed of " + speed);
+    }
+});
+
+create_entity("bb:player").client_viewmodel("core:viewmodel", "").client_viewmodel_add_item("main_hand").client_viewmodel_add_animation("equip").client_model("core:player","core:player").client_add_item("main_hand").client_hitbox(0.6, 1.7, 0.6).register();
+
+register_image("bb:slot", "images/slot.png");
+register_image("bb:cursor", "images/cursor.png");
+
+register_image("core:player", "images/player.png");
+register_model("core:player", "models/player.bbm");
+register_model("core:viewmodel", "models/viewmodel.bbm");
+
+register_sound("core:equip", "sounds/equip.wav");
+
+register_event("bb:player_join", |player|{player.creative(true);player.movement_type(MovementType::Normal);player.speed(1.);});
