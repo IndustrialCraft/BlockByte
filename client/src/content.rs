@@ -136,10 +136,10 @@ impl BlockRegistry {
                     BlockRenderDataType::Static(BlockStaticRenderData {
                         model: Model::new(
                             models
-                                .get(static_data.model.as_str())
+                                .get(static_data.models.get(0).unwrap().0.as_str())
                                 .unwrap_or(models.get("missing").unwrap())
                                 .clone(),
-                            texture_atlas.get(static_data.texture.as_str()),
+                            texture_atlas.get(static_data.models.get(0).unwrap().1.as_str()),
                             Vec::new(),
                             Vec::new(),
                         ),

@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use block_byte_common::content::{
     ClientBlockCubeRenderData, ClientBlockData, ClientBlockDynamicData,
     ClientBlockFoliageRenderData, ClientBlockRenderDataType, ClientBlockStaticRenderData,
-    ClientEntityData,
+    ClientEntityData, Transformation,
 };
 use block_byte_common::messages::MovementType;
 use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, Position};
@@ -13,6 +13,7 @@ use parking_lot::{Mutex, MutexGuard};
 use rhai::plugin::*;
 use rhai::{exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, AST};
 use splines::{Interpolation, Spline};
+use std::ops::RangeInclusive;
 use std::{
     cell::OnceCell,
     collections::HashMap,
@@ -161,6 +162,7 @@ impl ModManager {
             )
             .register_fn("add_property_face", BlockBuilder::add_property_face)
             .register_fn("add_property_bool", BlockBuilder::add_property_bool)
+            .register_fn("add_property_number", BlockBuilder::add_property_number)
             .register_fn("breaking_tool", BlockBuilder::breaking_tool)
             .register_fn("loot", BlockBuilder::loot)
             .register_fn("ticker", BlockBuilder::ticker)
@@ -759,12 +761,26 @@ impl BlockBuilder {
             .register_property(name.to_string(), BlockStateProperty::Bool);
         this.clone()
     }
+    pub fn add_property_number(
+        this: &mut Arc<Mutex<Self>>,
+        name: &str,
+        range: RangeInclusive<i64>,
+    ) -> Arc<Mutex<Self>> {
+        this.lock().properties.register_property(
+            name.to_string(),
+            BlockStateProperty::Number((*range.start() as i32)..=(*range.end() as i32)),
+        );
+        this.clone()
+    }
     pub fn ticker(this: &mut Arc<Mutex<Self>>, ticker: FnPtr) -> Arc<Mutex<Self>> {
         this.lock().ticker = Some(ScriptCallback::new(ticker));
         this.clone()
     }
-    pub fn right_click_action(this: &mut Arc<Mutex<Self>>, ticker: FnPtr) -> Arc<Mutex<Self>> {
-        this.lock().right_click_action = Some(ScriptCallback::new(ticker));
+    pub fn right_click_action(
+        this: &mut Arc<Mutex<Self>>,
+        click_action: FnPtr,
+    ) -> Arc<Mutex<Self>> {
+        this.lock().right_click_action = Some(ScriptCallback::new(click_action));
         this.clone()
     }
     pub fn breaking_speed(this: &mut Arc<Mutex<Self>>, breaking_speed: f64) -> Arc<Mutex<Self>> {
@@ -821,8 +837,11 @@ impl ModClientBlockData {
     pub fn create_static(model: &str, texture: &str) -> Self {
         Self::new(ClientBlockRenderDataType::Static(
             ClientBlockStaticRenderData {
-                model: model.to_string(),
-                texture: texture.to_string(),
+                models: vec![(
+                    model.to_string(),
+                    texture.to_string(),
+                    Transformation::identity(),
+                )],
             },
         ))
     }
@@ -1163,6 +1182,9 @@ impl ScriptCallback {
         } else {
             Dynamic::UNIT
         }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.function.is_none()
     }
 }
 #[export_module]

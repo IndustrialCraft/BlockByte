@@ -4,9 +4,6 @@ create_block("overworld:stone", |p|{
 create_block("overworld:water", |p|{
     create_cube("overworld:water","overworld:water","overworld:water","overworld:water","overworld:water","overworld:water").transparent(true).render_data(1).fluid(true)
 }).register();
-create_block("overworld:log", |p|{
-    create_cube("overworld:log_side","overworld:log_side","overworld:log_side","overworld:log_side","overworld:log_base","overworld:log_base").hangs_on(p.hang_side)
-}).breaking_tool(ToolType::Axe,1.).register_item("overworld:log_block","Log Block").add_property_face("hang_side").register();
 create_block("overworld:grass", |p|{
     create_cube("overworld:grass_side","overworld:grass_side","overworld:grass_side","overworld:grass_side","overworld:grass","overworld:dirt")
 }).register_item("overworld:grass_block","Grass Block").breaking_tool(ToolType::Shovel,1.).register();
@@ -28,8 +25,24 @@ create_block("overworld:grass_foliage", |p|{
 create_block("overworld:branch", |p|{
     create_static("overworld:branch","overworld:log_side").no_collide().rotation(p.facing)
 }).add_property_horizontal_face("facing").register();
+create_block("overworld:log", |p|{
+    if p.size == 8{
+        create_cube("overworld:log_side","overworld:log_side","overworld:log_side","overworld:log_side","overworld:log_side","overworld:log_side")
+    } else {
+        create_static("overworld:log_" + (p.size * 2).to_string(),"overworld:log_side")
+    }
+}).add_property_number("size", 1..=8).right_click_action(|player,position,block|{
+    let world = player.get_entity().get_location().world;
+    let size = world.get_block(position).get_property("size") + 1;
+    if size > 8{
+        size = 1;
+    }
+    world.set_block(position, BlockState("overworld:log").with_property("size", size));
+}).register_item("overworld:log_block","Log Block").register();
 
 create_biome("overworld:forest", "overworld:grass","overworld:dirt","overworld:stone","overworld:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.2, "overworld:grass_foliage").add_structure(0.02, "overworld:rock").add_structure(0.02, "overworld:branch").add_structure(0.02, "overworld:tree").register();
+create_biome("overworld:savanna", "overworld:grass","overworld:dirt","overworld:stone","overworld:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).spline_add_temperature(0.7999, 0.).spline_add_temperature(0.8, 3.).register();
+create_biome("overworld:beach", "overworld:sand","overworld:sand","overworld:sand","overworld:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).spline_add_land(0.0, 2.).spline_add_land(0.02, 2.).spline_add_land(0.02001, 0.).add_structure(0.02, "overworld:rock").register();
 create_biome("overworld:ocean", "overworld:sand","overworld:sand","overworld:stone","overworld:water").spline_add_height(-1., 1.).spline_add_height(0., 0.).register();
 
 register_image("overworld:stone", "images/stone.png");
@@ -45,3 +58,7 @@ register_image("overworld:grass_foliage", "images/grass_foliage.png");
 
 register_model("overworld:rock", "models/rock.bbm");
 register_model("overworld:branch", "models/branch.bbm");
+
+for i in 1..=7{
+    register_model("overworld:log_" + (i*2), "models/log_" + (i*2) + ".bbm");
+}

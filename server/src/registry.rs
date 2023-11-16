@@ -57,8 +57,8 @@ impl BlockRegistry {
                         breaking_data: (0., None),
                         loottable: None,
                         properties: BlockStatePropertyStorage::new(),
-                        ticker: None,
-                        right_click_action: None,
+                        ticker: ScriptCallback::empty(),
+                        right_click_action: ScriptCallback::empty(),
                     })
                 },
                 |_, _| ModClientBlockData {
@@ -277,8 +277,8 @@ pub struct Block {
     pub breaking_data: (f32, Option<(ToolType, f32)>),
     pub loottable: Option<Identifier>,
     pub properties: BlockStatePropertyStorage,
-    pub ticker: Option<ScriptCallback>,
-    pub right_click_action: Option<ScriptCallback>,
+    pub ticker: ScriptCallback,
+    pub right_click_action: ScriptCallback,
 }
 
 impl ScriptingObject for Block {
@@ -556,6 +556,11 @@ impl BlockState {
             .map_err(|_| ())
             .map(|state| self.parent.get_state_ref(state))
     }
+    pub fn get_property(&self, property: &str) -> Dynamic {
+        self.parent
+            .properties
+            .get_from_state(self.state_id, BlockStatePropertyKey::Name(property))
+    }
 }
 impl ToString for BlockState {
     fn to_string(&self) -> String {
@@ -596,6 +601,17 @@ impl ScriptingObject for BlockState {
                         Ok(state) => Dynamic::from(state),
                         Err(_) => Dynamic::UNIT,
                     }
+                },
+            );
+        }
+        {
+            let server = server.clone();
+            engine.register_fn(
+                "get_property",
+                move |state: &mut BlockStateRef, property: &str| {
+                    let server = server.upgrade().unwrap();
+                    let block_state = server.block_registry.state_by_ref(state);
+                    block_state.get_property(property)
                 },
             );
         }

@@ -6,7 +6,7 @@ pub mod gui;
 pub mod messages;
 
 use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::ops;
 use std::ops::Neg;
 
@@ -87,6 +87,16 @@ impl Face {
             Face::Left => Some(HorizontalFace::Left),
             Face::Right => Some(HorizontalFace::Right),
             _ => None,
+        }
+    }
+    pub fn name(&self) -> &'static str {
+        match self {
+            Face::Front => "Front",
+            Face::Back => "Back",
+            Face::Up => "Up",
+            Face::Down => "Down",
+            Face::Left => "Left",
+            Face::Right => "Right",
         }
     }
 }

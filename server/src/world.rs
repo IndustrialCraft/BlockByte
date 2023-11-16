@@ -1732,10 +1732,31 @@ impl Entity {
                             .get_block_load(block_position);
                         let mut right_click_result = InteractionResult::Ignored;
                         if !shifting {
-                            right_click_result = match block {
-                                BlockData::Simple(_) => InteractionResult::Ignored,
-                                BlockData::Data(block) => block.on_right_click(&player),
+                            let (block, data) = match block {
+                                BlockData::Simple(state) => (
+                                    self.server
+                                        .block_registry
+                                        .state_by_ref(&BlockStateRef::from_state_id(state))
+                                        .parent
+                                        .clone(),
+                                    None,
+                                ),
+                                BlockData::Data(block) => (block.block.clone(), Some(block.ptr())),
                             };
+
+                            right_click_result = block
+                                .right_click_action
+                                .call_function(
+                                    &self.server.engine,
+                                    (
+                                        player.ptr(),
+                                        block_position,
+                                        data.map(|data| Dynamic::from(data.ptr()))
+                                            .unwrap_or(Dynamic::UNIT),
+                                    ),
+                                )
+                                .try_cast::<InteractionResult>()
+                                .unwrap_or(InteractionResult::Ignored);
                         }
                         if right_click_result == InteractionResult::Consumed {
                             continue;
@@ -2449,8 +2470,6 @@ impl WorldBlock {
         let _ = self
             .block
             .ticker
-            .as_ref()
-            .unwrap()
             .call_function(&self.chunk().world.server.engine, (self.ptr(),));
         /*let recipe_time_identifier = Identifier::new("bb", "recipe_time");
         let mut user_data = self.user_data.lock();
@@ -2497,35 +2516,7 @@ impl WorldBlock {
         self.inventory.get_full_view()
     }
     pub fn needs_ticking(&self) -> bool {
-        self.block.ticker.is_some()
-    }
-    pub fn on_right_click(&self, entity: &PlayerData) -> InteractionResult {
-        match &self.block.right_click_action {
-            Some(action) => action
-                .call_function(
-                    &self.chunk().world.server.engine,
-                    (self.ptr(), entity.ptr()),
-                )
-                .try_cast::<InteractionResult>()
-                .unwrap_or(InteractionResult::Ignored),
-            None => InteractionResult::Ignored,
-        }
-        /*if let Some(player) = entity.get_player() {
-            player.set_open_inventory(Some((
-                InventoryWrapper::Block(self.this.upgrade().unwrap()),
-                GuiInventoryData {
-                    slots: {
-                        let mut slots = Vec::with_capacity(9);
-                        for i in 0..9 {
-                            slots.push((PositionAnchor::Center, ((i - 4) as f32 * 130.), 0.));
-                        }
-                        slots
-                    },
-                    slot_range: 0..9,
-                },
-            )));
-        }
-        InteractionResult::Consumed*/
+        !self.block.ticker.is_empty()
     }
     pub fn serialize(&self) -> BlockSaveData {
         BlockSaveData {

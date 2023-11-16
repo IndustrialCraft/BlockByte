@@ -151,8 +151,11 @@ impl Server {
                                 mapping.mapping.insert(0, 0);
                                 mapping
                             },
-                            ticker: block_data.ticker.clone(),
-                            right_click_action: block_data.right_click_action.clone(),
+                            ticker: block_data.ticker.clone().unwrap_or(ScriptCallback::empty()),
+                            right_click_action: block_data
+                                .right_click_action
+                                .clone()
+                                .unwrap_or(ScriptCallback::empty()),
                             breaking_data: block_data.breaking_data.clone(),
                             loottable: block_data.loot.clone(),
                             properties: block_data.properties.clone(),

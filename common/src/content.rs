@@ -49,8 +49,7 @@ pub struct ClientBlockCubeRenderData {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientBlockStaticRenderData {
-    pub model: String,
-    pub texture: String,
+    pub models: Vec<(String, String, Transformation)>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientBlockFoliageRenderData {
@@ -70,6 +69,23 @@ pub struct ClientItemData {
 pub enum ClientItemModel {
     Texture(String),
     Block(u32),
+}
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub struct Transformation {
+    position: Vec3,
+    rotation: Vec3,
+    scale: Vec3,
+    origin: Vec3,
+}
+impl Transformation {
+    pub fn identity() -> Self {
+        Transformation {
+            position: Vec3::ZERO,
+            rotation: Vec3::ZERO,
+            scale: Vec3::ONE,
+            origin: Vec3::ZERO,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -93,6 +109,7 @@ pub struct ModelBone {
     pub origin: Vec3,
     pub item_elements: Vec<ModelItemElement>,
 }
+//todo: use transformation
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModelCubeElement {
     pub position: Vec3,
