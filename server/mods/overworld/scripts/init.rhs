@@ -30,22 +30,22 @@ create_block("overworld:log", |p|{
         create_cube("overworld:log_side","overworld:log_side","overworld:log_side","overworld:log_side","overworld:log_side","overworld:log_side")
     } else {
         let model = create_static("overworld:log_" + (p.size * 2).to_string(),"overworld:log_side");
-        if !p.front{
+        if p.front{
             model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Front));
         }
-        if !p.back{
+        if p.back{
             model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Back));
         }
-        if !p.left{
+        if p.left{
             model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Left));
         }
-        if !p.right{
+        if p.right{
             model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Right));
         }
-        if !p.up{
+        if p.up{
             model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Up));
         }
-        if !p.down{
+        if p.down{
             model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Down));
         }
         return model;
@@ -58,6 +58,20 @@ create_block("overworld:log", |p|{
         size = 1;
     }
     world.set_block(position, BlockState("overworld:log").with_property("size", size));
+})
+.neighbor_update(|location|{
+    let initial_state = location.world.get_block_load(location.position);
+    let state = initial_state;
+    state = state.with_property("front", location.world.get_block_load(location.position.offset_by_face(Face::Front)).to_string().starts_with("overworld:log"));
+    state = state.with_property("back", location.world.get_block_load(location.position.offset_by_face(Face::Back)).to_string().starts_with("overworld:log"));
+    state = state.with_property("left", location.world.get_block_load(location.position.offset_by_face(Face::Left)).to_string().starts_with("overworld:log"));
+    state = state.with_property("right", location.world.get_block_load(location.position.offset_by_face(Face::Right)).to_string().starts_with("overworld:log"));
+    state = state.with_property("up", location.world.get_block_load(location.position.offset_by_face(Face::Up)).to_string().starts_with("overworld:log"));
+    state = state.with_property("down", location.world.get_block_load(location.position.offset_by_face(Face::Down)).to_string().starts_with("overworld:log"));
+
+    if state != initial_state{
+        location.world.set_block(location.position, state);
+    }
 }).register_item("overworld:log_block","Log Block").register();
 
 create_biome("overworld:forest", "overworld:grass","overworld:dirt","overworld:stone","overworld:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.2, "overworld:grass_foliage").add_structure(0.02, "overworld:rock").add_structure(0.02, "overworld:branch").add_structure(0.02, "overworld:tree").register();

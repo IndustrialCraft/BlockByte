@@ -21,6 +21,7 @@ use zip::{write::FileOptions, DateTime, ZipWriter};
 
 use crate::inventory::{LootTableGenerationParameters, Recipe};
 use crate::mods::{ModClientBlockData, ScriptingObject};
+use crate::util::BlockLocation;
 use crate::world::{BlockBreakParameters, PlayerData};
 use crate::{
     inventory::ItemStack,
@@ -59,6 +60,7 @@ impl BlockRegistry {
                         properties: BlockStatePropertyStorage::new(),
                         ticker: ScriptCallback::empty(),
                         right_click_action: ScriptCallback::empty(),
+                        neighbor_update: ScriptCallback::empty(),
                     })
                 },
                 |_, _| ModClientBlockData {
@@ -71,7 +73,6 @@ impl BlockRegistry {
                         selectable: false,
                         no_collide: true,
                     },
-                    hangs_on: None,
                 },
             )
             .expect("couldn't register air");
@@ -100,7 +101,6 @@ impl BlockRegistry {
                 state_id: i,
                 collidable: !(client_data.client.no_collide | client_data.client.fluid),
                 client_data: client_data.client,
-                hangs_on: client_data.hangs_on,
             });
         }
         self.blocks.insert(id, block);
@@ -278,6 +278,7 @@ pub struct Block {
     pub properties: BlockStatePropertyStorage,
     pub ticker: ScriptCallback,
     pub right_click_action: ScriptCallback,
+    pub neighbor_update: ScriptCallback,
 }
 
 impl ScriptingObject for Block {
@@ -464,6 +465,9 @@ impl BlockStateRef {
     pub fn get_client_id(&self) -> u32 {
         self.state_id
     }
+    pub fn get_id(&self) -> u32 {
+        self.state_id
+    }
     pub fn is_air(&self) -> bool {
         self.state_id == 0
     }
@@ -474,7 +478,6 @@ pub struct BlockState {
     pub client_data: ClientBlockData,
     pub parent: Arc<Block>,
     pub collidable: bool,
-    pub hangs_on: Option<Face>,
 }
 
 impl BlockState {
@@ -497,7 +500,11 @@ impl BlockState {
         }
     }
     pub fn on_block_update(&self, location: ChunkBlockLocation) {
-        if let Some(hangs_on) = &self.hangs_on {
+        let _ = self.parent.neighbor_update.call_function(
+            &location.chunk.world.server.engine,
+            (Into::<BlockLocation>::into(&location),),
+        );
+        /*if let Some(hangs_on) = &self.hangs_on {
             if let Some(block_data) = location
                 .chunk
                 .world
@@ -513,7 +520,7 @@ impl BlockState {
                     );
                 }
             }
-        }
+        }*/
     }
     pub fn on_break(&self, location: ChunkBlockLocation, params: BlockBreakParameters) {
         if let Some(loottable) = &self.parent.loottable {
@@ -625,6 +632,12 @@ impl ScriptingObject for BlockState {
                     .to_string()
             });
         }
+        engine.register_fn("==", |first: BlockStateRef, second: BlockStateRef| {
+            first.state_id == second.state_id
+        });
+        engine.register_fn("!=", |first: BlockStateRef, second: BlockStateRef| {
+            first.state_id != second.state_id
+        });
     }
 }
 

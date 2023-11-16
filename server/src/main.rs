@@ -159,6 +159,10 @@ impl Server {
                             breaking_data: block_data.breaking_data.clone(),
                             loottable: block_data.loot.clone(),
                             properties: block_data.properties.clone(),
+                            neighbor_update: block_data
+                                .neighbor_update
+                                .clone()
+                                .unwrap_or(ScriptCallback::empty()),
                         })
                     },
                     |state, block| {

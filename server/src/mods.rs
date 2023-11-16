@@ -167,6 +167,7 @@ impl ModManager {
             .register_fn("loot", BlockBuilder::loot)
             .register_fn("ticker", BlockBuilder::ticker)
             .register_fn("right_click_action", BlockBuilder::right_click_action)
+            .register_fn("neighbor_update", BlockBuilder::neighbor_update)
             .register_fn("breaking_speed", BlockBuilder::breaking_speed)
             .register_fn("create_air", ModClientBlockData::create_air)
             .register_fn("create_cube", ModClientBlockData::create_cube)
@@ -175,7 +176,6 @@ impl ModManager {
             .register_fn("add_static_model", ModClientBlockData::add_static_model)
             .register_fn("create_foliage", ModClientBlockData::create_foliage)
             .register_fn("fluid", ModClientBlockData::fluid)
-            .register_fn("hangs_on", ModClientBlockData::hangs_on)
             .register_fn("no_collide", ModClientBlockData::no_collide)
             .register_fn("transparent", ModClientBlockData::transparent)
             .register_fn("selectable", ModClientBlockData::selectable)
@@ -610,6 +610,10 @@ impl ScriptingObject for BlockPosition {
                 position.z = z as i32;
             },
         );
+        engine.register_fn(
+            "offset_by_face",
+            |position: &mut BlockPosition, face: Face| position.offset_by_face(face),
+        );
         engine.register_fn("to_string", |position: &mut BlockPosition| {
             position.to_string()
         });
@@ -803,6 +807,7 @@ pub struct BlockBuilder {
     pub loot: Option<Identifier>,
     pub ticker: Option<ScriptCallback>,
     pub right_click_action: Option<ScriptCallback>,
+    pub neighbor_update: Option<ScriptCallback>,
     pub properties: BlockStatePropertyStorage,
 }
 
@@ -816,6 +821,7 @@ impl BlockBuilder {
             loot: None,
             ticker: None,
             right_click_action: None,
+            neighbor_update: None,
             properties: BlockStatePropertyStorage::new(),
         }))
     }
@@ -862,6 +868,13 @@ impl BlockBuilder {
         this.lock().right_click_action = Some(ScriptCallback::new(click_action));
         this.clone()
     }
+    pub fn neighbor_update(
+        this: &mut Arc<Mutex<Self>>,
+        neighbor_update: FnPtr,
+    ) -> Arc<Mutex<Self>> {
+        this.lock().neighbor_update = Some(ScriptCallback::new(neighbor_update));
+        this.clone()
+    }
     pub fn breaking_speed(this: &mut Arc<Mutex<Self>>, breaking_speed: f64) -> Arc<Mutex<Self>> {
         this.lock().breaking_data.0 = breaking_speed as f32;
         this.clone()
@@ -890,7 +903,6 @@ impl BlockBuilder {
 #[derive(Clone)]
 pub struct ModClientBlockData {
     pub client: ClientBlockData,
-    pub hangs_on: Option<Face>,
 }
 impl ModClientBlockData {
     pub fn create_air() -> Self {
@@ -973,12 +985,7 @@ impl ModClientBlockData {
                 no_collide: false,
                 render_data: 0,
             },
-            hangs_on: None,
         }
-    }
-    pub fn hangs_on(&mut self, hangs_on: Face) -> Self {
-        self.hangs_on = Some(hangs_on);
-        self.clone()
     }
     pub fn no_collide(&mut self) -> Self {
         self.client.no_collide = true;

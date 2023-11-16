@@ -325,9 +325,18 @@ impl ScriptingObject for World {
             },
         );
         engine.register_fn(
-            "get_block",
+            "get_block_load",
             |world: &mut Arc<World>, position: BlockPosition| {
                 world.get_block_load(position).get_block_state()
+            },
+        );
+        engine.register_fn(
+            "get_block",
+            |world: &mut Arc<World>, position: BlockPosition| {
+                world
+                    .get_block(&position)
+                    .map(|block| Dynamic::from(block.get_block_state()))
+                    .unwrap_or(Dynamic::UNIT)
             },
         );
         engine.register_fn(
@@ -548,6 +557,14 @@ impl Chunk {
         block: BlockStateRef,
         update_neighbors: bool,
     ) {
+        match self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize] {
+            BlockData::Simple(id) => {
+                if block.get_id() == id {
+                    return;
+                }
+            }
+            BlockData::Data(_) => {}
+        }
         let block_position = BlockPosition {
             x: self.position.x * 16 + offset_x as i32,
             y: self.position.y * 16 + offset_y as i32,
@@ -584,6 +601,7 @@ impl Chunk {
         }
         self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize] = block;
         if update_neighbors {
+            self.schedule_update((offset_x, offset_y, offset_z));
             for neighbor_face in Face::all() {
                 let neighbor_position = block_position.offset_by_face(*neighbor_face);
                 if let Some(chunk) = self.world.get_chunk(neighbor_position.to_chunk_pos()) {
