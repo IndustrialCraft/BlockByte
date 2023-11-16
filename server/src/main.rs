@@ -32,7 +32,7 @@ use std::{
 };
 
 use crate::inventory::GUILayout;
-use crate::mods::{ClientModItemModel, ModClientBlockData};
+use crate::mods::{ClientModItemModel, IdentifierTag, ModClientBlockData};
 use crate::registry::RecipeManager;
 use crate::world::PlayerData;
 use block_byte_common::content::{ClientEntityData, ClientItemData, ClientItemModel};
@@ -119,6 +119,7 @@ pub struct Server {
     loot_tables: HashMap<Identifier, Arc<LootTable>>,
     players: Mutex<Vec<Arc<PlayerData>>>,
     gui_layouts: HashMap<Identifier, Arc<GUILayout>>,
+    tags: HashMap<Identifier, Arc<IdentifierTag>>,
 }
 
 impl Server {
@@ -282,6 +283,7 @@ impl Server {
         let recipes = loaded_mods.0.load_recipes(&item_registry.borrow());
         let loottables = loaded_mods.0.load_loot_tables(&item_registry.borrow());
         let gui_layouts = loaded_mods.0.load_gui_layouts();
+        let tags = loaded_mods.0.load_tags();
         let block_registry = block_registry.into_inner();
         Arc::new_cyclic(|this| Server {
             this: this.clone(),
@@ -339,6 +341,7 @@ impl Server {
             loot_tables: loottables,
             players: Mutex::new(Vec::new()),
             gui_layouts,
+            tags,
         })
     }
     pub fn export_file(&self, filename: String, data: Vec<u8>) {

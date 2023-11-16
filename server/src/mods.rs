@@ -13,6 +13,7 @@ use parking_lot::{Mutex, MutexGuard};
 use rhai::plugin::*;
 use rhai::{exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, AST};
 use splines::{Interpolation, Spline};
+use std::collections::HashSet;
 use std::ops::RangeInclusive;
 use std::{
     cell::OnceCell,
@@ -26,7 +27,9 @@ use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
 use crate::inventory::{GUILayout, InventoryWrapper, ModGuiViewer};
-use crate::registry::{Block, BlockState, BlockStateProperty, BlockStatePropertyStorage};
+use crate::registry::{
+    Block, BlockState, BlockStateProperty, BlockStatePropertyStorage, BlockStateRef,
+};
 use crate::util::BlockLocation;
 use crate::world::{PlayerData, UserData, World, WorldBlock};
 use crate::{
@@ -496,6 +499,34 @@ impl ModManager {
         }
         layouts
     }
+    pub fn load_tags(&self) -> HashMap<Identifier, Arc<IdentifierTag>> {
+        let mut tags = HashMap::new();
+        for loaded_mod in &self.mods {
+            let mut path = loaded_mod.1.path.clone();
+            path.push("tags");
+            for tag_path in WalkDir::new(&path)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|entry| entry.metadata().unwrap().is_file())
+            {
+                let path_diff = pathdiff::diff_paths(tag_path.path(), &path).unwrap();
+                let id = path_diff
+                    .as_os_str()
+                    .to_str()
+                    .unwrap()
+                    .split_once(".")
+                    .unwrap()
+                    .0;
+                let id = Identifier::new(loaded_mod.1.namespace.clone(), id);
+                let json = fs::read_to_string(tag_path.path()).unwrap();
+                tags.insert(
+                    id.clone(),
+                    IdentifierTag::load(json::parse(json.as_str()).unwrap()),
+                );
+            }
+        }
+        tags
+    }
     pub fn runtime_engine_load(engine: &mut Engine, server: Weak<Server>) {
         {
             let server = server.clone();
@@ -531,6 +562,7 @@ impl ModManager {
         Self::load_scripting_object::<Transformation>(engine, &server);
         Self::load_scripting_object::<Face>(engine, &server);
         Self::load_scripting_object::<HorizontalFace>(engine, &server);
+        Self::load_scripting_object::<IdentifierTag>(engine, &server);
     }
     fn load_scripting_object<T>(engine: &mut Engine, server: &Weak<Server>)
     where
@@ -541,8 +573,10 @@ impl ModManager {
     }
 }
 pub trait ScriptingObject {
-    fn engine_register_server(_engine: &mut Engine, _server: &Weak<Server>) {}
-    fn engine_register(_engine: &mut Engine) {}
+    #[allow(unused)]
+    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {}
+    #[allow(unused)]
+    fn engine_register(engine: &mut Engine) {}
 }
 impl ScriptingObject for Position {
     fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
@@ -675,7 +709,63 @@ impl ScriptingObject for Transformation {
         });
     }
 }
-
+pub struct IdentifierTag {
+    ids: HashSet<Identifier>,
+}
+impl IdentifierTag {
+    pub fn load(json: JsonValue) -> Arc<Self> {
+        Arc::new(IdentifierTag {
+            ids: json
+                .members()
+                .into_iter()
+                .map(|id| Identifier::parse(id.as_str().unwrap()).unwrap())
+                .collect(),
+        })
+    }
+    pub fn contains(&self, id: &Identifier) -> bool {
+        self.ids.contains(id)
+    }
+    pub fn list(&self) -> Vec<Identifier> {
+        self.ids.iter().cloned().collect()
+    }
+}
+impl ScriptingObject for IdentifierTag {
+    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
+        {
+            let server = server.clone();
+            engine.register_fn("Tag", move |id: Identifier| {
+                server
+                    .upgrade()
+                    .unwrap()
+                    .tags
+                    .get(&id)
+                    .map(|tag| Dynamic::from(tag.clone()))
+                    .unwrap_or(Dynamic::UNIT)
+            });
+        }
+        engine.register_fn(
+            "contains",
+            |tag: &mut Arc<IdentifierTag>, id: Identifier| tag.contains(&id),
+        );
+        {
+            let server = server.clone();
+            engine.register_fn(
+                "contains",
+                move |tag: &mut Arc<IdentifierTag>, block: BlockStateRef| {
+                    tag.contains(
+                        &server
+                            .upgrade()
+                            .unwrap()
+                            .block_registry
+                            .state_by_ref(&block)
+                            .parent
+                            .id,
+                    )
+                },
+            );
+        }
+    }
+}
 #[derive(Clone)]
 pub enum UserDataWrapper {
     Player(Arc<PlayerData>),

@@ -62,13 +62,13 @@ create_block("overworld:log", |p|{
 .neighbor_update(|location|{
     let initial_state = location.world.get_block_load(location.position);
     let state = initial_state;
-    state = state.with_property("front", location.world.get_block_load(location.position.offset_by_face(Face::Front)).to_string().starts_with("overworld:log"));
-    state = state.with_property("back", location.world.get_block_load(location.position.offset_by_face(Face::Back)).to_string().starts_with("overworld:log"));
-    state = state.with_property("left", location.world.get_block_load(location.position.offset_by_face(Face::Left)).to_string().starts_with("overworld:log"));
-    state = state.with_property("right", location.world.get_block_load(location.position.offset_by_face(Face::Right)).to_string().starts_with("overworld:log"));
-    state = state.with_property("up", location.world.get_block_load(location.position.offset_by_face(Face::Up)).to_string().starts_with("overworld:log"));
-    state = state.with_property("down", location.world.get_block_load(location.position.offset_by_face(Face::Down)).to_string().starts_with("overworld:log"));
-
+    let tag = Tag(Identifier("overworld:logs_connecting"));
+    state = state.with_property("front", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Front))));
+    state = state.with_property("back", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Back))));
+    state = state.with_property("left", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Left))));
+    state = state.with_property("right", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Right))));
+    state = state.with_property("up", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Up))));
+    state = state.with_property("down", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Down))));
     if state != initial_state{
         location.world.set_block(location.position, state);
     }
