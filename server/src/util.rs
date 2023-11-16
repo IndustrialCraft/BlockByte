@@ -42,7 +42,7 @@ impl Display for Identifier {
     }
 }
 impl ScriptingObject for Identifier {
-    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_type_with_name::<Identifier>("Identifier");
         engine.register_fn("Identifier", |namespace: &str, key: &str| {
             Identifier::new(namespace, key)
@@ -63,7 +63,7 @@ pub struct Location {
     pub world: Arc<World>,
 }
 impl ScriptingObject for Location {
-    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_type_with_name::<Location>("Location");
         engine.register_fn("Location", |position: Position, world: Arc<World>| {
             Location { position, world }
@@ -130,7 +130,7 @@ pub struct BlockLocation {
     pub world: Arc<World>,
 }
 impl ScriptingObject for BlockLocation {
-    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_type_with_name::<BlockLocation>("BlockLocation");
         engine.register_fn(
             "BlockLocation",

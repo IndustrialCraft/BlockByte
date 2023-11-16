@@ -485,7 +485,7 @@ pub struct ModGuiViewer {
     id: Uuid,
 }
 impl ScriptingObject for ModGuiViewer {
-    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_type_with_name::<ModGuiViewer>("GUIViewer");
         engine.register_fn(
             "set_text",
@@ -721,7 +721,7 @@ impl InventoryWrapper {
     }
 }
 impl ScriptingObject for InventoryWrapper {
-    fn engine_register(engine: &mut Engine, server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
         engine.register_type_with_name::<InventoryWrapper>("Inventory");
         engine.register_fn("create_inventory", |size: i64| {
             //todo: verify size
@@ -850,7 +850,7 @@ impl Recipe {
     }
 }
 impl ScriptingObject for Recipe {
-    fn engine_register(engine: &mut Engine, server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
         engine.register_type_with_name::<Arc<Recipe>>("Recipe");
         {
             let server = server.clone();

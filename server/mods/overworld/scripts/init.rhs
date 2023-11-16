@@ -17,21 +17,41 @@ create_block("overworld:leaves", |p|{
     create_cube("overworld:leaves","overworld:leaves","overworld:leaves","overworld:leaves","overworld:leaves","overworld:leaves").transparent(true)
 }).register_item("overworld:leaves_block","Leaves Block").register();
 create_block("overworld:rock", |p|{
-    create_static("overworld:rock","overworld:stone").no_collide().rotation(if p.rotated {HorizontalFace::Left} else {HorizontalFace::Front})
+    create_static("overworld:rock","overworld:stone", transform_rotation_from_face(if p.rotated {Face::Left} else {Face::Front})).no_collide()
 }).add_property_bool("rotated").register();
 create_block("overworld:grass_foliage", |p|{
     create_foliage("overworld:grass_foliage","overworld:grass_foliage","overworld:grass_foliage","overworld:grass_foliage").render_data(2).no_collide()
 }).register();
 create_block("overworld:branch", |p|{
-    create_static("overworld:branch","overworld:log_side").no_collide().rotation(p.facing)
+    create_static("overworld:branch","overworld:log_side", transform_rotation_from_face(p.facing.to_face())).no_collide()
 }).add_property_horizontal_face("facing").register();
 create_block("overworld:log", |p|{
     if p.size == 8{
         create_cube("overworld:log_side","overworld:log_side","overworld:log_side","overworld:log_side","overworld:log_side","overworld:log_side")
     } else {
-        create_static("overworld:log_" + (p.size * 2).to_string(),"overworld:log_side")
+        let model = create_static("overworld:log_" + (p.size * 2).to_string(),"overworld:log_side");
+        if !p.front{
+            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Front));
+        }
+        if !p.back{
+            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Back));
+        }
+        if !p.left{
+            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Left));
+        }
+        if !p.right{
+            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Right));
+        }
+        if !p.up{
+            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Up));
+        }
+        if !p.down{
+            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Down));
+        }
+        return model;
     }
-}).add_property_number("size", 1..=8).right_click_action(|player,position,block|{
+}).add_property_number("size", 1..=8).add_property_bool("front").add_property_bool("back").add_property_bool("left").add_property_bool("right").add_property_bool("up").add_property_bool("down")
+.right_click_action(|player,position,block|{
     let world = player.get_entity().get_location().world;
     let size = world.get_block(position).get_property("size") + 1;
     if size > 8{
@@ -61,4 +81,5 @@ register_model("overworld:branch", "models/branch.bbm");
 
 for i in 1..=7{
     register_model("overworld:log_" + (i*2), "models/log_" + (i*2) + ".bbm");
+    register_model("overworld:log_connector_" + (i*2), "models/log_connector_" + (i*2) + ".bbm");
 }

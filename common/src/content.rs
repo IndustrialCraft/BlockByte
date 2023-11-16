@@ -18,7 +18,6 @@ pub struct ClientBlockData {
     pub transparent: bool,
     pub selectable: bool,
     pub no_collide: bool,
-    pub rotation: f32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -72,10 +71,10 @@ pub enum ClientItemModel {
 }
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct Transformation {
-    position: Vec3,
-    rotation: Vec3,
-    scale: Vec3,
-    origin: Vec3,
+    pub position: Vec3,
+    pub rotation: Vec3,
+    pub scale: Vec3,
+    pub origin: Vec3,
 }
 impl Transformation {
     pub fn identity() -> Self {

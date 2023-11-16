@@ -5,7 +5,7 @@ use block_byte_common::content::{
     ClientEntityData, Transformation,
 };
 use block_byte_common::messages::MovementType;
-use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, Position};
+use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, Position, Vec3};
 use image::io::Reader;
 use image::{ImageOutputFormat, Rgba, RgbaImage};
 use json::JsonValue;
@@ -171,6 +171,8 @@ impl ModManager {
             .register_fn("create_air", ModClientBlockData::create_air)
             .register_fn("create_cube", ModClientBlockData::create_cube)
             .register_fn("create_static", ModClientBlockData::create_static)
+            .register_fn("create_static", ModClientBlockData::create_static_transform)
+            .register_fn("add_static_model", ModClientBlockData::add_static_model)
             .register_fn("create_foliage", ModClientBlockData::create_foliage)
             .register_fn("fluid", ModClientBlockData::fluid)
             .register_fn("hangs_on", ModClientBlockData::hangs_on)
@@ -179,7 +181,6 @@ impl ModManager {
             .register_fn("selectable", ModClientBlockData::selectable)
             .register_fn("render_data", ModClientBlockData::render_data)
             .register_fn("dynamic", ModClientBlockData::dynamic)
-            .register_fn("rotation", ModClientBlockData::rotation)
             .register_fn(
                 "dynamic_add_animation",
                 ModClientBlockData::dynamic_add_animation,
@@ -329,6 +330,9 @@ impl ModManager {
             b: (b * 255.) as u8,
             a: (a * 255.) as u8,
         });
+
+        Transformation::engine_register(&mut loading_engine);
+        HorizontalFace::engine_register(&mut loading_engine);
 
         for loaded_mod in &mods {
             {
@@ -524,19 +528,24 @@ impl ModManager {
         Self::load_scripting_object::<InventoryWrapper>(engine, &server);
         Self::load_scripting_object::<Recipe>(engine, &server);
         Self::load_scripting_object::<ModGuiViewer>(engine, &server);
+        Self::load_scripting_object::<Transformation>(engine, &server);
+        Self::load_scripting_object::<Face>(engine, &server);
+        Self::load_scripting_object::<HorizontalFace>(engine, &server);
     }
     fn load_scripting_object<T>(engine: &mut Engine, server: &Weak<Server>)
     where
         T: ScriptingObject,
     {
-        T::engine_register(engine, server);
+        T::engine_register_server(engine, server);
+        T::engine_register(engine);
     }
 }
 pub trait ScriptingObject {
-    fn engine_register(engine: &mut Engine, server: &Weak<Server>);
+    fn engine_register_server(_engine: &mut Engine, _server: &Weak<Server>) {}
+    fn engine_register(_engine: &mut Engine) {}
 }
 impl ScriptingObject for Position {
-    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_type_with_name::<Position>("Position");
         engine.register_fn("Position", |x: f64, y: f64, z: f64| Position { x, y, z });
         engine.register_fn("+", |first: Position, second: Position| first + second);
@@ -566,7 +575,7 @@ impl ScriptingObject for Position {
     }
 }
 impl ScriptingObject for BlockPosition {
-    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_type_with_name::<BlockPosition>("BlockPosition");
         engine.register_fn("BlockPosition", |x: i64, y: i64, z: i64| BlockPosition {
             x: x as i32,
@@ -606,6 +615,62 @@ impl ScriptingObject for BlockPosition {
         });
     }
 }
+impl ScriptingObject for Transformation {
+    fn engine_register(engine: &mut Engine) {
+        engine.register_type_with_name::<Transformation>("Transformation");
+        engine.register_fn("transform_from_rotation", |x: f64, y: f64, z: f64| {
+            Transformation {
+                position: Vec3::ZERO,
+                rotation: Vec3 {
+                    x: x as f32,
+                    y: y as f32,
+                    z: z as f32,
+                },
+                scale: Vec3::ONE,
+                origin: Vec3::ZERO,
+            }
+        });
+        engine.register_fn("transform_rotation_from_face", |face: Face| {
+            Transformation {
+                position: Vec3::ZERO,
+                rotation: match face {
+                    Face::Front => Vec3::ZERO,
+                    Face::Back => Vec3 {
+                        x: 0.,
+                        y: 180f32.to_radians(),
+                        z: 0.,
+                    },
+                    Face::Up => Vec3 {
+                        x: 0.,
+                        y: 0.,
+                        z: 90f32.to_radians(),
+                    },
+                    Face::Down => Vec3 {
+                        x: 0.,
+                        y: 0.,
+                        z: 270f32.to_radians(),
+                    },
+                    Face::Left => Vec3 {
+                        x: 0.,
+                        y: 90f32.to_radians(),
+                        z: 0.,
+                    },
+                    Face::Right => Vec3 {
+                        x: 0.,
+                        y: 270f32.to_radians(),
+                        z: 0.,
+                    },
+                },
+                scale: Vec3::ONE,
+                origin: Vec3 {
+                    x: 0.,
+                    y: 0.5,
+                    z: 0.,
+                },
+            }
+        });
+    }
+}
 
 #[derive(Clone)]
 pub enum UserDataWrapper {
@@ -625,7 +690,7 @@ impl UserDataWrapper {
     }
 }
 impl ScriptingObject for UserDataWrapper {
-    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_type_with_name::<UserDataWrapper>("UserData");
         engine.register_indexer_get_set(
             |user_data: &mut UserDataWrapper, id: Identifier| {
@@ -639,6 +704,20 @@ impl ScriptingObject for UserDataWrapper {
                 user_data.get_user_data().put_data_point(&id, value);
             },
         );
+    }
+}
+impl ScriptingObject for Face {
+    fn engine_register(engine: &mut Engine) {
+        engine.register_fn("to_horizontal_face", |this: Face| {
+            this.to_horizontal_face()
+                .map(|face| Dynamic::from(face))
+                .unwrap_or(Dynamic::UNIT)
+        });
+    }
+}
+impl ScriptingObject for HorizontalFace {
+    fn engine_register(engine: &mut Engine) {
+        engine.register_fn("to_face", |this: HorizontalFace| this.to_face());
     }
 }
 
@@ -845,6 +924,29 @@ impl ModClientBlockData {
             },
         ))
     }
+    pub fn create_static_transform(model: &str, texture: &str, transform: Transformation) -> Self {
+        Self::new(ClientBlockRenderDataType::Static(
+            ClientBlockStaticRenderData {
+                models: vec![(model.to_string(), texture.to_string(), transform)],
+            },
+        ))
+    }
+    pub fn add_static_model(
+        &mut self,
+        model: &str,
+        texture: &str,
+        transform: Transformation,
+    ) -> Self {
+        match &mut self.client.block_type {
+            ClientBlockRenderDataType::Static(models) => {
+                models
+                    .models
+                    .push((model.to_string(), texture.to_string(), transform));
+            }
+            _ => panic!(),
+        }
+        self.clone()
+    }
     pub fn create_foliage(
         texture_1: &str,
         texture_2: &str,
@@ -870,7 +972,6 @@ impl ModClientBlockData {
                 fluid: false,
                 no_collide: false,
                 render_data: 0,
-                rotation: 0.,
             },
             hangs_on: None,
         }
@@ -897,15 +998,6 @@ impl ModClientBlockData {
     }
     pub fn render_data(&mut self, render_data: i64) -> Self {
         self.client.render_data = render_data as u8;
-        self.clone()
-    }
-    pub fn rotation(&mut self, face: HorizontalFace) -> Self {
-        self.client.rotation = match face {
-            HorizontalFace::Front => 0.,
-            HorizontalFace::Right => 90.,
-            HorizontalFace::Back => 180.,
-            HorizontalFace::Left => 270.,
-        };
         self.clone()
     }
     pub fn dynamic(&mut self, model: &str, texture: &str) -> Self {

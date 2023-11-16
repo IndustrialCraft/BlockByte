@@ -1,7 +1,7 @@
 use crate::content::{ItemModel, ItemRegistry};
 use crate::render::FaceVerticesExtension;
 use block_byte_common::content::{
-    ModelAnimationData, ModelBone, ModelCubeElement, ModelData, ModelItemElement,
+    ModelAnimationData, ModelBone, ModelCubeElement, ModelData, ModelItemElement, Transformation,
 };
 use block_byte_common::{Face, Position, TexCoords, Vec3};
 use cgmath::{Matrix4, Point3, Rad, SquareMatrix, Transform, Vector3};
@@ -277,5 +277,13 @@ impl ModelInstanceData {
             animation: None,
             items: HashMap::new(),
         }
+    }
+}
+pub trait TransformationExt {
+    fn to_matrix(&self) -> Matrix4<f32>;
+}
+impl TransformationExt for Transformation {
+    fn to_matrix(&self) -> Matrix4<f32> {
+        Model::create_matrix_trs(&self.position, &self.rotation, &self.origin, &self.scale)
     }
 }

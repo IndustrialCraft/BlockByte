@@ -1,6 +1,6 @@
 use crate::content::{BlockRegistry, BlockRenderDataType, EntityRegistry};
 use crate::game::RaycastResult::{Block, Entity};
-use crate::model::ModelInstanceData;
+use crate::model::{ModelInstanceData, TransformationExt};
 use crate::render::{ChunkVertex, FaceVerticesExtension};
 use block_byte_common::messages::MovementType;
 use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position, Vec3, AABB};
@@ -364,26 +364,28 @@ impl Chunk {
                             }
                         }
                         BlockRenderDataType::Static(model) => {
-                            model.model.add_vertices(
-                                Matrix4::from_angle_y(Deg(block.rotation)),
-                                &ModelInstanceData::new(),
-                                None,
-                                &mut |position, coords| {
-                                    let position_flags = ((position.x > 0.5) as u32)
-                                        | (((position.y > 0.5) as u32) << 1)
-                                        | (((position.z > 0.5) as u32) << 2);
-                                    vertices.push(ChunkVertex {
-                                        position: [
-                                            (base_position.x + position.x) as f32 + 0.5,
-                                            (base_position.y + position.y) as f32,
-                                            (base_position.z + position.z) as f32 + 0.5,
-                                        ],
-                                        tex_coords: [coords.0, coords.1],
-                                        render_data: block.render_data as u32
-                                            | (position_flags << 8),
-                                    })
-                                },
-                            );
+                            for model in &model.models {
+                                model.0.add_vertices(
+                                    model.1.to_matrix(),
+                                    &ModelInstanceData::new(),
+                                    None,
+                                    &mut |position, coords| {
+                                        let position_flags = ((position.x > 0.5) as u32)
+                                            | (((position.y > 0.5) as u32) << 1)
+                                            | (((position.z > 0.5) as u32) << 2);
+                                        vertices.push(ChunkVertex {
+                                            position: [
+                                                (base_position.x + position.x) as f32 + 0.5,
+                                                (base_position.y + position.y) as f32,
+                                                (base_position.z + position.z) as f32 + 0.5,
+                                            ],
+                                            tex_coords: [coords.0, coords.1],
+                                            render_data: block.render_data as u32
+                                                | (position_flags << 8),
+                                        })
+                                    },
+                                );
+                            }
                         }
                         BlockRenderDataType::Foliage(foliage) => {
                             for face in &[Face::Front, Face::Back, Face::Left, Face::Right] {

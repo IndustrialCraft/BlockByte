@@ -5,7 +5,7 @@ use ambisonic::rodio::Source;
 use ambisonic::{Ambisonic, AmbisonicBuilder, StereoConfig};
 use block_byte_common::content::{
     ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData,
-    ClientItemModel, ModelData,
+    ClientItemModel, ModelData, Transformation,
 };
 use block_byte_common::{Face, Position, TexCoords, Vec2};
 use image::RgbaImage;
@@ -134,15 +134,24 @@ impl BlockRegistry {
                 }
                 ClientBlockRenderDataType::Static(static_data) => {
                     BlockRenderDataType::Static(BlockStaticRenderData {
-                        model: Model::new(
-                            models
-                                .get(static_data.models.get(0).unwrap().0.as_str())
-                                .unwrap_or(models.get("missing").unwrap())
-                                .clone(),
-                            texture_atlas.get(static_data.models.get(0).unwrap().1.as_str()),
-                            Vec::new(),
-                            Vec::new(),
-                        ),
+                        models: static_data
+                            .models
+                            .into_iter()
+                            .map(|static_data| {
+                                (
+                                    Model::new(
+                                        models
+                                            .get(static_data.0.as_str())
+                                            .unwrap_or(models.get("missing").unwrap())
+                                            .clone(),
+                                        texture_atlas.get(static_data.1.as_str()),
+                                        Vec::new(),
+                                        Vec::new(),
+                                    ),
+                                    static_data.2,
+                                )
+                            })
+                            .collect(),
                     })
                 }
 
@@ -171,7 +180,6 @@ impl BlockRegistry {
             selectable: block_data.selectable,
             transparent: block_data.transparent,
             no_collide: block_data.no_collide,
-            rotation: block_data.rotation,
         });
     }
 }
@@ -183,7 +191,6 @@ pub struct BlockData {
     pub transparent: bool,
     pub selectable: bool,
     pub no_collide: bool,
-    pub rotation: f32,
 }
 impl BlockData {
     pub fn is_face_full(&self, _face: Face) -> bool {
@@ -228,7 +235,7 @@ impl BlockCubeRenderData {
 }
 
 pub struct BlockStaticRenderData {
-    pub model: Model,
+    pub models: Vec<(Model, Transformation)>,
 }
 pub struct BlockFoliageRenderData {
     pub texture_1: TexCoords,

@@ -70,7 +70,6 @@ impl BlockRegistry {
                         transparent: false,
                         selectable: false,
                         no_collide: true,
-                        rotation: 0.,
                     },
                     hangs_on: None,
                 },
@@ -282,7 +281,7 @@ pub struct Block {
 }
 
 impl ScriptingObject for Block {
-    fn engine_register(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_type_with_name::<Arc<Block>>("Block");
         engine.register_fn("get_default_state", |block: &mut Arc<Block>| {
             block.get_state_ref(0)
@@ -574,7 +573,7 @@ impl ToString for BlockState {
     }
 }
 impl ScriptingObject for BlockState {
-    fn engine_register(engine: &mut Engine, server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
         engine.register_type_with_name::<BlockStateRef>("BlockState");
         {
             let server = server.clone();
