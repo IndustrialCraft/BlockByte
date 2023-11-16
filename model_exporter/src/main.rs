@@ -9,82 +9,99 @@ use either::Either;
 use json::JsonValue;
 
 fn main() {
-    let file_name = std::env::args().nth(1).expect("missing file name");
-    let json = json::parse(
-        std::fs::read_to_string(file_name)
-            .expect("file not found")
-            .as_str(),
-    )
-    .expect("malformed model file");
-    let texture_resolution = &json["resolution"];
-    let texture_resolution = (
-        texture_resolution["width"].as_u32().unwrap(),
-        texture_resolution["height"].as_u32().unwrap(),
-    );
-    let mut elements = HashMap::new();
-    for element in json["elements"].members() {
-        let name = element["name"].as_str().unwrap();
-        let (id, cube) = if name.starts_with("item_") {
-            let (element, id) = ItemElement::from_json(name.replacen("item_", "", 1), element);
-            (id, Either::Right(element))
-        } else {
-            let (element, id) = cube_element_from_json(element, &texture_resolution);
-            (id, Either::Left(element))
-        };
-        elements.insert(id, cube);
-    }
-
-    let mut root_bone = Bone::children_from_json(
-        &json["outliner"],
-        &mut elements,
-        Vec3 {
-            x: 0.,
-            y: 0.,
-            z: 0.,
-        },
-        "root".to_string(),
-        uuid::Uuid::from_u128(0),
-    );
-    let mut animation_data = Vec::new();
-    for (animation_id, animation) in json["animations"].members().enumerate() {
-        let name = animation["name"].as_str().unwrap();
-        let length = animation["length"].as_f32().unwrap();
-        animation_data.push((name, length));
-        for animator in animation["animators"].entries() {
-            let uuid = uuid::Uuid::from_str(animator.0).unwrap();
-            let animation_data = root_bone
-                .find_sub_bone(&uuid)
-                .unwrap()
-                .animation_data_for_id(animation_id as u32);
-            for keyframes in animator.1["keyframes"].members() {
-                let channel = keyframes["channel"].as_str().unwrap();
-                add_keyframe(
-                    animation_data,
-                    channel,
-                    if channel != "rotation" {
-                        Vec3Json::from_keyframe_pos(&keyframes["data_points"][0])
-                    } else {
-                        Vec3Json::from_keyframe_rot(&keyframes["data_points"][0])
-                    },
-                    keyframes["time"].as_f32().unwrap(),
+    for entry in glob::glob(std::env::args().nth(1).expect("missing glob").as_str())
+        .expect("Failed to read glob pattern")
+    {
+        match entry {
+            Ok(path) => {
+                if path.is_dir() {
+                    continue;
+                }
+                let json = json::parse(
+                    std::fs::read_to_string(&path)
+                        .expect("file not found")
+                        .as_str(),
+                )
+                .expect("malformed model file");
+                let texture_resolution = &json["resolution"];
+                let texture_resolution = (
+                    texture_resolution["width"].as_u32().unwrap(),
+                    texture_resolution["height"].as_u32().unwrap(),
                 );
+                let mut elements = HashMap::new();
+                for element in json["elements"].members() {
+                    let name = element["name"].as_str().unwrap();
+                    let (id, cube) = if name.starts_with("item_") {
+                        let (element, id) =
+                            ItemElement::from_json(name.replacen("item_", "", 1), element);
+                        (id, Either::Right(element))
+                    } else {
+                        let (element, id) = cube_element_from_json(element, &texture_resolution);
+                        (id, Either::Left(element))
+                    };
+                    elements.insert(id, cube);
+                }
+
+                let mut root_bone = Bone::children_from_json(
+                    &json["outliner"],
+                    &mut elements,
+                    Vec3 {
+                        x: 0.,
+                        y: 0.,
+                        z: 0.,
+                    },
+                    "root".to_string(),
+                    uuid::Uuid::from_u128(0),
+                );
+                let mut animation_data = Vec::new();
+                for (animation_id, animation) in json["animations"].members().enumerate() {
+                    let name = animation["name"].as_str().unwrap();
+                    let length = animation["length"].as_f32().unwrap();
+                    animation_data.push((name, length));
+                    for animator in animation["animators"].entries() {
+                        let uuid = uuid::Uuid::from_str(animator.0).unwrap();
+                        let animation_data = root_bone
+                            .find_sub_bone(&uuid)
+                            .unwrap()
+                            .animation_data_for_id(animation_id as u32);
+                        for keyframes in animator.1["keyframes"].members() {
+                            let channel = keyframes["channel"].as_str().unwrap();
+                            add_keyframe(
+                                animation_data,
+                                channel,
+                                if channel != "rotation" {
+                                    Vec3Json::from_keyframe_pos(&keyframes["data_points"][0])
+                                } else {
+                                    Vec3Json::from_keyframe_rot(&keyframes["data_points"][0])
+                                },
+                                keyframes["time"].as_f32().unwrap(),
+                            );
+                        }
+                    }
+                }
+                let name = path
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .split_once(".")
+                    .unwrap();
+                std::fs::write(
+                    format!("{}.bbm", name.0),
+                    bitcode::serialize(&ModelData {
+                        root_bone: root_bone.to_content(),
+                        animations: animation_data
+                            .iter()
+                            .map(|data| (data.0.to_string(), data.1))
+                            .collect(),
+                    })
+                    .unwrap(),
+                )
+                .unwrap();
             }
+            Err(_) => {}
         }
     }
-    //println!("{root_bone:#?}");
-
-    std::fs::write(
-        "out.bbm",
-        bitcode::serialize(&ModelData {
-            root_bone: root_bone.to_content(),
-            animations: animation_data
-                .iter()
-                .map(|data| (data.0.to_string(), data.1))
-                .collect(),
-        })
-        .unwrap(),
-    )
-    .unwrap();
 }
 #[derive(Clone, Debug)]
 struct Bone {

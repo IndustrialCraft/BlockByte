@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Export Model" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
-    <option name="command" value="run --bin block_byte_model_exporter --release -- in.bbmodel" />
+    <option name="command" value="run --bin block_byte_model_exporter --release -- *.bbmodel" />
     <option name="workingDirectory" value="file://$PROJECT_DIR$/model_exporter" />
     <option name="emulateTerminal" value="false" />
     <option name="channel" value="DEFAULT" />

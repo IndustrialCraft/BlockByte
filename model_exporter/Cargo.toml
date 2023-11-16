@@ -12,3 +12,4 @@ json = "0.12.4"
 uuid = "1.4.1"
 either = "1.9.0"
 bitcode = {version="0.4.0",features = ["serde"]}
+glob = "0.3.1"

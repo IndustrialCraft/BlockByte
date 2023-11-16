@@ -398,6 +398,7 @@ dependencies = [
  "bitcode",
  "block_byte_common",
  "either",
+ "glob",
  "json",
  "uuid",
 ]
