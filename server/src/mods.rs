@@ -707,6 +707,45 @@ impl ScriptingObject for Transformation {
                 },
             }
         });
+        engine.register_fn("transform_rotation_from_face_up", |face: Face| {
+            Transformation {
+                position: Vec3::ZERO,
+                rotation: match face {
+                    Face::Front => Vec3 {
+                        x: 90f32.to_radians(),
+                        y: 0.,
+                        z: 0.,
+                    },
+                    Face::Back => Vec3 {
+                        x: 270f32.to_radians(),
+                        y: 0.,
+                        z: 0.,
+                    },
+                    Face::Up => Vec3::ZERO,
+                    Face::Down => Vec3 {
+                        x: 180f32.to_radians(),
+                        y: 0.,
+                        z: 0.,
+                    },
+                    Face::Left => Vec3 {
+                        x: 0.,
+                        y: 0.,
+                        z: 270f32.to_radians(),
+                    },
+                    Face::Right => Vec3 {
+                        x: 0.,
+                        y: 0.,
+                        z: 90f32.to_radians(),
+                    },
+                },
+                scale: Vec3::ONE,
+                origin: Vec3 {
+                    x: 0.,
+                    y: 0.5,
+                    z: 0.,
+                },
+            }
+        });
     }
 }
 pub struct IdentifierTag {

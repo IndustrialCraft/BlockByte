@@ -31,22 +31,22 @@ create_block("overworld:log", |p|{
     } else {
         let model = create_static("overworld:log_" + (p.size * 2).to_string(),"overworld:log_side");
         if p.front{
-            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Front));
+            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face_up(Face::Front));
         }
         if p.back{
-            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Back));
+            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face_up(Face::Back));
         }
         if p.left{
-            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Left));
+            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face_up(Face::Left));
         }
         if p.right{
-            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Right));
+            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face_up(Face::Right));
         }
         if p.up{
-            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Up));
+            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face_up(Face::Up));
         }
         if p.down{
-            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face(Face::Down));
+            model.add_static_model("overworld:log_connector_" + (p.size * 2).to_string(),"overworld:log_side", transform_rotation_from_face_up(Face::Down));
         }
         return model;
     }
