@@ -26,7 +26,7 @@ use std::{
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
-use crate::inventory::{GUILayout, InventoryWrapper, ModGuiViewer};
+use crate::inventory::{GUILayout, InventoryWrapper, ItemStack, ModGuiViewer};
 use crate::registry::{
     Block, BlockState, BlockStateProperty, BlockStatePropertyStorage, BlockStateRef,
 };
@@ -542,6 +542,10 @@ impl ModManager {
             "HorizontalFace",
             exported_module!(HorizontalFaceModule).into(),
         );
+        engine.register_static_module(
+            "InteractionResult",
+            exported_module!(InteractionResultModule).into(),
+        );
 
         Self::load_scripting_object::<PlayerData>(engine, &server);
         Self::load_scripting_object::<Entity>(engine, &server);
@@ -563,6 +567,7 @@ impl ModManager {
         Self::load_scripting_object::<Face>(engine, &server);
         Self::load_scripting_object::<HorizontalFace>(engine, &server);
         Self::load_scripting_object::<IdentifierTag>(engine, &server);
+        Self::load_scripting_object::<ItemStack>(engine, &server);
     }
     fn load_scripting_object<T>(engine: &mut Engine, server: &Weak<Server>)
     where
@@ -1479,6 +1484,17 @@ mod MovementTypeModule {
     pub const Fly: MovementType = MovementType::Fly;
     #[allow(non_upper_case_globals)]
     pub const NoClip: MovementType = MovementType::NoClip;
+}
+
+#[export_module]
+#[allow(non_snake_case)]
+mod InteractionResultModule {
+    use crate::registry::InteractionResult;
+
+    #[allow(non_upper_case_globals)]
+    pub const Ignored: InteractionResult = InteractionResult::Ignored;
+    #[allow(non_upper_case_globals)]
+    pub const Consumed: InteractionResult = InteractionResult::Consumed;
 }
 
 #[export_module]

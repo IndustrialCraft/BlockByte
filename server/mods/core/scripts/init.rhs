@@ -22,7 +22,7 @@ register_event("bb:command", |player,command|{
             return;
         }
         let entity = player.get_entity();
-        player.user_data[Identifier("core:structure_selection")] = entity.get_world().get_structure(first_selection,second_selection,entity.get_position().to_block_position());
+        player.user_data[Identifier("core:structure_selection")] = entity.get_location().world.get_structure(first_selection,second_selection,entity.get_location().position.to_block_position());
         player.send_chat_message("structure saved");
     }
     if command[0] == "/export"{

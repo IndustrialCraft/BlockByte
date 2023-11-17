@@ -52,12 +52,20 @@ create_block("overworld:log", |p|{
     }
 }).add_property_number("size", 1..=8).add_property_bool("front").add_property_bool("back").add_property_bool("left").add_property_bool("right").add_property_bool("up").add_property_bool("down")
 .right_click_action(|player,position,block|{
+    let hand_item = player.get_entity().get_hand_item();
+    if hand_item == (){
+        return;
+    }
+    if player.get_entity().get_hand_item().get_id().to_string() != "overworld:log_block"{
+        return;
+    }
     let world = player.get_entity().get_location().world;
     let size = world.get_block(position).get_property("size") + 1;
     if size > 8{
         size = 1;
     }
     world.set_block(position, BlockState("overworld:log").with_property("size", size));
+    return InteractionResult::Consumed;
 })
 .neighbor_update(|location|{
     let initial_state = location.world.get_block_load(location.position);
@@ -74,7 +82,7 @@ create_block("overworld:log", |p|{
     }
 }).register_item("overworld:log_block","Log Block").register();
 
-create_biome("overworld:forest", "overworld:grass","overworld:dirt","overworld:stone","overworld:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.2, "overworld:grass_foliage").add_structure(0.02, "overworld:rock").add_structure(0.02, "overworld:branch").add_structure(0.02, "overworld:tree").register();
+create_biome("overworld:forest", "overworld:grass","overworld:dirt","overworld:stone","overworld:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.2, "overworld:grass_foliage").add_structure(0.02, "overworld:rock").add_structure(0.02, "overworld:branch").add_structure(0.02, "overworld:tree").add_structure(0.002, "overworld:tree_big").register();
 create_biome("overworld:savanna", "overworld:grass","overworld:dirt","overworld:stone","overworld:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).spline_add_temperature(0.7999, 0.).spline_add_temperature(0.8, 3.).register();
 create_biome("overworld:beach", "overworld:sand","overworld:sand","overworld:sand","overworld:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).spline_add_land(0.0, 2.).spline_add_land(0.02, 2.).spline_add_land(0.02001, 0.).add_structure(0.02, "overworld:rock").register();
 create_biome("overworld:ocean", "overworld:sand","overworld:sand","overworld:stone","overworld:water").spline_add_height(-1., 1.).spline_add_height(0., 0.).register();

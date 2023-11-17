@@ -67,6 +67,11 @@ impl ItemStack {
         self.item_count
     }
 }
+impl ScriptingObject for ItemStack {
+    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_fn("get_id", |item: &mut ItemStack| item.item_type.id.clone());
+    }
+}
 pub type InventoryClickHandler =
     Box<dyn Fn(&Inventory, &PlayerData, u32, MouseButton, bool) -> InteractionResult + Send + Sync>;
 pub type InventoryScrollHandler =

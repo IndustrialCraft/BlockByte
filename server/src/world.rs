@@ -346,6 +346,15 @@ impl ScriptingObject for World {
                 BlockData::Data(data) => Dynamic::from(data),
             },
         );
+        engine.register_fn(
+            "get_structure",
+            |world: &mut Arc<World>,
+             first: BlockPosition,
+             second: BlockPosition,
+             origin: BlockPosition| {
+                Structure::from_world(&world, first, second, origin)
+            },
+        );
     }
 }
 impl Eq for World {}
@@ -1958,6 +1967,12 @@ impl ScriptingObject for Entity {
         engine.register_get("inventory", |entity: &mut Arc<Entity>| {
             InventoryWrapper::Entity(entity.ptr())
         });
+        engine.register_fn("get_hand_item", |entity: &mut Arc<Entity>| {
+            entity
+                .get_hand_item()
+                .map(|item| Dynamic::from(item))
+                .unwrap_or(Dynamic::UNIT)
+        });
     }
 }
 impl Animatable for Entity {
@@ -2421,13 +2436,16 @@ impl ScriptingObject for Structure {
     fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
         engine.register_type_with_name::<Arc<Structure>>("Structure");
         let server = server.clone();
-        engine.register_fn("export", move |structure: &mut Structure, name: &str| {
-            let json = structure.export(&server.upgrade().unwrap().block_registry);
-            server
-                .upgrade()
-                .unwrap()
-                .export_file(name.to_string(), json.to_string().as_bytes().to_vec());
-        });
+        engine.register_fn(
+            "export_structure",
+            move |structure: &mut Structure, name: &str| {
+                let json = structure.export(&server.upgrade().unwrap().block_registry);
+                server
+                    .upgrade()
+                    .unwrap()
+                    .export_file(name.to_string(), json.to_string().as_bytes().to_vec());
+            },
+        );
     }
 }
 
