@@ -86,4 +86,4 @@ register_model("core:viewmodel", "models/viewmodel.bbm");
 
 register_sound("core:equip", "sounds/equip.wav");
 
-register_event("bb:player_join", |player|{player.creative(true);player.movement_type(MovementType::Normal);player.speed(1.);});
+register_event("bb:player_join", |player|{player.creative(true);player.movement_type(MovementType::Fly);player.speed(10.);});

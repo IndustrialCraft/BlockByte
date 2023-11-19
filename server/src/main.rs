@@ -311,7 +311,15 @@ impl Server {
                         biome_template
                             .structures
                             .iter()
-                            .map(|(chance, id)| (*chance, structures.get(id).unwrap().clone()))
+                            .map(|(chance, id)| {
+                                (
+                                    *chance,
+                                    structures
+                                        .get(id)
+                                        .expect(format!("structure {} not found", id).as_str())
+                                        .clone(),
+                                )
+                            })
                             .collect(),
                     )
                 })

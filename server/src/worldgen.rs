@@ -118,8 +118,8 @@ impl BasicWorldGenerator {
         let x = x as f64;
         let z = z as f64;
         let land = self.land_noise.get(x, z);
-        let temperature = self.temperature_noise.get(x, z);
-        let moisture = self.moisture_noise.get(x, z);
+        let temperature = (self.temperature_noise.get(x, z) + 1.) / 2.;
+        let moisture = (self.moisture_noise.get(x, z) + 1.) / 2.;
         let biome = self
             .biomes
             .iter()

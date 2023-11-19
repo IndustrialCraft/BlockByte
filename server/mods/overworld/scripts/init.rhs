@@ -7,6 +7,9 @@ create_block("overworld:water", |p|{
 create_block("overworld:grass", |p|{
     create_cube("overworld:grass_side","overworld:grass_side","overworld:grass_side","overworld:grass_side","overworld:grass","overworld:dirt")
 }).register_item("overworld:grass_block","Grass Block").breaking_tool(ToolType::Shovel,1.).register();
+create_block("overworld:savanna_grass", |p|{
+    create_cube("overworld:savanna_grass_side","overworld:savanna_grass_side","overworld:savanna_grass_side","overworld:savanna_grass_side","overworld:savanna_grass","overworld:dirt")
+}).register_item("overworld:savanna_grass_block","Savanna Grass Block").breaking_tool(ToolType::Shovel,1.).register();
 create_block("overworld:dirt", |p|{
     create_cube("overworld:dirt","overworld:dirt","overworld:dirt","overworld:dirt","overworld:dirt","overworld:dirt")
 }).register_item("overworld:dirt_block","Dirt Block").breaking_tool(ToolType::Shovel,1.).register();
@@ -21,6 +24,9 @@ create_block("overworld:rock", |p|{
 }).add_property_bool("rotated").register();
 create_block("overworld:grass_foliage", |p|{
     create_foliage("overworld:grass_foliage","overworld:grass_foliage","overworld:grass_foliage","overworld:grass_foliage").render_data(2).no_collide()
+}).register();
+create_block("overworld:savanna_grass_foliage", |p|{
+    create_foliage("overworld:savanna_grass_foliage","overworld:savanna_grass_foliage","overworld:savanna_grass_foliage","overworld:savanna_grass_foliage").render_data(2).no_collide()
 }).register();
 create_block("overworld:branch", |p|{
     create_static("overworld:branch","overworld:log_side", transform_rotation_from_face(p.facing.to_face())).no_collide()
@@ -83,20 +89,26 @@ create_block("overworld:log", |p|{
 }).register_item("overworld:log_block","Log Block").register();
 
 create_biome("overworld:forest", "overworld:grass","overworld:dirt","overworld:stone","overworld:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).add_structure(0.2, "overworld:grass_foliage").add_structure(0.02, "overworld:rock").add_structure(0.02, "overworld:branch").add_structure(0.02, "overworld:tree").add_structure(0.002, "overworld:tree_big").register();
-create_biome("overworld:savanna", "overworld:grass","overworld:dirt","overworld:stone","overworld:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).spline_add_temperature(0.7999, 0.).spline_add_temperature(0.8, 3.).register();
-create_biome("overworld:beach", "overworld:sand","overworld:sand","overworld:sand","overworld:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).spline_add_land(0.0, 2.).spline_add_land(0.02, 2.).spline_add_land(0.02001, 0.).add_structure(0.02, "overworld:rock").register();
+create_biome("overworld:savanna", "overworld:savanna_grass","overworld:dirt","overworld:stone","overworld:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).spline_add_temperature(0.49, 0.).spline_add_temperature(0.5, 3.).add_structure(0.2, "overworld:savanna_grass_foliage").add_structure(0.02, "overworld:rock").add_structure(0.002, "overworld:tree_savanna").add_structure(0.0005, "overworld:big_rock").register();
+create_biome("overworld:beach", "overworld:sand","overworld:sand","overworld:sand","overworld:water").spline_add_height(-1., 0.).spline_add_height(0., 1.).spline_add_land(0.0, 100.).spline_add_land(0.02, 100.).spline_add_land(0.02001, 0.).add_structure(0.006, "overworld:rock").add_structure(0.002, "overworld:tree_palm").register();
 create_biome("overworld:ocean", "overworld:sand","overworld:sand","overworld:stone","overworld:water").spline_add_height(-1., 1.).spline_add_height(0., 0.).register();
+
+let forest_grass_colored = load_image("images/grass.png").color(create_color(24./255.,161./255.,19./255.,1.));
+let savanna_grass_colored = load_image("images/grass.png").color(create_color(176./255.,154./255.,46./255.,1.));
 
 register_image("overworld:stone", "images/stone.png");
 register_image("overworld:water", "images/water.png");
 register_image("overworld:log_side", "images/log_side.png");
 register_image("overworld:log_base", "images/log_base.png");
-register_image("overworld:grass", "images/grass.png");
-register_image("overworld:grass_side", load_image("images/dirt.png").overlay(load_image("images/grass_side_mask.png").multiply(load_image("images/grass.png"))));
+register_image("overworld:grass", forest_grass_colored);
+register_image("overworld:grass_side", load_image("images/dirt.png").overlay(load_image("images/grass_side_mask.png").multiply(forest_grass_colored)));
+register_image("overworld:savanna_grass", savanna_grass_colored);
+register_image("overworld:savanna_grass_side", load_image("images/dirt.png").overlay(load_image("images/grass_side_mask.png").multiply(savanna_grass_colored)));
 register_image("overworld:dirt", "images/dirt.png");
 register_image("overworld:leaves", "images/leaves.png");
 register_image("overworld:sand", "images/sand.png");
-register_image("overworld:grass_foliage", "images/grass_foliage.png");
+register_image("overworld:grass_foliage", load_image("images/grass_foliage.png").color(create_color(14./255.,151./255.,09./255.,1.)));
+register_image("overworld:savanna_grass_foliage", load_image("images/grass_foliage.png").color(create_color(198./255.,175./255.,50./255.,1.)));
 
 register_model("overworld:rock", "models/rock.bbm");
 register_model("overworld:branch", "models/branch.bbm");
