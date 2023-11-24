@@ -1,4 +1,4 @@
-create_item("core:selection_wand").on_right_click(|player,target|{
+create_item().on_right_click(|player,target|{
     if type_of(target) == "BlockPosition"{
         if !player.get_entity().is_shifting(){
             player.user_data[Identifier("core:first_selection")] = target;
@@ -8,7 +8,7 @@ create_item("core:selection_wand").on_right_click(|player,target|{
             player.send_chat_message("second point selected at " + target);
         }
     }
-}).register();
+}).register("core:selection_wand");
 register_event("bb:command", |player,command|{
     if command[0] == "/copy"{
         let first_selection = player.user_data[Identifier("core:first_selection")];
@@ -75,7 +75,7 @@ register_event("bb:command", |player,command|{
     }
 });
 
-create_entity("bb:player").client_viewmodel("core:viewmodel", "").client_viewmodel_add_item("main_hand").client_viewmodel_add_animation("equip").client_model("core:player","core:player").client_add_item("main_hand").client_hitbox(0.6, 1.7, 0.6).register();
+create_entity().client_viewmodel("core:viewmodel", "").client_viewmodel_add_item("main_hand").client_viewmodel_add_animation("equip").client_model("core:player","core:player").client_add_item("main_hand").client_hitbox(0.6, 1.7, 0.6).register("bb:player");
 
 register_image("bb:slot", "images/slot.png");
 register_image("bb:cursor", "images/cursor.png");

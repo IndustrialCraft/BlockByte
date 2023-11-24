@@ -118,9 +118,9 @@ impl ModManager {
         path: &Path,
     ) -> (
         Self,
-        Vec<BlockBuilder>,
-        Vec<ItemBuilder>,
-        Vec<EntityBuilder>,
+        HashMap<Identifier, BlockBuilder>,
+        HashMap<Identifier, ItemBuilder>,
+        HashMap<Identifier, EntityBuilder>,
         ClientContentData,
         Vec<BiomeBuilder>,
         HashMap<Identifier, Vec<ScriptCallback>>,
@@ -145,9 +145,9 @@ impl ModManager {
         let mut loading_engine = Engine::new();
         let current_mod_path = Arc::new(Mutex::new(PathBuf::new()));
         let content = Arc::new(Mutex::new(ClientContentData::new()));
-        let blocks = Arc::new(Mutex::new(Vec::new()));
-        let items = Arc::new(Mutex::new(Vec::new()));
-        let entities = Arc::new(Mutex::new(Vec::new()));
+        let blocks = Arc::new(Mutex::new(HashMap::new()));
+        let items = Arc::new(Mutex::new(HashMap::new()));
+        let entities = Arc::new(Mutex::new(HashMap::new()));
         let biomes = Arc::new(Mutex::new(Vec::new()));
         let events = Arc::new(Mutex::new(HashMap::new()));
         let registered_blocks = blocks.clone();
@@ -167,7 +167,6 @@ impl ModManager {
             .register_fn("add_property_bool", BlockBuilder::add_property_bool)
             .register_fn("add_property_number", BlockBuilder::add_property_number)
             .register_fn("breaking_tool", BlockBuilder::breaking_tool)
-            .register_fn("loot", BlockBuilder::loot)
             .register_fn("ticker", BlockBuilder::ticker)
             .register_fn("right_click_action", BlockBuilder::right_click_action)
             .register_fn("neighbor_update", BlockBuilder::neighbor_update)
@@ -190,22 +189,25 @@ impl ModManager {
             )
             .register_fn("dynamic_add_item", ModClientBlockData::dynamic_add_item)
             .register_fn("data_container", BlockBuilder::mark_data_container)
-            .register_fn("register", move |this: &mut Arc<Mutex<BlockBuilder>>| {
-                registered_blocks.lock().push(this.clone())
+            .register_fn("register", move |this: &mut BlockBuilder, id: &str| {
+                let id = Identifier::parse(id).unwrap();
+                registered_blocks.lock().insert(id.clone(), this.clone());
+                RegisteredBlock { id }
             })
             .register_fn(
                 "register_item",
-                move |this: &mut Arc<Mutex<BlockBuilder>>,
-                      item_id: &str,
-                      name: &str|
-                      -> Arc<Mutex<BlockBuilder>> {
-                    let mut item_builder = ItemBuilder::new(item_id);
-                    ItemBuilder::client_name(&mut item_builder, name);
-                    let block_id = { this.lock().id.to_string() };
-                    ItemBuilder::client_model_block(&mut item_builder, block_id.as_str());
-                    ItemBuilder::place(&mut item_builder, block_id.as_str());
-                    registered_items_from_blocks.lock().push(item_builder);
-                    this.clone()
+                move |this: &mut RegisteredBlock, item_id: &str, name: &str| {
+                    let mut item_builder = ItemBuilder::new();
+                    item_builder = ItemBuilder::client_name(&mut item_builder, name);
+                    item_builder = ItemBuilder::client_model_block(
+                        &mut item_builder,
+                        this.id.to_string().as_str(),
+                    );
+                    item_builder =
+                        ItemBuilder::place(&mut item_builder, this.id.to_string().as_str());
+                    registered_items_from_blocks
+                        .lock()
+                        .insert(Identifier::parse(item_id).unwrap(), item_builder);
                 },
             );
         loading_engine.register_fn("register_event", move |event: &str, callback: FnPtr| {
@@ -226,8 +228,10 @@ impl ModManager {
             .register_fn("place", ItemBuilder::place)
             .register_fn("on_right_click", ItemBuilder::on_right_click)
             .register_fn("stack_size", ItemBuilder::stack_size)
-            .register_fn("register", move |this: &mut Arc<Mutex<ItemBuilder>>| {
-                registered_items.lock().push(this.clone())
+            .register_fn("register", move |this: &mut ItemBuilder, id: &str| {
+                registered_items
+                    .lock()
+                    .insert(Identifier::parse(id).unwrap(), this.clone())
             });
         loading_engine
             .register_type_with_name::<EntityBuilder>("EntityBuilder")
@@ -246,8 +250,10 @@ impl ModManager {
             .register_fn("client_add_animation", EntityBuilder::client_add_animation)
             .register_fn("client_add_item", EntityBuilder::client_add_item)
             .register_fn("tick", EntityBuilder::tick)
-            .register_fn("register", move |this: &mut Arc<Mutex<EntityBuilder>>| {
-                registered_entities.lock().push(this.clone())
+            .register_fn("register", move |this: &mut EntityBuilder, id: &str| {
+                registered_entities
+                    .lock()
+                    .insert(Identifier::parse(id).unwrap(), this.clone())
             });
         loading_engine
             .register_type_with_name::<BiomeBuilder>("BiomeBuilder")
@@ -345,21 +351,9 @@ impl ModManager {
             }
             loaded_mod.1.load_scripts(&loading_engine, &mut errors);
         }
-        let blocks = blocks
-            .lock()
-            .iter()
-            .map(|block| block.lock().clone())
-            .collect();
-        let items = items
-            .lock()
-            .iter()
-            .map(|item| item.lock().clone())
-            .collect();
-        let entities = entities
-            .lock()
-            .iter()
-            .map(|entity| entity.lock().clone())
-            .collect();
+        let blocks = blocks.lock().clone();
+        let items = items.lock().clone();
+        let entities = entities.lock().clone();
         let biomes = biomes
             .lock()
             .iter()
@@ -931,14 +925,15 @@ impl BiomeBuilder {
         this.clone()
     }
 }
-
+#[derive(Clone)]
+pub struct RegisteredBlock {
+    id: Identifier,
+}
 #[derive(Clone, Debug)]
 pub struct BlockBuilder {
-    pub id: Identifier,
     pub client: ScriptCallback,
     pub data_container: Option<(u32,)>,
     pub breaking_data: (f32, Option<(ToolType, f32)>),
-    pub loot: Option<Identifier>,
     pub ticker: Option<ScriptCallback>,
     pub right_click_action: Option<ScriptCallback>,
     pub neighbor_update: Option<ScriptCallback>,
@@ -946,92 +941,72 @@ pub struct BlockBuilder {
 }
 
 impl BlockBuilder {
-    pub fn new(id: &str, client: FnPtr) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(BlockBuilder {
-            id: Identifier::parse(id).unwrap(),
+    pub fn new(client: FnPtr) -> Self {
+        BlockBuilder {
             client: ScriptCallback::new(client),
             data_container: None,
             breaking_data: (1., None),
-            loot: None,
             ticker: None,
             right_click_action: None,
             neighbor_update: None,
             properties: BlockStatePropertyStorage::new(),
-        }))
+        }
     }
-    pub fn add_property_horizontal_face(
-        this: &mut Arc<Mutex<Self>>,
-        name: &str,
-    ) -> Arc<Mutex<Self>> {
-        this.lock()
-            .properties
+    pub fn add_property_horizontal_face(&mut self, name: &str) -> Self {
+        let mut this = self.clone();
+        this.properties
             .register_property(name.to_string(), BlockStateProperty::HorizontalFace);
-        this.clone()
+        this
     }
-    pub fn add_property_face(this: &mut Arc<Mutex<Self>>, name: &str) -> Arc<Mutex<Self>> {
-        this.lock()
-            .properties
+    pub fn add_property_face(&mut self, name: &str) -> Self {
+        let mut this = self.clone();
+        this.properties
             .register_property(name.to_string(), BlockStateProperty::Face);
-        this.clone()
+        this
     }
-    pub fn add_property_bool(this: &mut Arc<Mutex<Self>>, name: &str) -> Arc<Mutex<Self>> {
-        this.lock()
-            .properties
+    pub fn add_property_bool(&mut self, name: &str) -> Self {
+        let mut this = self.clone();
+        this.properties
             .register_property(name.to_string(), BlockStateProperty::Bool);
-        this.clone()
+        this
     }
-    pub fn add_property_number(
-        this: &mut Arc<Mutex<Self>>,
-        name: &str,
-        range: RangeInclusive<i64>,
-    ) -> Arc<Mutex<Self>> {
-        this.lock().properties.register_property(
+    pub fn add_property_number(&mut self, name: &str, range: RangeInclusive<i64>) -> Self {
+        let mut this = self.clone();
+        this.properties.register_property(
             name.to_string(),
             BlockStateProperty::Number((*range.start() as i32)..=(*range.end() as i32)),
         );
-        this.clone()
+        this
     }
-    pub fn ticker(this: &mut Arc<Mutex<Self>>, ticker: FnPtr) -> Arc<Mutex<Self>> {
-        this.lock().ticker = Some(ScriptCallback::new(ticker));
-        this.clone()
+    pub fn ticker(&mut self, ticker: FnPtr) -> Self {
+        let mut this = self.clone();
+        this.ticker = Some(ScriptCallback::new(ticker));
+        this
     }
-    pub fn right_click_action(
-        this: &mut Arc<Mutex<Self>>,
-        click_action: FnPtr,
-    ) -> Arc<Mutex<Self>> {
-        this.lock().right_click_action = Some(ScriptCallback::new(click_action));
-        this.clone()
+    pub fn right_click_action(&mut self, click_action: FnPtr) -> Self {
+        let mut this = self.clone();
+        this.right_click_action = Some(ScriptCallback::new(click_action));
+        this
     }
-    pub fn neighbor_update(
-        this: &mut Arc<Mutex<Self>>,
-        neighbor_update: FnPtr,
-    ) -> Arc<Mutex<Self>> {
-        this.lock().neighbor_update = Some(ScriptCallback::new(neighbor_update));
-        this.clone()
+    pub fn neighbor_update(&mut self, neighbor_update: FnPtr) -> Self {
+        let mut this = self.clone();
+        this.neighbor_update = Some(ScriptCallback::new(neighbor_update));
+        this
     }
-    pub fn breaking_speed(this: &mut Arc<Mutex<Self>>, breaking_speed: f64) -> Arc<Mutex<Self>> {
-        this.lock().breaking_data.0 = breaking_speed as f32;
-        this.clone()
+    pub fn breaking_speed(&mut self, breaking_speed: f64) -> Self {
+        let mut this = self.clone();
+        this.breaking_data.0 = breaking_speed as f32;
+        this
     }
-
-    pub fn loot(this: &mut Arc<Mutex<Self>>, id: &str) -> Arc<Mutex<Self>> {
-        this.lock().loot = Some(Identifier::parse(id).unwrap());
-        this.clone()
+    pub fn breaking_tool(&mut self, tool_type: ToolType, hardness: f64) -> Self {
+        let mut this = self.clone();
+        this.breaking_data.1 = Some((tool_type, hardness as f32));
+        this
     }
-    pub fn breaking_tool(
-        this: &mut Arc<Mutex<Self>>,
-        tool_type: ToolType,
-        hardness: f64,
-    ) -> Arc<Mutex<Self>> {
-        this.lock().breaking_data.1 = Some((tool_type, hardness as f32));
-        this.clone()
-    }
-    pub fn mark_data_container(
-        this: &mut Arc<Mutex<Self>>,
-        inventory_size: i64,
-    ) -> Arc<Mutex<Self>> {
-        this.lock().data_container = Some((inventory_size as u32,));
-        this.clone()
+    pub fn mark_data_container(&mut self, inventory_size: i64) -> Self {
+        let mut this = self.clone();
+        this.data_container = Some((inventory_size as u32,));
+        this
     }
 }
 #[derive(Clone)]
@@ -1165,7 +1140,6 @@ impl ModClientBlockData {
 }
 #[derive(Clone)]
 pub struct ItemBuilder {
-    pub id: Identifier,
     pub client: ClientModItemData,
     pub place: Option<String>,
     pub on_right_click: Option<FnPtr>,
@@ -1175,7 +1149,7 @@ pub struct ItemBuilder {
 
 #[derive(Clone, Debug)]
 pub struct ClientModItemData {
-    pub name: String,
+    pub name: Option<String>,
     pub model: ClientModItemModel,
 }
 
@@ -1186,83 +1160,81 @@ pub enum ClientModItemModel {
 }
 
 impl ItemBuilder {
-    pub fn new(id: &str) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(ItemBuilder {
+    pub fn new() -> Self {
+        ItemBuilder {
             client: ClientModItemData {
-                name: id.to_string(),
+                name: None,
                 model: ClientModItemModel::Texture(String::new()),
             },
             place: None,
-            id: Identifier::parse(id).unwrap(),
             on_right_click: None,
             stack_size: 20,
             tool: None,
-        }))
+        }
     }
-    pub fn tool(
-        this: &mut Arc<Mutex<Self>>,
-        durability: i64,
-        speed: f64,
-        hardness: f64,
-    ) -> Arc<Mutex<Self>> {
-        let mut locked = this.lock();
-        locked.tool = Some(ToolData {
+    pub fn tool(&mut self, durability: i64, speed: f64, hardness: f64) -> Self {
+        let mut this = self.clone();
+        this.tool = Some(ToolData {
             durability: durability as u32,
             speed: speed as f32,
             hardness: hardness as f32,
             type_bitmap: 0u8,
         });
-        locked.stack_size = 1;
-        this.clone()
+        this.stack_size = 1;
+        this
     }
-    pub fn tool_add_type(this: &mut Arc<Mutex<Self>>, tool_type: ToolType) -> Arc<Mutex<Self>> {
-        if let Some(tool) = &mut this.lock().tool {
+    pub fn tool_add_type(&mut self, tool_type: ToolType) -> Self {
+        let mut this = self.clone();
+        if let Some(tool) = &mut this.tool {
             tool.add_type(tool_type);
         }
-        this.clone()
+        this
     }
-    pub fn client_name(this: &mut Arc<Mutex<Self>>, name: &str) -> Arc<Mutex<Self>> {
-        this.lock().client.name = name.to_string();
-        this.clone()
+    pub fn client_name(&mut self, name: &str) -> Self {
+        let mut this = self.clone();
+        this.client.name = Some(name.to_string());
+        this
     }
-    pub fn client_model_texture(this: &mut Arc<Mutex<Self>>, texture: &str) -> Arc<Mutex<Self>> {
-        this.lock().client.model = ClientModItemModel::Texture(texture.to_string());
-        this.clone()
+    pub fn client_model_texture(&mut self, texture: &str) -> Self {
+        let mut this = self.clone();
+        this.client.model = ClientModItemModel::Texture(texture.to_string());
+        this
     }
-    pub fn client_model_block(this: &mut Arc<Mutex<Self>>, block: &str) -> Arc<Mutex<Self>> {
-        this.lock().client.model = ClientModItemModel::Block(block.to_string());
-        this.clone()
+    pub fn client_model_block(&mut self, block: &str) -> Self {
+        let mut this = self.clone();
+        this.client.model = ClientModItemModel::Block(block.to_string());
+        this
     }
-    pub fn place(this: &mut Arc<Mutex<Self>>, place: &str) -> Arc<Mutex<Self>> {
-        this.lock().place = Some(place.to_string());
-        this.clone()
+    pub fn place(&mut self, place: &str) -> Self {
+        let mut this = self.clone();
+        this.place = Some(place.to_string());
+        this
     }
-    pub fn on_right_click(this: &mut Arc<Mutex<Self>>, callback: FnPtr) -> Arc<Mutex<Self>> {
-        this.lock().on_right_click = Some(callback);
-        this.clone()
+    pub fn on_right_click(&mut self, callback: FnPtr) -> Self {
+        let mut this = self.clone();
+        this.on_right_click = Some(callback);
+        this
     }
-    pub fn stack_size(this: &mut Arc<Mutex<Self>>, stack_size: u32) -> Arc<Mutex<Self>> {
-        let mut locked = this.lock();
-        if locked.tool.is_none() {
-            locked.stack_size = stack_size;
+    pub fn stack_size(&mut self, stack_size: u32) -> Self {
+        let mut this = self.clone();
+        if this.tool.is_none() {
+            this.stack_size = stack_size;
         } else {
             panic!("setting stack size of tool");
         }
-        this.clone()
+        this
     }
 }
 
 #[derive(Clone)]
 pub struct EntityBuilder {
-    pub id: Identifier,
     pub client: ClientEntityData,
     pub ticker: Option<FnPtr>,
 }
 
 impl EntityBuilder {
-    pub fn new(id: &str) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(EntityBuilder {
-            id: Identifier::parse(id).unwrap(),
+    pub fn new() -> Self {
+        EntityBuilder {
             client: ClientEntityData {
                 model: String::new(),
                 texture: String::new(),
@@ -1275,82 +1247,66 @@ impl EntityBuilder {
                 viewmodel: None,
             },
             ticker: None,
-        }))
+        }
     }
-    pub fn client_viewmodel(
-        this: &mut Arc<Mutex<Self>>,
-        model: &str,
-        texture: &str,
-    ) -> Arc<Mutex<Self>> {
-        this.lock().client.viewmodel = Some((
+    pub fn client_viewmodel(&mut self, model: &str, texture: &str) -> Self {
+        let mut this = self.clone();
+        this.client.viewmodel = Some((
             model.to_string(),
             texture.to_string(),
             Vec::new(),
             Vec::new(),
         ));
-        this.clone()
+        this
     }
-    pub fn client_viewmodel_add_animation(
-        this: &mut Arc<Mutex<Self>>,
-        animation: &str,
-    ) -> Arc<Mutex<Self>> {
-        this.lock()
-            .client
+    pub fn client_viewmodel_add_animation(&mut self, animation: &str) -> Self {
+        let mut this = self.clone();
+        this.client
             .viewmodel
             .as_mut()
             .unwrap()
             .2
             .push(animation.to_string());
-        this.clone()
+        this
     }
-    pub fn client_viewmodel_add_item(this: &mut Arc<Mutex<Self>>, item: &str) -> Arc<Mutex<Self>> {
-        this.lock()
-            .client
+    pub fn client_viewmodel_add_item(&mut self, item: &str) -> Self {
+        let mut this = self.clone();
+        this.client
             .viewmodel
             .as_mut()
             .unwrap()
             .3
             .push(item.to_string());
-        this.clone()
+        this
     }
-    pub fn tick(this: &mut Arc<Mutex<Self>>, callback: FnPtr) -> Arc<Mutex<Self>> {
-        this.lock().ticker = Some(callback);
-        this.clone()
+    pub fn tick(&mut self, callback: FnPtr) -> Self {
+        let mut this = self.clone();
+        this.ticker = Some(callback);
+        this
     }
-    pub fn client_model(
-        this: &mut Arc<Mutex<Self>>,
-        model: &str,
-        texture: &str,
-    ) -> Arc<Mutex<Self>> {
-        {
-            let mut borrowed = this.lock();
-            borrowed.client.model = model.to_string();
-            borrowed.client.texture = texture.to_string();
-        }
-        this.clone()
+    pub fn client_model(&mut self, model: &str, texture: &str) -> Self {
+        let mut this = self.clone();
+        this.client.model = model.to_string();
+        this.client.texture = texture.to_string();
+        this
     }
-    pub fn client_hitbox(
-        this: &mut Arc<Mutex<Self>>,
-        width: f64,
-        height: f64,
-        depth: f64,
-    ) -> Arc<Mutex<Self>> {
-        {
-            let mut borrowed = this.lock();
-            borrowed.client.hitbox_w = width;
-            borrowed.client.hitbox_h = height;
-            borrowed.client.hitbox_d = depth;
-            borrowed.client.hitbox_h_shifting = height * 0.75;
-        }
-        this.clone()
+    pub fn client_hitbox(&mut self, width: f64, height: f64, depth: f64) -> Self {
+        let mut this = self.clone();
+        this.client.hitbox_w = width;
+        this.client.hitbox_h = height;
+        this.client.hitbox_d = depth;
+        this.client.hitbox_h_shifting = height * 0.75;
+        this
     }
-    pub fn client_add_animation(this: &mut Arc<Mutex<Self>>, animation: &str) -> Arc<Mutex<Self>> {
-        this.lock().client.animations.push(animation.to_string());
-        this.clone()
+    pub fn client_add_animation(&mut self, animation: &str) -> Self {
+        let mut this = self.clone();
+        this.client.animations.push(animation.to_string());
+        this
     }
-    pub fn client_add_item(this: &mut Arc<Mutex<Self>>, item: &str) -> Arc<Mutex<Self>> {
-        this.lock().client.items.push(item.to_string());
-        this.clone()
+    pub fn client_add_item(&mut self, item: &str) -> Self {
+        let mut this = self.clone();
+        this.client.items.push(item.to_string());
+        this
     }
 }
 

@@ -135,11 +135,11 @@ impl Server {
         let block_registry = RefCell::new(BlockRegistry::new());
         let item_registry = RefCell::new(ItemRegistry::new());
         let entity_registry = RefCell::new(EntityRegistry::new());
-        for block_data in &loaded_mods.1 {
+        for (id, block_data) in &loaded_mods.1 {
             block_registry
                 .borrow_mut()
                 .register(
-                    block_data.id.clone(),
+                    id.clone(),
                     |default_state, id| {
                         Arc::new(Block {
                             id,
@@ -158,7 +158,7 @@ impl Server {
                                 .clone()
                                 .unwrap_or(ScriptCallback::empty()),
                             breaking_data: block_data.breaking_data.clone(),
-                            loottable: block_data.loot.clone(),
+                            loottable: None, //todo: block loot
                             properties: block_data.properties.clone(),
                             neighbor_update: block_data
                                 .neighbor_update
@@ -178,15 +178,13 @@ impl Server {
                 )
                 .unwrap();
         }
-        for item_data in loaded_mods.2 {
+        for (id, item_data) in loaded_mods.2 {
             item_registry
                 .borrow_mut()
-                .register(item_data.id.clone(), |id| {
+                .register(id.clone(), |client_id| {
                     Arc::new(Item {
-                        id: item_data.id,
-                        client_id: id,
                         client_data: ClientItemData {
-                            name: item_data.client.name,
+                            name: item_data.client.name.unwrap_or(id.to_string()),
                             model: match item_data.client.model {
                                 ClientModItemModel::Texture(texture) => {
                                     ClientItemModel::Texture(texture)
@@ -202,6 +200,8 @@ impl Server {
                                 ),
                             },
                         },
+                        id,
+                        client_id,
                         place_block: item_data.place.map(|place| {
                             block_registry.borrow().state_from_string(&place).unwrap()
                         }),
@@ -214,13 +214,13 @@ impl Server {
                 })
                 .unwrap();
         }
-        for entity_data in loaded_mods.3 {
+        for (id, entity_data) in loaded_mods.3 {
             entity_registry
                 .borrow_mut()
-                .register(entity_data.id.clone(), |id| {
+                .register(id.clone(), |client_id| {
                     Arc::new(EntityType {
-                        id: entity_data.id,
-                        client_id: id,
+                        id,
+                        client_id,
                         client_data: entity_data.client,
                         ticker: Mutex::new(
                             entity_data.ticker.map(|ticker| ScriptCallback::new(ticker)),
