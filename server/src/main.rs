@@ -171,6 +171,7 @@ impl Server {
                             .client
                             .call_function(
                                 &loaded_mods.8,
+                                None,
                                 (block.properties.dump_properties(state),),
                             )
                             .cast::<ModClientBlockData>()
@@ -363,7 +364,7 @@ impl Server {
     pub fn call_event(&self, id: Identifier, args: impl FuncArgs + Clone) {
         if let Some(event_list) = self.events.get(&id) {
             for event in event_list {
-                let _ = event.call_function(&self.engine, args.clone());
+                let _ = event.call_function(&self.engine, None, args.clone());
             }
         }
     }

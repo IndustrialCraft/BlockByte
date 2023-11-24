@@ -502,6 +502,7 @@ impl BlockState {
     pub fn on_block_update(&self, location: ChunkBlockLocation) {
         let _ = self.parent.neighbor_update.call_function(
             &location.chunk.world.server.engine,
+            None,
             (Into::<BlockLocation>::into(&location),),
         );
         /*if let Some(hangs_on) = &self.hangs_on {
@@ -728,8 +729,11 @@ impl Item {
         }
         if let Some(right_click) = &self.on_right_click {
             //todo: supply itemstack parameter
-            let _ =
-                right_click.call_function(&player.server.clone().engine, (player, block_position));
+            let _ = right_click.call_function(
+                &player.server.clone().engine,
+                None,
+                (player, block_position),
+            );
             return InteractionResult::Consumed;
         }
         InteractionResult::Ignored
@@ -741,8 +745,11 @@ impl Item {
     ) -> InteractionResult {
         if let Some(right_click) = &self.on_right_click {
             //todo: supply itemstack parameter
-            let _ =
-                right_click.call_function(&player.server.clone().engine, (player, Dynamic::UNIT));
+            let _ = right_click.call_function(
+                &player.server.clone().engine,
+                None,
+                (player, Dynamic::UNIT),
+            );
             return InteractionResult::Consumed;
         }
         InteractionResult::Ignored

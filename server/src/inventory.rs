@@ -132,6 +132,7 @@ impl Inventory {
         for viewer in self.viewers.lock().iter() {
             let _ = viewer.1.client_property_listener.call_function(
                 &server.engine,
+                None,
                 (
                     ModGuiViewer {
                         viewer: viewer.1.viewer.clone(),
@@ -259,6 +260,7 @@ impl Inventory {
         for property in self.client_properties.lock().data_points() {
             let _ = viewer.client_property_listener.call_function(
                 &viewer.viewer.server.engine,
+                None,
                 (
                     ModGuiViewer {
                         viewer: viewer.viewer.clone(),

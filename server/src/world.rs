@@ -1449,7 +1449,8 @@ impl Entity {
             *self.teleport.lock() = None;
         }
         if let Some(ticker) = &*self.entity_type.ticker.lock() {
-            let _ = ticker.call_function(&self.server.engine, (self.this.upgrade().unwrap(),));
+            let _ =
+                ticker.call_function(&self.server.engine, None, (self.this.upgrade().unwrap(),));
         }
         if let Some(player) = self.get_player() {
             let messages = player.connection.lock().receive_messages();
@@ -1775,6 +1776,7 @@ impl Entity {
                                 .right_click_action
                                 .call_function(
                                     &self.server.engine,
+                                    None,
                                     (
                                         player.ptr(),
                                         block_position,
@@ -2503,10 +2505,10 @@ impl WorldBlock {
         }
     }
     pub fn tick(&self) {
-        let _ = self
-            .block
-            .ticker
-            .call_function(&self.chunk().world.server.engine, (self.ptr(),));
+        let _ =
+            self.block
+                .ticker
+                .call_function(&self.chunk().world.server.engine, None, (self.ptr(),));
         /*let recipe_time_identifier = Identifier::new("bb", "recipe_time");
         let mut user_data = self.user_data.lock();
         if let Some(time) = user_data.take_data_point(&recipe_time_identifier) {

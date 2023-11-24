@@ -11,7 +11,9 @@ use image::{ImageOutputFormat, Rgba, RgbaImage};
 use json::JsonValue;
 use parking_lot::{Mutex, MutexGuard};
 use rhai::plugin::*;
-use rhai::{exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, AST};
+use rhai::{
+    exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, GlobalRuntimeState, StaticVec, AST,
+};
 use splines::{Interpolation, Spline};
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
@@ -1359,9 +1361,18 @@ impl ScriptCallback {
     pub fn empty() -> Self {
         Self { function: None }
     }
-    pub fn call_function(&self, engine: &Engine, args: impl FuncArgs) -> Dynamic {
+    pub fn call_function(
+        &self,
+        engine: &Engine,
+        this: Option<&mut Dynamic>,
+        args: impl FuncArgs,
+    ) -> Dynamic {
         if let Some(function) = &self.function {
-            match function.call::<Dynamic>(engine, Self::AST.get_or_init(|| AST::empty()), args) {
+            let mut arg_values = StaticVec::new_const();
+            args.parse(&mut arg_values);
+            let global = &mut GlobalRuntimeState::new(engine);
+            let context = (engine, "", None, &*global, rhai::Position::NONE).into();
+            match function.call_raw(&context, this, arg_values) {
                 Ok(ret) => ret,
                 Err(error) => {
                     println!("callback error: {error:#?}");
