@@ -1,3 +1,6 @@
 {
-    "id": "overworld"
+    "id": "overworld",
+    "name": "Overworld",
+    "description": "Adds basic world generation",
+    "authors": ["mmm1245"]
 }

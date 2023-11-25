@@ -1,0 +1,8 @@
+[book]
+authors = ["mmm1245"]
+language = "en"
+multilingual = false
+src = "src"
+title = "BlockByte Docs"
+[output.html.code.hidelines]
+rhai = "#"

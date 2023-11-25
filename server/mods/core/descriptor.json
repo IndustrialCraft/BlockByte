@@ -1,3 +1,6 @@
 {
-    "id": "core"
+    "id": "core",
+    "name": "Core",
+    "description": "BlockByte core mod",
+    "authors": ["mmm1245"]
 }

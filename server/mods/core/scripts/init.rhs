@@ -8,7 +8,7 @@ create_item().on_right_click(|player,target|{
             player.send_chat_message("second point selected at " + target);
         }
     }
-}).register("core:selection_wand");
+}).client_name("Selection Wand").register("core:selection_wand");
 register_event("bb:command", ||{
     let command = this.command;
     let player = this.player;
