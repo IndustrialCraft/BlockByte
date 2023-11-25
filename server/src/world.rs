@@ -1182,10 +1182,6 @@ impl Entity {
             pathfinder: Mutex::new(Pathfinder::new((&location).into())),
             location: Mutex::new(location.clone()),
         });
-        entity.pathfinder.lock().set_target(Some(BlockLocation {
-            world: location.chunk.world.clone(),
-            position: BlockPosition { x: 5, y: 3, z: 5 },
-        }));
         chunk.add_entity(entity.clone());
         let add_message = entity.create_add_messages(entity.get_location().position);
         for viewer in chunk.viewers.lock().iter() {
