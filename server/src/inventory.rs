@@ -69,7 +69,9 @@ impl ItemStack {
 }
 impl ScriptingObject for ItemStack {
     fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
-        engine.register_fn("get_id", |item: &mut ItemStack| item.item_type.id.clone());
+        engine.register_fn("get_id", |item: &mut ItemStack| {
+            item.item_type.id.to_string()
+        });
     }
 }
 pub type InventoryClickHandler =
@@ -756,9 +758,9 @@ impl ScriptingObject for InventoryWrapper {
             let server = server.clone();
             engine.register_fn(
                 "set_client_property",
-                move |inventory: &mut InventoryWrapper, id: Identifier, value: Dynamic| {
+                move |inventory: &mut InventoryWrapper, id: &str, value: Dynamic| {
                     inventory.get_inventory().set_client_property(
-                        &id,
+                        &Identifier::parse(id).unwrap(),
                         value,
                         &server.upgrade().unwrap(),
                     );
@@ -861,8 +863,13 @@ impl ScriptingObject for Recipe {
         engine.register_type_with_name::<Arc<Recipe>>("Recipe");
         {
             let server = server.clone();
-            engine.register_fn("Recipe", move |id: Identifier| {
-                match server.upgrade().unwrap().recipes.by_id(&id) {
+            engine.register_fn("Recipe", move |id: &str| {
+                match server
+                    .upgrade()
+                    .unwrap()
+                    .recipes
+                    .by_id(&Identifier::parse(id).unwrap())
+                {
                     Some(recipe) => Dynamic::from(recipe),
                     None => Dynamic::UNIT,
                 }
@@ -870,12 +877,12 @@ impl ScriptingObject for Recipe {
         }
         {
             let server = server.clone();
-            engine.register_fn("recipes_by_type", move |id: Identifier| {
+            engine.register_fn("recipes_by_type", move |id: &str| {
                 server
                     .upgrade()
                     .unwrap()
                     .recipes
-                    .by_type(&id)
+                    .by_type(&Identifier::parse(id).unwrap())
                     .iter()
                     .map(|recipe| Dynamic::from(recipe.clone()))
                     .collect::<rhai::Array>()

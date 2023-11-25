@@ -88,6 +88,6 @@ register_model("core:viewmodel", "models/viewmodel.bbm");
 
 register_sound("core:equip", "sounds/equip.wav");
 
-register_event("bb:player_join", ||{this.entity = Entity(Identifier("core:player"), this.location);});
+register_event("bb:player_join", ||{this.entity = Entity("core:player", this.location);});
 
 register_event("bb:post_player_join", ||{this.player.creative(true);this.player.movement_type(MovementType::Fly);this.player.speed(10.);});

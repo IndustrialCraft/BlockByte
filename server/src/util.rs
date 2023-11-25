@@ -1,7 +1,7 @@
 use crate::mods::ScriptingObject;
 use crate::Server;
 use block_byte_common::{BlockPosition, Position};
-use rhai::{Dynamic, Engine};
+use rhai::Engine;
 use serde::{Deserialize, Serialize};
 use std::sync::Weak;
 use std::{fmt::Display, sync::Arc};
@@ -42,19 +42,7 @@ impl Display for Identifier {
     }
 }
 impl ScriptingObject for Identifier {
-    fn engine_register(engine: &mut Engine) {
-        engine.register_type_with_name::<Identifier>("Identifier");
-        engine.register_fn("Identifier", |namespace: &str, key: &str| {
-            Identifier::new(namespace, key)
-        });
-        engine.register_fn("Identifier", |id: &str| match Identifier::parse(id) {
-            Ok(id) => Dynamic::from(id),
-            Err(_) => Dynamic::UNIT,
-        });
-        engine.register_fn("to_string", |identifier: &mut Identifier| {
-            identifier.to_string()
-        });
-    }
+    fn engine_register(_engine: &mut Engine) {}
 }
 
 #[derive(Clone)]

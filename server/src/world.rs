@@ -1952,14 +1952,14 @@ impl ScriptingObject for Entity {
         engine.register_type_with_name::<Arc<Entity>>("Entity");
         {
             let server = server.clone();
-            engine.register_fn("Entity", move |id: Identifier, location: Location| {
+            engine.register_fn("Entity", move |id: &str, location: Location| {
                 Entity::new(
                     &location,
                     server
                         .upgrade()
                         .unwrap()
                         .entity_registry
-                        .entity_by_identifier(&id)
+                        .entity_by_identifier(&Identifier::parse(id).unwrap())
                         .unwrap(),
                 )
             });

@@ -364,8 +364,8 @@ impl ModManager {
         let call_engine = loading_engine.clone();
         loading_engine
             .write()
-            .register_fn("call_event", move |id: Identifier, args: Dynamic| {
-                call_events.call_event(id, args, &call_engine.read())
+            .register_fn("call_event", move |id: &str, args: Dynamic| {
+                call_events.call_event(Identifier::parse(id).unwrap(), args, &call_engine.read())
             });
 
         let _ = events.call_event(
@@ -550,8 +550,11 @@ impl ModManager {
         }
         {
             let server = server.clone();
-            engine.register_fn("call_event", move |id: Identifier, event_data: Dynamic| {
-                server.upgrade().unwrap().call_event(id, event_data)
+            engine.register_fn("call_event", move |id: &str, event_data: Dynamic| {
+                server
+                    .upgrade()
+                    .unwrap()
+                    .call_event(Identifier::parse(id).unwrap(), event_data)
             });
         }
         engine.register_static_module("MovementType", exported_module!(MovementTypeModule).into());
@@ -799,20 +802,19 @@ impl ScriptingObject for IdentifierTag {
     fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
         {
             let server = server.clone();
-            engine.register_fn("Tag", move |id: Identifier| {
+            engine.register_fn("Tag", move |id: &str| {
                 server
                     .upgrade()
                     .unwrap()
                     .tags
-                    .get(&id)
+                    .get(&Identifier::parse(id).unwrap())
                     .map(|tag| Dynamic::from(tag.clone()))
                     .unwrap_or(Dynamic::UNIT)
             });
         }
-        engine.register_fn(
-            "contains",
-            |tag: &mut Arc<IdentifierTag>, id: Identifier| tag.contains(&id),
-        );
+        engine.register_fn("contains", |tag: &mut Arc<IdentifierTag>, id: &str| {
+            tag.contains(&Identifier::parse(id).unwrap())
+        });
         {
             let server = server.clone();
             engine.register_fn(
@@ -853,15 +855,17 @@ impl ScriptingObject for UserDataWrapper {
     fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
         engine.register_type_with_name::<UserDataWrapper>("UserData");
         engine.register_indexer_get_set(
-            |user_data: &mut UserDataWrapper, id: Identifier| {
+            |user_data: &mut UserDataWrapper, id: &str| {
                 user_data
                     .get_user_data()
-                    .get_data_point_ref(&id)
+                    .get_data_point_ref(&Identifier::parse(id).unwrap())
                     .cloned()
                     .unwrap_or(Dynamic::UNIT)
             },
-            |user_data: &mut UserDataWrapper, id: Identifier, value: Dynamic| {
-                user_data.get_user_data().put_data_point(&id, value);
+            |user_data: &mut UserDataWrapper, id: &str, value: Dynamic| {
+                user_data
+                    .get_user_data()
+                    .put_data_point(&Identifier::parse(id).unwrap(), value);
             },
         );
     }
