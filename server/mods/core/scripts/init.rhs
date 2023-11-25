@@ -9,7 +9,9 @@ create_item().on_right_click(|player,target|{
         }
     }
 }).register("core:selection_wand");
-register_event("bb:command", |player,command|{
+register_event("bb:command", ||{
+    let command = this.command;
+    let player = this.player;
     if command[0] == "/copy"{
         let first_selection = player.user_data[Identifier("core:first_selection")];
         let second_selection = player.user_data[Identifier("core:second_selection")];
@@ -86,4 +88,4 @@ register_model("core:viewmodel", "models/viewmodel.bbm");
 
 register_sound("core:equip", "sounds/equip.wav");
 
-register_event("bb:player_join", |player|{player.creative(true);player.movement_type(MovementType::Fly);player.speed(10.);});
+register_event("bb:player_join", ||{this.player.creative(true);this.player.movement_type(MovementType::Fly);this.player.speed(10.);});

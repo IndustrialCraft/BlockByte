@@ -1866,9 +1866,12 @@ impl Entity {
                                 .split(" ")
                                 .map(|str| Dynamic::from_str(str).unwrap())
                                 .collect();
-                            self.server.call_event(
+                            let mut event_data = rhai::Map::new();
+                            event_data.insert("player".into(), Dynamic::from(player.clone()));
+                            event_data.insert("command".into(), parts.into());
+                            let _ = self.server.call_event(
                                 Identifier::new("bb", "command"),
-                                (player.clone(), parts),
+                                Dynamic::from(event_data),
                             );
                         }
                     }

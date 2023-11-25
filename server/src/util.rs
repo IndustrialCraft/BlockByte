@@ -42,7 +42,7 @@ impl Display for Identifier {
     }
 }
 impl ScriptingObject for Identifier {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register(engine: &mut Engine) {
         engine.register_type_with_name::<Identifier>("Identifier");
         engine.register_fn("Identifier", |namespace: &str, key: &str| {
             Identifier::new(namespace, key)

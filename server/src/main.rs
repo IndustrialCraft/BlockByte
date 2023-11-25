@@ -32,7 +32,7 @@ use std::{
 };
 
 use crate::inventory::GUILayout;
-use crate::mods::{ClientModItemModel, IdentifierTag, ModClientBlockData};
+use crate::mods::{ClientModItemModel, EventManager, IdentifierTag, ModClientBlockData};
 use crate::registry::RecipeManager;
 use crate::world::PlayerData;
 use block_byte_common::content::{ClientEntityData, ClientItemData, ClientItemModel};
@@ -47,7 +47,7 @@ use parking_lot::Mutex;
 use registry::{
     Block, BlockRegistry, EntityRegistry, EntityType, Item, ItemModelMapping, ItemRegistry,
 };
-use rhai::{Engine, FuncArgs};
+use rhai::{Dynamic, Engine};
 use splines::Spline;
 use threadpool::ThreadPool;
 use util::{Identifier, Location};
@@ -112,7 +112,7 @@ pub struct Server {
     world_generator_template: (Vec<Biome>,),
     structures: HashMap<Identifier, Arc<Structure>>,
     recipes: RecipeManager,
-    events: HashMap<Identifier, Vec<ScriptCallback>>,
+    events: EventManager,
     engine: Engine,
     save_directory: PathBuf,
     settings: ServerSettings,
@@ -170,7 +170,7 @@ impl Server {
                         block_data
                             .client
                             .call_function(
-                                &loaded_mods.8,
+                                &loaded_mods.8.read(),
                                 None,
                                 (block.properties.dump_properties(state),),
                             )
@@ -361,13 +361,6 @@ impl Server {
         };
         fs::write(path, data).unwrap();
     }
-    pub fn call_event(&self, id: Identifier, args: impl FuncArgs + Clone) {
-        if let Some(event_list) = self.events.get(&id) {
-            for event in event_list {
-                let _ = event.call_function(&self.engine, None, args.clone());
-            }
-        }
-    }
     pub fn get_or_create_world(&self, identifier: Identifier) -> Arc<World> {
         let mut worlds = self.worlds.lock();
         if let Some(world) = worlds.get(&identifier) {
@@ -398,6 +391,9 @@ impl Server {
             world: self.get_or_create_world(Identifier::new("bb", "lobby")),
         }
     }
+    pub fn call_event(&self, id: Identifier, event_data: Dynamic) -> Dynamic {
+        self.events.call_event(id, event_data, &self.engine)
+    }
     pub fn tick(&self) {
         while let Ok(connection) = self.new_players.lock().try_recv() {
             let entity = Entity::new(
@@ -408,7 +404,9 @@ impl Server {
             );
             let player = PlayerData::new(connection, self.ptr(), entity);
             self.players.lock().push(player.clone());
-            self.call_event(Identifier::new("bb", "player_join"), (player,));
+            let mut event_data = rhai::Map::new();
+            event_data.insert("player".into(), Dynamic::from(player));
+            let _ = self.call_event(Identifier::new("bb", "player_join"), event_data.into());
         }
         for player in &*self.players.lock() {
             player.tick();

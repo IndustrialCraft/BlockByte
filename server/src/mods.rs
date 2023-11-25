@@ -9,7 +9,7 @@ use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, Position, Ve
 use image::io::Reader;
 use image::{ImageOutputFormat, Rgba, RgbaImage};
 use json::JsonValue;
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::{Mutex, MutexGuard, RwLock};
 use rhai::plugin::*;
 use rhai::{
     exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, GlobalRuntimeState, StaticVec, AST,
@@ -125,9 +125,9 @@ impl ModManager {
         HashMap<Identifier, EntityBuilder>,
         ClientContentData,
         Vec<BiomeBuilder>,
-        HashMap<Identifier, Vec<ScriptCallback>>,
+        EventManager,
         Vec<(String, Box<EvalAltResult>)>,
-        Engine,
+        Arc<RwLock<Engine>>,
     ) {
         let mut errors = Vec::new();
         let mut mods = HashMap::new();
@@ -151,7 +151,7 @@ impl ModManager {
         let items = Arc::new(Mutex::new(HashMap::new()));
         let entities = Arc::new(Mutex::new(HashMap::new()));
         let biomes = Arc::new(Mutex::new(Vec::new()));
-        let events = Arc::new(Mutex::new(HashMap::new()));
+        let events = Arc::new(Mutex::new(EventManager::new()));
         let registered_blocks = blocks.clone();
         let registered_items = items.clone();
         let registered_items_from_blocks = items.clone();
@@ -214,10 +214,10 @@ impl ModManager {
             );
         loading_engine.register_fn("register_event", move |event: &str, callback: FnPtr| {
             let mut registerd_events = registered_events.lock();
-            registerd_events
-                .entry(Identifier::parse(event).unwrap())
-                .or_insert(Vec::new())
-                .push(ScriptCallback::new(callback));
+            registerd_events.register(
+                Identifier::parse(event).unwrap(),
+                ScriptCallback::new(callback),
+            );
         });
         loading_engine
             .register_type_with_name::<ItemBuilder>("ItemBuilder")
@@ -344,6 +344,9 @@ impl ModManager {
 
         Transformation::engine_register(&mut loading_engine);
         HorizontalFace::engine_register(&mut loading_engine);
+        Identifier::engine_register(&mut loading_engine);
+
+        let loading_engine = Arc::new(RwLock::new(loading_engine));
 
         for loaded_mod in &mods {
             {
@@ -351,8 +354,26 @@ impl ModManager {
                 path.clear();
                 path.push(loaded_mod.1.path.clone());
             }
-            loaded_mod.1.load_scripts(&loading_engine, &mut errors);
+            loaded_mod
+                .1
+                .load_scripts(&loading_engine.read(), &mut errors);
         }
+        let events = (*events.lock()).clone();
+
+        let call_events = events.clone();
+        let call_engine = loading_engine.clone();
+        loading_engine
+            .write()
+            .register_fn("call_event", move |id: Identifier, args: Dynamic| {
+                call_events.call_event(id, args, &call_engine.read())
+            });
+
+        let _ = events.call_event(
+            Identifier::new("bb", "init"),
+            Dynamic::UNIT,
+            &loading_engine.read(),
+        );
+
         let blocks = blocks.lock().clone();
         let items = items.lock().clone();
         let entities = entities.lock().clone();
@@ -361,7 +382,6 @@ impl ModManager {
             .iter()
             .map(|biome| biome.lock().clone())
             .collect();
-        let events = (*events.lock()).clone();
         //println!("{blocks:#?}\n{items:#?}\n{entities:#?}");
         let content = content.lock().clone();
         (
@@ -527,6 +547,12 @@ impl ModManager {
         {
             let server = server.clone();
             engine.register_fn("Server", move || server.upgrade().unwrap());
+        }
+        {
+            let server = server.clone();
+            engine.register_fn("call_event", move |id: Identifier, event_data: Dynamic| {
+                server.upgrade().unwrap().call_event(id, event_data)
+            });
         }
         engine.register_static_module("MovementType", exported_module!(MovementTypeModule).into());
         engine.register_static_module("Face", exported_module!(FaceModule).into());
@@ -1385,6 +1411,28 @@ impl ScriptCallback {
     }
     pub fn is_empty(&self) -> bool {
         self.function.is_none()
+    }
+}
+#[derive(Clone)]
+pub struct EventManager {
+    events: HashMap<Identifier, Vec<ScriptCallback>>,
+}
+impl EventManager {
+    pub fn new() -> Self {
+        EventManager {
+            events: HashMap::new(),
+        }
+    }
+    pub fn call_event(&self, id: Identifier, mut event_data: Dynamic, engine: &Engine) -> Dynamic {
+        if let Some(event_list) = self.events.get(&id) {
+            for event in event_list {
+                let _ = event.call_function(engine, Some(&mut event_data), ());
+            }
+        }
+        event_data
+    }
+    pub fn register(&mut self, id: Identifier, callback: ScriptCallback) {
+        self.events.entry(id).or_insert(Vec::new()).push(callback);
     }
 }
 #[export_module]
