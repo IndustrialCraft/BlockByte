@@ -1952,8 +1952,22 @@ impl Entity {
     }
 }
 impl ScriptingObject for Entity {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
         engine.register_type_with_name::<Arc<Entity>>("Entity");
+        {
+            let server = server.clone();
+            engine.register_fn("Entity", move |id: Identifier, location: Location| {
+                Entity::new(
+                    &location,
+                    server
+                        .upgrade()
+                        .unwrap()
+                        .entity_registry
+                        .entity_by_identifier(&id)
+                        .unwrap(),
+                )
+            });
+        }
         engine.register_fn("is_shifting", |entity: &mut Arc<Entity>| {
             entity.is_shifting()
         });

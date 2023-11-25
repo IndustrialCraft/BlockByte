@@ -77,7 +77,7 @@ register_event("bb:command", ||{
     }
 });
 
-create_entity().client_viewmodel("core:viewmodel", "").client_viewmodel_add_item("main_hand").client_viewmodel_add_animation("equip").client_model("core:player","core:player").client_add_item("main_hand").client_hitbox(0.6, 1.7, 0.6).register("bb:player");
+create_entity().client_viewmodel("core:viewmodel", "").client_viewmodel_add_item("main_hand").client_viewmodel_add_animation("equip").client_model("core:player","core:player").client_add_item("main_hand").client_hitbox(0.6, 1.7, 0.6).register("core:player");
 
 register_image("bb:slot", "images/slot.png");
 register_image("bb:cursor", "images/cursor.png");
@@ -88,4 +88,6 @@ register_model("core:viewmodel", "models/viewmodel.bbm");
 
 register_sound("core:equip", "sounds/equip.wav");
 
-register_event("bb:player_join", ||{this.player.creative(true);this.player.movement_type(MovementType::Fly);this.player.speed(10.);});
+register_event("bb:player_join", ||{this.entity = Entity(Identifier("core:player"), this.location);});
+
+register_event("bb:post_player_join", ||{this.player.creative(true);this.player.movement_type(MovementType::Fly);this.player.speed(10.);});

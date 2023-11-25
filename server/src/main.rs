@@ -396,17 +396,29 @@ impl Server {
     }
     pub fn tick(&self) {
         while let Ok(connection) = self.new_players.lock().try_recv() {
-            let entity = Entity::new(
-                &self.get_spawn_location(),
-                self.entity_registry
-                    .entity_by_identifier(&Identifier::new("bb", "player"))
-                    .unwrap(),
-            );
-            let player = PlayerData::new(connection, self.ptr(), entity);
-            self.players.lock().push(player.clone());
-            let mut event_data = rhai::Map::new();
-            event_data.insert("player".into(), Dynamic::from(player));
-            let _ = self.call_event(Identifier::new("bb", "player_join"), event_data.into());
+            let player = {
+                let mut event_data = rhai::Map::new();
+                event_data.insert("location".into(), Dynamic::from(self.get_spawn_location()));
+                let event_data =
+                    self.call_event(Identifier::new("bb", "player_join"), event_data.into());
+                let mut event_data: rhai::Map = event_data.try_cast().unwrap();
+                let entity = event_data
+                    .remove("entity")
+                    .unwrap()
+                    .try_cast::<Arc<Entity>>()
+                    .unwrap();
+
+                let player = PlayerData::new(connection, self.ptr(), entity);
+                self.players.lock().push(player.clone());
+
+                player
+            };
+            {
+                let mut event_data = rhai::Map::new();
+                event_data.insert("player".into(), Dynamic::from(player));
+                let _ =
+                    self.call_event(Identifier::new("bb", "post_player_join"), event_data.into());
+            }
         }
         for player in &*self.players.lock() {
             player.tick();
