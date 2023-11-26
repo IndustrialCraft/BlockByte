@@ -34,9 +34,15 @@ var s_diffuse: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.tex_coords) * vec4(f32(in.color&0xFFu)/255.,f32((in.color>>8u)&0xFFu)/255.,f32((in.color>>16u)&0xFFu)/255.,f32((in.color>>24u)&0xFFu)/255.);
-    if color.w == 0.{
-        discard;
+    let coloring = vec4(f32(in.color&0xFFu)/255.,f32((in.color>>8u)&0xFFu)/255.,f32((in.color>>16u)&0xFFu)/255.,f32((in.color>>24u)&0xFFu)/255.);
+    let texture = textureSample(t_diffuse, s_diffuse, in.tex_coords);
+    if in.tex_coords.x == 0. && in.tex_coords.y == 0.{
+        return coloring;
+    } else {
+        let color: vec4<f32> = texture * coloring;
+        if color.w == 0.{
+            discard;
+        }
+        return color;
     }
-    return color;
 }

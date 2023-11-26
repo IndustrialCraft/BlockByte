@@ -268,7 +268,7 @@ impl<'a> GUIRenderer<'a> {
                             aspect_ratio,
                             self.gui_scale,
                             mouse,
-                            1000.,
+                            10.,
                         );
                     }
                 }
@@ -320,6 +320,7 @@ impl<'a> GUIRenderer<'a> {
         depth: f32,
         slice: Option<&(Vec2, Vec2)>,
     ) {
+        let depth = depth / 1000.;
         let anchor = anchor.get_center(mouse);
         let position = Vec2 {
             x: anchor.x + ((center.x - (size.x / 2.)) * gui_scale) / aspect_ratio,
@@ -407,30 +408,69 @@ impl<'a> TextRenderer<'a> {
             .font
             .layout(text, Scale::uniform(size), rusttype::Point { x: 0., y: 0. });
         let glyphs: Vec<_> = layout.collect();
+        let width: f32 = glyphs
+            .iter()
+            .map(|glyph| glyph.unpositioned().h_metrics().advance_width)
+            .sum();
+        let height = glyphs
+            .iter()
+            .map(|glyph| {
+                glyph
+                    .unpositioned()
+                    .exact_bounding_box()
+                    .map(|bb| -bb.min.y + bb.max.y)
+                    .unwrap_or(0.)
+            })
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap_or(0.);
         for glyph in glyphs {
             if let Some(bb) = glyph.unpositioned().exact_bounding_box() {
                 let texture = texture_atlas
                     .get(("font_".to_string() + glyph.id().0.to_string().as_str()).as_str());
+                let size_x = -bb.min.x + bb.max.x;
+                let size_y = -bb.min.y + bb.max.y;
+                let x = glyph.position().x + center.x + size_x;
+                let y = glyph.position().y - bb.min.y + center.y - (height / 2.);
                 GUIRenderer::add_rect_vertices(
                     vertices,
                     anchor,
                     Vec2 {
-                        x: glyph.position().x + center.x,
-                        y: glyph.position().y - bb.max.y + center.y,
+                        x: x - (size_x / 2.) - (width / 2.),
+                        y: y - (size_y / 2.),
                     },
                     Vec2 {
-                        x: glyph.unpositioned().h_metrics().advance_width,
-                        y: -bb.min.y + bb.max.y,
+                        x: size_x,
+                        y: size_y,
                     },
                     texture,
                     color,
                     aspect_ratio,
                     gui_scale,
                     mouse,
-                    depth,
+                    depth + 0.1,
                     None,
                 );
             }
         }
+        let border = 5. * 2.;
+        GUIRenderer::add_rect_vertices(
+            vertices,
+            anchor,
+            Vec2 {
+                x: center.x,
+                y: center.y,
+            },
+            Vec2 {
+                x: width + border,
+                y: height + border,
+            },
+            TexCoords::ZERO,
+            Color::WHITE,
+            aspect_ratio,
+            gui_scale,
+            mouse,
+            depth,
+            None,
+        );
     }
 }

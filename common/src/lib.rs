@@ -342,6 +342,12 @@ pub struct TexCoords {
     pub v2: f32,
 }
 impl TexCoords {
+    pub const ZERO: TexCoords = TexCoords {
+        u1: 0.0,
+        v1: 0.0,
+        u2: 0.0,
+        v2: 0.0,
+    };
     pub fn map_sub(&self, sub: &TexCoords) -> TexCoords {
         let self_w = self.u2 - self.u1;
         let self_h = self.v2 - self.v1;

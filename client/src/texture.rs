@@ -178,7 +178,7 @@ pub fn pack_textures(
         let glyphs: Vec<_> = (0..font.glyph_count())
             .map(|i| {
                 font.glyph(GlyphId(i as u16))
-                    .scaled(Scale::uniform(30.))
+                    .scaled(Scale::uniform(60.))
                     .positioned(Point { x: 0., y: 0. })
             })
             .collect();
@@ -191,7 +191,11 @@ pub fn pack_textures(
                     _ => panic!(),
                 };
                 g.1.draw(|x, y, v| {
-                    font_buffer.put_pixel(x, y, Rgba([255, 255, 255, (v * 255f32) as u8]));
+                    font_buffer.put_pixel(
+                        x,
+                        y,
+                        Rgba([255, 255, 255, if v < 0.5 { 0 } else { 255 }]),
+                    );
                 });
                 packer
                     .pack_own("font_".to_string() + g.0.to_string().as_str(), font_texture)
