@@ -131,6 +131,11 @@ impl Inventory {
         }
     }
     pub fn set_client_property(&self, id: &Identifier, value: Dynamic, server: &Server) {
+        let previous = self
+            .client_properties
+            .lock()
+            .take_data_point(id)
+            .unwrap_or(Dynamic::UNIT);
         for viewer in self.viewers.lock().iter() {
             let _ = viewer.1.client_property_listener.call_function(
                 &server.engine,
@@ -142,6 +147,7 @@ impl Inventory {
                     },
                     id.clone(),
                     value.clone(),
+                    previous.clone(),
                 ),
             );
         }
