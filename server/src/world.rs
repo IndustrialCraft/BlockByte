@@ -514,14 +514,18 @@ impl Chunk {
         let block_palette: Vec<_> = chunk_save_data
             .palette
             .iter()
-            .map(|id| (block_registry.block_by_identifier(&id.0).unwrap(), id.1))
+            .map(|id| (block_registry.block_by_identifier(&id.0), id.1))
             .collect();
         let blocks = array_init(|x| {
             array_init(|y| {
                 array_init(|z| {
                     let block_id = chunk_save_data.blocks[x][y][z];
                     let block = block_palette.get(block_id as usize).unwrap();
-                    let block_data = block.0.get_state_ref(block.1).create_block_data(
+                    let block_state_ref = match block.0{
+                        Some(block_id) => block_id.get_state_ref(block.1),
+                        None => BlockStateRef::AIR,
+                    };
+                    let block_data = block_state_ref.create_block_data(
                         self,
                         BlockPosition {
                             x: (self.position.x * 16) + x as i32,
