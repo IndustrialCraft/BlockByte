@@ -90,4 +90,10 @@ register_sound("core:equip", "sounds/equip.wav");
 
 register_event("bb:player_join", ||{this.entity = Entity("core:player", this.location);});
 
-register_event("bb:post_player_join", ||{this.player.creative(true);this.player.movement_type(MovementType::Fly);this.player.speed(10.);});
+register_event("bb:post_player_join", ||{
+    this.player.creative(true);
+    this.player.movement_type(MovementType::Fly);
+    this.player.speed(10.);
+    let player = this.player;
+    this.player.open_inventory(this.player.get_entity().inventory, 0..2, "core:layout1", |viewer,id,value,old_value|{}, |inv, p, id, btn, shift|{player.send_chat_message("click")},|inv, p, id, x, y, shift|{});
+});

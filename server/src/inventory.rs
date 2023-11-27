@@ -85,24 +85,18 @@ pub struct Inventory {
     items: Mutex<Box<[Option<ItemStack>]>>,
     viewers: Mutex<FxHashMap<Uuid, GuiInventoryViewer>>,
     pub user_data: Mutex<UserData>,
-    click_handler: Option<InventoryClickHandler>,
-    scroll_handler: Option<InventoryScrollHandler>,
     set_item_handler: Option<InventorySetItemHandler>,
     client_properties: Mutex<UserData>,
 }
 impl Inventory {
     pub fn new_owned(
         size: u32,
-        click_handler: Option<InventoryClickHandler>,
-        scroll_handler: Option<InventoryScrollHandler>,
         set_item_handler: Option<InventorySetItemHandler>,
     ) -> Arc<Self> {
         let inventory = Arc::new_cyclic(|this| Inventory {
             items: Mutex::new(vec![None; size as usize].into_boxed_slice()),
             viewers: Mutex::new(FxHashMap::default()),
             user_data: Mutex::new(UserData::new()),
-            click_handler,
-            scroll_handler,
             set_item_handler,
             owner: WeakInventoryWrapper::Own(this.clone()),
             client_properties: Mutex::new(UserData::new()),
@@ -112,8 +106,6 @@ impl Inventory {
     pub fn new<T>(
         owner: T,
         size: u32,
-        click_handler: Option<InventoryClickHandler>,
-        scroll_handler: Option<InventoryScrollHandler>,
         set_item_handler: Option<InventorySetItemHandler>,
     ) -> Self
     where
@@ -123,8 +115,6 @@ impl Inventory {
             items: Mutex::new(vec![None; size as usize].into_boxed_slice()),
             viewers: Mutex::new(FxHashMap::default()),
             user_data: Mutex::new(UserData::new()),
-            click_handler,
-            scroll_handler,
             set_item_handler,
             owner: owner.into(),
             client_properties: Mutex::new(UserData::new()),
@@ -168,6 +158,9 @@ impl Inventory {
     }
     pub fn get_owner(&self) -> &WeakInventoryWrapper {
         &self.owner
+    }
+    pub fn ptr(&self) -> InventoryWrapper {
+        self.owner.upgrade().unwrap()
     }
     pub fn get_size(&self) -> u32 {
         self.items.lock().len() as u32
@@ -344,12 +337,12 @@ impl Inventory {
             None
         }
     }
-    pub fn on_click_slot(&self, player: &PlayerData, id: u32, button: MouseButton, shifting: bool) {
-        let result = self
-            .click_handler
-            .as_ref()
-            .map(|handler| handler.call((self, player, id, button, shifting)))
-            .unwrap_or(InteractionResult::Ignored);
+    pub fn on_click_slot(&self, viewer_id: Uuid, player: &PlayerData, id: u32, button: MouseButton, shifting: bool) {
+        let result = {
+            let viewers = self.viewers.lock();
+            let viewer = viewers.get(&viewer_id).unwrap();
+            viewer.on_click.call_function(&player.server.engine, None, (self.ptr(), player.ptr(), id, button, shifting)).try_cast::<InteractionResult>().unwrap_or(InteractionResult::Ignored)
+        };
         if let InteractionResult::Ignored = result {
             if button == MouseButton::Left {
                 let mut hand = player.hand_item.lock().clone();
@@ -375,12 +368,12 @@ impl Inventory {
             }
         }
     }
-    pub fn on_scroll_slot(&self, player: &PlayerData, id: u32, x: i32, y: i32, shifting: bool) {
-        let result = self
-            .scroll_handler
-            .as_ref()
-            .map(|handler| handler.call((self, player, id, x, y, shifting)))
-            .unwrap_or(InteractionResult::Ignored);
+    pub fn on_scroll_slot(&self, viewer_id: Uuid, player: &PlayerData, id: u32, x: i32, y: i32, shifting: bool) {
+        let result = {
+            let viewers = self.viewers.lock();
+            let viewer = viewers.get(&viewer_id).unwrap();
+            viewer.on_click.call_function(&player.server.engine, None, (self.ptr(), player.ptr(), id, x, y, shifting)).try_cast::<InteractionResult>().unwrap_or(InteractionResult::Ignored)
+        };
         if let InteractionResult::Ignored = result {
             player.modify_inventory_hand(|first| {
                 self.get_full_view()
@@ -482,6 +475,8 @@ pub struct GuiInventoryData {
     pub slot_range: Range<u32>,
     pub client_property_listener: ScriptCallback,
     pub layout: Arc<GUILayout>,
+    pub on_click: ScriptCallback,
+    pub on_scroll: ScriptCallback,
 }
 impl GuiInventoryData {
     pub fn into_viewer(self, viewer: Arc<PlayerData>) -> GuiInventoryViewer {
@@ -491,6 +486,8 @@ impl GuiInventoryData {
             id: Uuid::new_v4(),
             client_property_listener: self.client_property_listener,
             layout: self.layout,
+            on_click: self.on_click,
+            on_scroll: self.on_scroll,
         }
     }
 }
@@ -572,6 +569,8 @@ pub struct GuiInventoryViewer {
     pub id: Uuid,
     pub client_property_listener: ScriptCallback,
     pub layout: Arc<GUILayout>,
+    pub on_click: ScriptCallback,
+    pub on_scroll: ScriptCallback,
 }
 impl GuiInventoryViewer {
     pub fn view<'a>(&self, inventory: &'a Inventory) -> InventoryView<'a> {
@@ -740,7 +739,7 @@ impl ScriptingObject for InventoryWrapper {
         engine.register_type_with_name::<InventoryWrapper>("Inventory");
         engine.register_fn("create_inventory", |size: i64| {
             //todo: verify size
-            InventoryWrapper::Own(Inventory::new_owned(size as u32, None, None, None))
+            InventoryWrapper::Own(Inventory::new_owned(size as u32, None))
         });
         engine.register_fn(
             "view",
@@ -824,7 +823,7 @@ impl Recipe {
         &self.recipe_type
     }
     pub fn has_ingredients(&self, inventory: &InventoryView) -> bool {
-        let inventory_copy = Inventory::new_owned(inventory.get_size(), None, None, None);
+        let inventory_copy = Inventory::new_owned(inventory.get_size(), None);
         let inventory_copy_view = inventory_copy.get_full_view();
         inventory_copy.load_content(inventory.export_content());
         for input_item in &self.input_items {
@@ -835,7 +834,7 @@ impl Recipe {
         true
     }
     pub fn has_output_space(&self, inventory: &InventoryView) -> bool {
-        let inventory_copy = Inventory::new_owned(inventory.get_size(), None, None, None);
+        let inventory_copy = Inventory::new_owned(inventory.get_size(), None);
         let inventory_copy_view = inventory_copy.get_full_view();
         inventory_copy.load_content(inventory.export_content());
         for input_item in &self.output_items {

@@ -905,7 +905,7 @@ impl UserData {
 pub struct PlayerData {
     entity: Mutex<Arc<Entity>>,
     pub connection: Mutex<PlayerConnection>,
-    open_inventory: Mutex<Option<(InventoryWrapper, Uuid)>>,
+    pub open_inventory: Mutex<Option<(InventoryWrapper, Uuid)>>,
     pub chunk_loading_manager: ChunkLoadingManager,
     pub speed: Mutex<f32>,
     pub move_type: Mutex<MovementType>,
@@ -943,6 +943,9 @@ impl PlayerData {
         player.resync_abilities();
         entity.set_player(player.clone());
         player
+    }
+    pub fn get_open_inventory_id(&self) -> Option<Uuid>{
+        self.open_inventory.lock().as_ref().map(|inv|inv.1)
     }
     pub fn destroy(&self) {
         self.chunk_loading_manager.unload_chunks();
@@ -1104,8 +1107,10 @@ impl ScriptingObject for PlayerData {
                 move |player: &mut Arc<PlayerData>,
                       inventory: InventoryWrapper,
                       range: Range<i64>,
-                      layout: Identifier,
-                      client_property_listener: FnPtr| {
+                      layout: &str,
+                      client_property_listener: FnPtr,
+                      on_click: FnPtr,
+                      on_scroll: FnPtr| {
                     player.set_open_inventory(Some((
                         inventory,
                         GuiInventoryData {
@@ -1117,10 +1122,12 @@ impl ScriptingObject for PlayerData {
                                 .upgrade()
                                 .unwrap()
                                 .gui_layouts
-                                .get(&layout)
+                                .get(&Identifier::parse(layout).unwrap())
                                 .unwrap()
                                 .clone(),
                             client_property_listener: ScriptCallback::new(client_property_listener),
+                            on_click: ScriptCallback::new(on_click),
+                            on_scroll: ScriptCallback::new(on_scroll),
                         },
                     )));
                 },
@@ -1176,8 +1183,6 @@ impl Entity {
                 WeakInventoryWrapper::Entity(weak.clone()),
                 18,
                 None,
-                None,
-                None,
             ),
             velocity: Mutex::new((0., 0., 0.)),
             user_data: Mutex::new(UserData::new()),
@@ -1214,6 +1219,8 @@ impl Entity {
             id: self.get_id().clone(),
             viewer: player.clone(),
             client_property_listener: ScriptCallback::empty(),
+            on_click: ScriptCallback::empty(),
+            on_scroll: ScriptCallback::empty()
         });
 
         *self.player.lock() = Some(Arc::downgrade(&player));
@@ -1483,7 +1490,7 @@ impl Entity {
                                 }
                             }
                             KeyboardKey::Tab => {
-                                if pressed {
+                                /*if pressed {
                                     if player.open_inventory.lock().is_some() {
                                         player.set_open_inventory(None);
                                     } else {
@@ -1565,8 +1572,10 @@ impl Entity {
                                         }
                                     }
                                 }
+                                */
                             }
                             KeyboardKey::C => {
+                                /*
                                 if pressed {
                                     if player.open_inventory.lock().is_some() {
                                         player.set_open_inventory(None);
@@ -1638,6 +1647,7 @@ impl Entity {
                                         )));
                                     }
                                 }
+                                */
                                 /*let mut inventory = self.inventory.lock().unwrap();
                                 let recipe = self
                                     .server
@@ -1662,7 +1672,7 @@ impl Entity {
                             let slot = self.inventory.resolve_slot(self.get_id(), element.as_str());
                             if let Some(slot) = slot {
                                 self.inventory
-                                    .on_click_slot(&player, slot, button, shifting);
+                                    .on_click_slot(self.id, &player, slot, button, shifting);
                                 continue;
                             }
                         }
@@ -1672,7 +1682,7 @@ impl Entity {
                                 let slot =
                                     inventory.resolve_slot(&open_inventory.1, element.as_str());
                                 if let Some(slot) = slot {
-                                    inventory.on_click_slot(&player, slot, button, shifting);
+                                    inventory.on_click_slot(open_inventory.1, &player, slot, button, shifting);
                                     continue;
                                 }
                             }
@@ -1682,7 +1692,7 @@ impl Entity {
                         {
                             let slot = self.inventory.resolve_slot(self.get_id(), element.as_str());
                             if let Some(slot) = slot {
-                                self.inventory.on_scroll_slot(&player, slot, x, y, shifting);
+                                self.inventory.on_scroll_slot(self.id, &player, slot, x, y, shifting);
                                 continue;
                             }
                         }
@@ -1692,7 +1702,7 @@ impl Entity {
                                 let slot =
                                     inventory.resolve_slot(&open_inventory.1, element.as_str());
                                 if let Some(slot) = slot {
-                                    inventory.on_scroll_slot(&player, slot, x, y, shifting);
+                                    inventory.on_scroll_slot(open_inventory.1, &player, slot, x, y, shifting);
                                     continue;
                                 }
                             }
@@ -2496,8 +2506,6 @@ impl WorldBlock {
             inventory: Inventory::new(
                 WeakInventoryWrapper::Block(this.clone()),
                 block.data_container.as_ref().unwrap().0,
-                None,
-                None,
                 None,
             ),
             animation_controller: AnimationController::new(this.clone(), 0),
