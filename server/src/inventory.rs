@@ -68,10 +68,24 @@ impl ItemStack {
     }
 }
 impl ScriptingObject for ItemStack {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
         engine.register_fn("get_id", |item: &mut ItemStack| {
             item.item_type.id.to_string()
         });
+        {
+            let server = server.clone();
+            engine.register_fn("ItemStack", move |item: &str, count: i64| {
+                ItemStack::new(
+                    server
+                        .upgrade()
+                        .unwrap()
+                        .item_registry
+                        .item_by_identifier(&Identifier::parse(item).unwrap())
+                        .unwrap(),
+                    count as u32,
+                )
+            });
+        }
     }
 }
 pub type InventoryClickHandler =
@@ -89,10 +103,7 @@ pub struct Inventory {
     client_properties: Mutex<UserData>,
 }
 impl Inventory {
-    pub fn new_owned(
-        size: u32,
-        set_item_handler: Option<InventorySetItemHandler>,
-    ) -> Arc<Self> {
+    pub fn new_owned(size: u32, set_item_handler: Option<InventorySetItemHandler>) -> Arc<Self> {
         let inventory = Arc::new_cyclic(|this| Inventory {
             items: Mutex::new(vec![None; size as usize].into_boxed_slice()),
             viewers: Mutex::new(FxHashMap::default()),
@@ -103,11 +114,7 @@ impl Inventory {
         });
         inventory
     }
-    pub fn new<T>(
-        owner: T,
-        size: u32,
-        set_item_handler: Option<InventorySetItemHandler>,
-    ) -> Self
+    pub fn new<T>(owner: T, size: u32, set_item_handler: Option<InventorySetItemHandler>) -> Self
     where
         T: Into<WeakInventoryWrapper>,
     {
@@ -337,11 +344,26 @@ impl Inventory {
             None
         }
     }
-    pub fn on_click_slot(&self, viewer_id: Uuid, player: &PlayerData, id: u32, button: MouseButton, shifting: bool) {
+    pub fn on_click_slot(
+        &self,
+        viewer_id: Uuid,
+        player: &PlayerData,
+        id: u32,
+        button: MouseButton,
+        shifting: bool,
+    ) {
         let result = {
             let viewers = self.viewers.lock();
             let viewer = viewers.get(&viewer_id).unwrap();
-            viewer.on_click.call_function(&player.server.engine, None, (self.ptr(), player.ptr(), id, button, shifting)).try_cast::<InteractionResult>().unwrap_or(InteractionResult::Ignored)
+            viewer
+                .on_click
+                .call_function(
+                    &player.server.engine,
+                    None,
+                    (self.ptr(), player.ptr(), id, button, shifting),
+                )
+                .try_cast::<InteractionResult>()
+                .unwrap_or(InteractionResult::Ignored)
         };
         if let InteractionResult::Ignored = result {
             if button == MouseButton::Left {
@@ -368,11 +390,27 @@ impl Inventory {
             }
         }
     }
-    pub fn on_scroll_slot(&self, viewer_id: Uuid, player: &PlayerData, id: u32, x: i32, y: i32, shifting: bool) {
+    pub fn on_scroll_slot(
+        &self,
+        viewer_id: Uuid,
+        player: &PlayerData,
+        id: u32,
+        x: i32,
+        y: i32,
+        shifting: bool,
+    ) {
         let result = {
             let viewers = self.viewers.lock();
             let viewer = viewers.get(&viewer_id).unwrap();
-            viewer.on_click.call_function(&player.server.engine, None, (self.ptr(), player.ptr(), id, x, y, shifting)).try_cast::<InteractionResult>().unwrap_or(InteractionResult::Ignored)
+            viewer
+                .on_click
+                .call_function(
+                    &player.server.engine,
+                    None,
+                    (self.ptr(), player.ptr(), id, x, y, shifting),
+                )
+                .try_cast::<InteractionResult>()
+                .unwrap_or(InteractionResult::Ignored)
         };
         if let InteractionResult::Ignored = result {
             player.modify_inventory_hand(|first| {
@@ -469,6 +507,29 @@ impl OwnedInventoryView {
         self.inventory
             .get_inventory()
             .get_view(self.slot_range.clone())
+    }
+}
+impl ScriptingObject for OwnedInventoryView {
+    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_type_with_name::<OwnedInventoryView>("InventoryView");
+        engine.register_fn("get_item", |view: &mut OwnedInventoryView, index: i64| {
+            view.view()
+                .get_item(index as u32)
+                .unwrap()
+                .map(|item| Dynamic::from(item))
+                .unwrap_or(Dynamic::UNIT)
+        });
+        engine.register_fn(
+            "set_item",
+            |view: &mut OwnedInventoryView, index: i64, item: Dynamic| {
+                let item = if item.is_unit() {
+                    None
+                } else {
+                    Some(item.try_cast::<ItemStack>().unwrap())
+                };
+                view.view().set_item(index as u32, item).unwrap();
+            },
+        );
     }
 }
 pub struct GuiInventoryData {

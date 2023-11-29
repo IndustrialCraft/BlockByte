@@ -17,7 +17,7 @@ use atomic_counter::{AtomicCounter, RelaxedCounter};
 use bitcode::__private::Serialize;
 use block_byte_common::gui::{GUIComponent, GUIElement, GUIElementEdit, PositionAnchor};
 use block_byte_common::messages::{
-    ClientModelTarget, MouseButton, MovementType, NetworkMessageC2S, NetworkMessageS2C,
+    ClientModelTarget, MovementType, NetworkMessageC2S, NetworkMessageS2C,
 };
 use block_byte_common::{
     BlockPosition, ChunkPosition, Color, Face, KeyboardKey, KeyboardModifier, Position, Vec2, AABB,
@@ -28,7 +28,7 @@ use json::{object, JsonValue};
 use parking_lot::Mutex;
 use pathfinding::prelude::astar;
 use rand::Rng;
-use rhai::{Array, Dynamic, Engine, FnPtr};
+use rhai::{Dynamic, Engine, FnPtr};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -521,7 +521,7 @@ impl Chunk {
                 array_init(|z| {
                     let block_id = chunk_save_data.blocks[x][y][z];
                     let block = block_palette.get(block_id as usize).unwrap();
-                    let block_state_ref = match block.0{
+                    let block_state_ref = match block.0 {
                         Some(block_id) => block_id.get_state_ref(block.1),
                         None => BlockStateRef::AIR,
                     };
@@ -944,8 +944,8 @@ impl PlayerData {
         entity.set_player(player.clone());
         player
     }
-    pub fn get_open_inventory_id(&self) -> Option<Uuid>{
-        self.open_inventory.lock().as_ref().map(|inv|inv.1)
+    pub fn get_open_inventory_id(&self) -> Option<Uuid> {
+        self.open_inventory.lock().as_ref().map(|inv| inv.1)
     }
     pub fn destroy(&self) {
         self.chunk_loading_manager.unload_chunks();
@@ -1179,11 +1179,7 @@ impl Entity {
             teleport: Mutex::new(None),
             rotation_shifting: Mutex::new((0., false)),
             animation_controller: Mutex::new(AnimationController::new(weak.clone(), 1)),
-            inventory: Inventory::new(
-                WeakInventoryWrapper::Entity(weak.clone()),
-                18,
-                None,
-            ),
+            inventory: Inventory::new(WeakInventoryWrapper::Entity(weak.clone()), 18, None),
             velocity: Mutex::new((0., 0., 0.)),
             user_data: Mutex::new(UserData::new()),
             slot: Mutex::new(0),
@@ -1220,7 +1216,7 @@ impl Entity {
             viewer: player.clone(),
             client_property_listener: ScriptCallback::empty(),
             on_click: ScriptCallback::empty(),
-            on_scroll: ScriptCallback::empty()
+            on_scroll: ScriptCallback::empty(),
         });
 
         *self.player.lock() = Some(Arc::downgrade(&player));
@@ -1464,6 +1460,14 @@ impl Entity {
             for message in messages {
                 match message {
                     NetworkMessageC2S::Keyboard(key, key_mod, pressed, _repeat) => {
+                        let mut keyboard_event = rhai::Map::new();
+                        keyboard_event.insert("key".into(), Dynamic::from(key));
+                        keyboard_event.insert("pressed".into(), Dynamic::from(pressed));
+                        keyboard_event.insert("player".into(), Dynamic::from(player.ptr()));
+                        let _ = self.server.call_event(
+                            Identifier::new("bb", "keyboard"),
+                            Dynamic::from(keyboard_event),
+                        );
                         match key {
                             KeyboardKey::Q => {
                                 if pressed {
@@ -1682,7 +1686,13 @@ impl Entity {
                                 let slot =
                                     inventory.resolve_slot(&open_inventory.1, element.as_str());
                                 if let Some(slot) = slot {
-                                    inventory.on_click_slot(open_inventory.1, &player, slot, button, shifting);
+                                    inventory.on_click_slot(
+                                        open_inventory.1,
+                                        &player,
+                                        slot,
+                                        button,
+                                        shifting,
+                                    );
                                     continue;
                                 }
                             }
@@ -1692,7 +1702,8 @@ impl Entity {
                         {
                             let slot = self.inventory.resolve_slot(self.get_id(), element.as_str());
                             if let Some(slot) = slot {
-                                self.inventory.on_scroll_slot(self.id, &player, slot, x, y, shifting);
+                                self.inventory
+                                    .on_scroll_slot(self.id, &player, slot, x, y, shifting);
                                 continue;
                             }
                         }
@@ -1702,7 +1713,14 @@ impl Entity {
                                 let slot =
                                     inventory.resolve_slot(&open_inventory.1, element.as_str());
                                 if let Some(slot) = slot {
-                                    inventory.on_scroll_slot(open_inventory.1, &player, slot, x, y, shifting);
+                                    inventory.on_scroll_slot(
+                                        open_inventory.1,
+                                        &player,
+                                        slot,
+                                        x,
+                                        y,
+                                        shifting,
+                                    );
                                     continue;
                                 }
                             }

@@ -5,7 +5,7 @@ use block_byte_common::content::{
     ClientEntityData, Transformation,
 };
 use block_byte_common::messages::MovementType;
-use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, Position, Vec3};
+use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, KeyboardKey, Position, Vec3};
 use image::io::Reader;
 use image::{ImageOutputFormat, Rgba, RgbaImage};
 use json::JsonValue;
@@ -28,7 +28,7 @@ use std::{
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
 
-use crate::inventory::{GUILayout, InventoryWrapper, ItemStack, ModGuiViewer};
+use crate::inventory::{GUILayout, InventoryWrapper, ItemStack, ModGuiViewer, OwnedInventoryView};
 use crate::registry::{
     Block, BlockState, BlockStateProperty, BlockStatePropertyStorage, BlockStateRef,
 };
@@ -571,6 +571,7 @@ impl ModManager {
             "InteractionResult",
             exported_module!(InteractionResultModule).into(),
         );
+        engine.register_static_module("KeyboardKey", exported_module!(KeyboardKeyModule).into());
 
         Self::load_scripting_object::<PlayerData>(engine, &server);
         Self::load_scripting_object::<Entity>(engine, &server);
@@ -593,6 +594,9 @@ impl ModManager {
         Self::load_scripting_object::<HorizontalFace>(engine, &server);
         Self::load_scripting_object::<IdentifierTag>(engine, &server);
         Self::load_scripting_object::<ItemStack>(engine, &server);
+        Self::load_scripting_object::<KeyboardKey>(engine, &server);
+        Self::load_scripting_object::<Server>(engine, &server);
+        Self::load_scripting_object::<OwnedInventoryView>(engine, &server);
     }
     fn load_scripting_object<T>(engine: &mut Engine, server: &Weak<Server>)
     where
@@ -832,6 +836,15 @@ impl ScriptingObject for IdentifierTag {
                 },
             );
         }
+    }
+}
+impl ScriptingObject for KeyboardKey {
+    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_type_with_name::<KeyboardKey>("KeyboardKey");
+        engine.register_fn("to_string", |key: &mut KeyboardKey| format!("{:?}", key));
+        engine.register_fn("==", |first: KeyboardKey, second: KeyboardKey| {
+            first == second
+        });
     }
 }
 #[derive(Clone)]
@@ -1531,6 +1544,19 @@ mod ToolTypeModule {
     pub const Wrench: ToolType = ToolType::Wrench;
     #[allow(non_upper_case_globals)]
     pub const Knife: ToolType = ToolType::Knife;
+}
+
+#[export_module]
+#[allow(non_snake_case)]
+mod KeyboardKeyModule {
+    use block_byte_common::KeyboardKey;
+
+    #[allow(non_upper_case_globals)]
+    pub const Tab: KeyboardKey = KeyboardKey::Tab;
+    #[allow(non_upper_case_globals)]
+    pub const C: KeyboardKey = KeyboardKey::C;
+    #[allow(non_upper_case_globals)]
+    pub const Escape: KeyboardKey = KeyboardKey::Escape;
 }
 
 pub fn spline_from_json(json: &JsonValue) -> Spline<f64, f64> {

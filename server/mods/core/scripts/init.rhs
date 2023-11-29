@@ -9,6 +9,24 @@ create_item().on_right_click(|player,target|{
         }
     }
 }).client_name("Selection Wand").register("core:selection_wand");
+register_event("bb:keyboard", ||{
+    let player = this.player;
+    let key = this.key;
+    if !this.pressed {
+        return;
+    }
+    if key == KeyboardKey::Tab{
+        if player.get_open_inventory() != (){
+            player.close_inventory();
+        } else {
+            let creative_inventory = create_inventory(27);
+            for (item,i) in list_items(){
+                creative_inventory.full_view().set_item(i, ItemStack(item, 1));
+            }
+            player.open_inventory(creative_inventory, 0..27, "core:layout3", |viewer,id,value,old_value|{}, |inv, p, id, btn, shift|{ActionResult::Consumed},|inv, p, id, x, y, shift|{ActionResult::Consumed});
+        }
+    }
+});
 register_event("bb:command", ||{
     let command = this.command;
     let player = this.player;
@@ -94,6 +112,4 @@ register_event("bb:post_player_join", ||{
     this.player.creative(true);
     this.player.movement_type(MovementType::Fly);
     this.player.speed(10.);
-    let player = this.player;
-    this.player.open_inventory(this.player.get_entity().inventory, 0..2, "core:layout1", |viewer,id,value,old_value|{}, |inv, p, id, btn, shift|{player.send_chat_message("click")},|inv, p, id, x, y, shift|{});
 });

@@ -536,7 +536,7 @@ pub mod KeyboardModifier {
 }
 
 //from winit
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug)]
 pub enum KeyboardKey {
     Key1,
     Key2,

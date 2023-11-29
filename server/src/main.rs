@@ -32,7 +32,9 @@ use std::{
 };
 
 use crate::inventory::GUILayout;
-use crate::mods::{ClientModItemModel, EventManager, IdentifierTag, ModClientBlockData};
+use crate::mods::{
+    ClientModItemModel, EventManager, IdentifierTag, ModClientBlockData, ScriptingObject,
+};
 use crate::registry::RecipeManager;
 use crate::world::PlayerData;
 use block_byte_common::content::{ClientEntityData, ClientItemData, ClientItemModel};
@@ -489,6 +491,22 @@ impl Server {
     }
     pub fn ptr(&self) -> Arc<Server> {
         self.this.upgrade().unwrap()
+    }
+}
+impl ScriptingObject for Server {
+    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
+        {
+            let server = server.clone();
+            engine.register_fn("list_items", move || {
+                server
+                    .upgrade()
+                    .unwrap()
+                    .item_registry
+                    .list()
+                    .map(|id| Dynamic::from(id.to_string()))
+                    .collect::<rhai::Array>()
+            });
+        }
     }
 }
 pub struct ServerSettings {
