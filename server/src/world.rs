@@ -1140,6 +1140,25 @@ impl ScriptingObject for PlayerData {
                 None => Dynamic::UNIT,
             },
         );
+        engine.register_fn(
+            "set_hand_item",
+            |player: &mut Arc<PlayerData>, item: Dynamic| {
+                let item = if item.is_unit() {
+                    None
+                } else {
+                    Some(item.try_cast::<ItemStack>().unwrap())
+                };
+                player.set_inventory_hand(item);
+            },
+        );
+        engine.register_fn("get_hand_item", |player: &mut Arc<PlayerData>| {
+            player
+                .hand_item
+                .lock()
+                .as_ref()
+                .map(|item| Dynamic::from(item.clone()))
+                .unwrap_or(Dynamic::UNIT)
+        });
     }
 }
 
@@ -1492,173 +1511,6 @@ impl Entity {
                                         })
                                         .unwrap();
                                 }
-                            }
-                            KeyboardKey::Tab => {
-                                /*if pressed {
-                                    if player.open_inventory.lock().is_some() {
-                                        player.set_open_inventory(None);
-                                    } else {
-                                        if *player.creative.lock() {
-                                            player.set_open_inventory(Some((InventoryWrapper::Own(
-                                    {
-                                        let inventory = Inventory::new_owned(
-                                            27,
-                                            Some(Box::new(move |inventory: &Inventory, player: &PlayerData, slot: u32, _: MouseButton, _: bool| {
-                                                let hand_empty = player.hand_item.lock().is_none();
-                                                if hand_empty {
-                                                    player.set_inventory_hand(inventory.get_full_view().get_item(slot).unwrap().clone());
-                                                } else {
-                                                     player.set_inventory_hand(None);
-                                                }
-                                                InteractionResult::Consumed
-                                            })),
-                                            Some(Box::new(|inventory: &Inventory, player: &PlayerData, slot: u32, _: i32, y: i32, _: bool| {
-                                                player.modify_inventory_hand(|item| {
-                                                    match &mut *item {
-                                                        Some(item) => {
-                                                            item.add_count(if y < 0 { -1 } else { 1 });
-                                                        }
-                                                        None => {
-                                                            if y > 0 {
-                                                                if let Some(slot_item) = inventory.get_full_view().get_item(slot).unwrap() {
-                                                                    *item = Some(slot_item.copy(1))
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                });
-                                                InteractionResult::Consumed
-                                            })),
-                                            None,
-                                        );
-                                        let item_registry = &self.server.item_registry;
-                                        for (i, id) in item_registry.list().into_iter().enumerate()
-                                        {
-                                            let item_type = item_registry
-                                                .item_by_identifier(id)
-                                                .unwrap();
-                                            let item_count = item_type.stack_size;
-                                            inventory.get_full_view()
-                                                .set_item(
-                                                    i as u32,
-                                                    Some(ItemStack::new(item_type, item_count)),
-                                                )
-                                                .ok();
-                                        }
-                                        inventory
-                                    },
-                                ), GuiInventoryData{
-                                                layout: self
-                                                    .server
-                                                    .gui_layouts
-                                                    .get(&Identifier::new("core", "layout3"))
-                                                    .unwrap()
-                                                    .clone(),
-                                                slot_range: 0..27
-                                                ,client_property_listener: ScriptCallback::empty(),
-
-                                            })));
-                                        } else {
-                                            player.set_open_inventory(Some((
-                                                InventoryWrapper::Entity(self.ptr()),
-                                                GuiInventoryData {
-                                                    layout: self
-                                                        .server
-                                                        .gui_layouts
-                                                        .get(&Identifier::new("core", "layout1"))
-                                                        .unwrap()
-                                                        .clone(),
-                                                    slot_range: 9..18,
-                                                    client_property_listener: ScriptCallback::empty(
-                                                    ),
-                                                },
-                                            )));
-                                        }
-                                    }
-                                }
-                                */
-                            }
-                            KeyboardKey::C => {
-                                /*
-                                if pressed {
-                                    if player.open_inventory.lock().is_some() {
-                                        player.set_open_inventory(None);
-                                    } else {
-                                        let inventory = Inventory::new_owned(
-                                        27,
-                                        Some(Box::new(
-                                            move|inventory: &Inventory, player: &PlayerData, id: u32, _: MouseButton, _: bool| {
-                                                let recipes: Array = inventory
-                                                    .get_user_data()
-                                                    .get_data_point_ref(&Identifier::new(
-                                                        "bb", "recipes",
-                                                    ))
-                                                    .cloned()
-                                                    .unwrap()
-                                                    .into_array()
-                                                    .unwrap();
-                                                if let Some(recipe) = recipes.get(id as usize) {
-                                                    let recipe = player
-                                                        .server
-                                                        .recipes
-                                                        .by_id(&recipe.clone().cast::<Identifier>())
-                                                        .unwrap();
-                                                    let entity = player.get_entity();
-                                                    if let Ok(_) =
-                                                        recipe.consume_inputs(&entity.inventory.get_full_view())
-                                                    {
-                                                        recipe.add_outputs(&entity.inventory.get_full_view()).ok();
-                                                    }
-                                                }
-                                                InteractionResult::Consumed
-                                            },
-                                        )),
-                                        Some(Box::new(|_, _, _, _, _, _| {
-                                            InteractionResult::Ignored
-                                        })),
-                                        None,
-                                    );
-                                        let mut recipes_user_map = Vec::new();
-                                        for (i, recipe) in self
-                                            .server
-                                            .recipes
-                                            .by_type(&Identifier::new("bb", "crafting"))
-                                            .iter()
-                                            .enumerate()
-                                        {
-                                            recipes_user_map.push(Dynamic::from(recipe.id.clone()));
-                                            inventory
-                                                .get_full_view()
-                                                .set_item(i as u32, Some(recipe.get_icon()))
-                                                .unwrap();
-                                        }
-                                        inventory.get_user_data().put_data_point(
-                                            &Identifier::new("bb", "recipes"),
-                                            Dynamic::from_array(recipes_user_map),
-                                        );
-                                        player.set_open_inventory(Some((
-                                            InventoryWrapper::Own(inventory),
-                                            GuiInventoryData {
-                                                layout: self
-                                                    .server
-                                                    .gui_layouts
-                                                    .get(&Identifier::new("core", "layout3"))
-                                                    .unwrap()
-                                                    .clone(),
-                                                slot_range: 0..27,
-                                                client_property_listener: ScriptCallback::empty(),
-                                            },
-                                        )));
-                                    }
-                                }
-                                */
-                                /*let mut inventory = self.inventory.lock().unwrap();
-                                let recipe = self
-                                    .server
-                                    .recipes
-                                    .by_id(&Identifier::new("core", "planks"))
-                                    .unwrap();
-                                */
                             }
                             KeyboardKey::Escape => {
                                 player.set_open_inventory(None);

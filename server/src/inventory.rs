@@ -37,7 +37,7 @@ impl ItemStack {
     pub fn new(item_type: &Arc<Item>, item_count: u32) -> Self {
         ItemStack {
             item_type: item_type.clone(),
-            item_count,
+            item_count: item_count.min(item_type.stack_size),
         }
     }
     pub fn from_json(json: &JsonValue, item_registry: &ItemRegistry) -> Result<Self, ()> {
@@ -86,12 +86,21 @@ impl ScriptingObject for ItemStack {
                 )
             });
         }
+        engine.register_get_set(
+            "count",
+            |item: &mut ItemStack| item.item_count as i64,
+            |item: &mut ItemStack, count: i64| {
+                item.item_count = count.max(0).min(item.item_type.stack_size as i64) as u32;
+            },
+        );
+        engine.register_fn("get_stack_size", |item: &mut ItemStack| {
+            item.item_type.stack_size as i64
+        });
+        engine.register_fn("with_count", |item: &mut ItemStack, new_count: i64| {
+            ItemStack::new(item.get_type(), new_count as u32)
+        });
     }
 }
-pub type InventoryClickHandler =
-    Box<dyn Fn(&Inventory, &PlayerData, u32, MouseButton, bool) -> InteractionResult + Send + Sync>;
-pub type InventoryScrollHandler =
-    Box<dyn Fn(&Inventory, &PlayerData, u32, i32, i32, bool) -> InteractionResult + Send + Sync>;
 pub type InventorySetItemHandler = Box<dyn Fn(&Inventory, u32) + Send + Sync>;
 
 pub struct Inventory {
@@ -360,7 +369,13 @@ impl Inventory {
                 .call_function(
                     &player.server.engine,
                     None,
-                    (self.ptr(), player.ptr(), id, button, shifting),
+                    (
+                        player.ptr(),
+                        OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
+                        id as i64,
+                        button,
+                        shifting,
+                    ),
                 )
                 .try_cast::<InteractionResult>()
                 .unwrap_or(InteractionResult::Ignored)
@@ -403,11 +418,18 @@ impl Inventory {
             let viewers = self.viewers.lock();
             let viewer = viewers.get(&viewer_id).unwrap();
             viewer
-                .on_click
+                .on_scroll
                 .call_function(
                     &player.server.engine,
                     None,
-                    (self.ptr(), player.ptr(), id, x, y, shifting),
+                    (
+                        player.ptr(),
+                        OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
+                        id as i64,
+                        x as i64,
+                        y as i64,
+                        shifting,
+                    ),
                 )
                 .try_cast::<InteractionResult>()
                 .unwrap_or(InteractionResult::Ignored)

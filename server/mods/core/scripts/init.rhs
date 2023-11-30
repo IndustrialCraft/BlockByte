@@ -21,9 +21,32 @@ register_event("bb:keyboard", ||{
         } else {
             let creative_inventory = create_inventory(27);
             for (item,i) in list_items(){
-                creative_inventory.full_view().set_item(i, ItemStack(item, 1));
+                let item = ItemStack(item, 1);
+                item.count = item.get_stack_size();
+                creative_inventory.full_view().set_item(i, item);
             }
-            player.open_inventory(creative_inventory, 0..27, "core:layout3", |viewer,id,value,old_value|{}, |inv, p, id, btn, shift|{ActionResult::Consumed},|inv, p, id, x, y, shift|{ActionResult::Consumed});
+            player.open_inventory(creative_inventory, 0..27, "core:layout3", |viewer,id,value,old_value|{}, |player, view, id, btn, shift|{
+                if player.get_hand_item() == (){
+                    player.set_hand_item(view.get_item(id));
+                } else {
+                    player.set_hand_item(());
+                }
+                return InteractionResult::Consumed;
+            }, |player, view, id, x, y, shift|{
+                let item = player.get_hand_item();
+                if item != () {
+                    item.count += y;
+                    player.set_hand_item(item);
+                } else {
+                    if y > 0{
+                        let item = view.get_item(id);
+                        if item != (){
+                            player.set_hand_item(item.with_count(1));
+                        }
+                    }
+                }
+                return InteractionResult::Consumed;
+            });
         }
     }
 });

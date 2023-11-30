@@ -451,7 +451,7 @@ pub struct BlockStateRef {
 }
 
 impl BlockStateRef {
-    pub const AIR: BlockStateRef = BlockStateRef{state_id: 0};
+    pub const AIR: BlockStateRef = BlockStateRef { state_id: 0 };
     pub fn create_block_data(&self, chunk: &Chunk, position: BlockPosition) -> BlockData {
         chunk
             .world
@@ -757,7 +757,7 @@ impl Item {
     }
 }
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum InteractionResult {
     Consumed,
     Ignored,
