@@ -2404,46 +2404,6 @@ impl WorldBlock {
             self.block
                 .ticker
                 .call_function(&self.chunk().world.server.engine, None, (self.ptr(),));
-        /*let recipe_time_identifier = Identifier::new("bb", "recipe_time");
-        let mut user_data = self.user_data.lock();
-        if let Some(time) = user_data.take_data_point(&recipe_time_identifier) {
-            let mut time = time.as_int().unwrap();
-            time -= 1;
-            user_data.put_data_point(
-                &recipe_time_identifier,
-                if time <= 0 {
-                    let chunk = self.chunk.upgrade().unwrap();
-                    let recipes = chunk
-                        .world
-                        .server
-                        .recipes
-                        .by_type(&self.block.machine_data.as_ref().unwrap().recipe_type);
-                    for recipe in recipes {
-                        if recipe.can_craft(&self.inventory) {
-                            recipe.consume_inputs(&self.inventory).unwrap();
-                            recipe.add_outputs(&self.inventory);
-                            break;
-                        }
-                    }
-                    Dynamic::UNIT
-                } else {
-                    Dynamic::from_int(time)
-                },
-            );
-        } else {
-            let chunk = self.chunk.upgrade().unwrap();
-            let recipes = chunk
-                .world
-                .server
-                .recipes
-                .by_type(&self.block.machine_data.as_ref().unwrap().recipe_type);
-            for recipe in recipes {
-                if recipe.can_craft(&self.inventory) {
-                    user_data.put_data_point(&recipe_time_identifier, Dynamic::from_int(20));
-                    break;
-                }
-            }
-        }*/
     }
     pub fn get_inputs_view_for_side(&self, _side: Face) -> InventoryView {
         self.inventory.get_full_view()
