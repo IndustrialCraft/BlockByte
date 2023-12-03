@@ -118,6 +118,7 @@ register_event("bb:command", ||{
     }
 });
 
+
 create_entity().client_viewmodel("core:viewmodel", "").client_viewmodel_add_item("main_hand").client_viewmodel_add_animation("equip").client_model("core:player","core:player").client_add_item("main_hand").client_hitbox(0.6, 1.7, 0.6).register("core:player");
 
 register_image("bb:slot", "images/slot.png");
