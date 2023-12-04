@@ -271,7 +271,7 @@ impl<'a> GUIRenderer<'a> {
                             aspect_ratio,
                             self.gui_scale,
                             mouse,
-                            10.,
+                            100.,
                             true
                         );
                     }
