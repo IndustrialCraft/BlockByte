@@ -21,6 +21,9 @@ register_event("bb:keyboard", ||{
         } else {
             let creative_inventory = create_inventory(27);
             for (item,i) in list_items(){
+                if i >= 27{
+                    break;
+                }
                 let item = ItemStack(item, 1);
                 item.count = item.get_stack_size();
                 creative_inventory.full_view().set_item(i, item);
