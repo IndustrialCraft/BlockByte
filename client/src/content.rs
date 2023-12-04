@@ -268,10 +268,10 @@ impl ItemRegistry {
         self.items.get(item as usize).unwrap()
     }
     fn is_pixel_full(image: &RgbaImage, texture: TexCoords, coords: (i32, i32)) -> bool {
-        let width = ((texture.u2 - texture.u1) * image.width() as f32) as u32;
-        let height = ((texture.v2 - texture.v1) * image.height() as f32) as u32;
-        let x = (texture.u1 * image.width() as f32) as u32;
-        let y = (texture.v1 * image.width() as f32) as u32;
+        let width = ((texture.u2 - texture.u1) * image.width() as f32).round() as u32;
+        let height = ((texture.v2 - texture.v1) * image.height() as f32).round() as u32;
+        let x = (texture.u1 * image.width() as f32).round() as u32;
+        let y = (texture.v1 * image.height() as f32).round() as u32;
         if coords.0 < 0 || coords.1 < 0 || coords.0 >= width as i32 || coords.1 >= height as i32 {
             return false;
         }
@@ -290,8 +290,8 @@ impl ItemRegistry {
                 ClientItemModel::Texture(texture) => {
                     let texture = texture_atlas.get(texture.as_str());
                     let mut sides = Vec::new();
-                    let width = (texture.u2 - texture.u1) * image.width() as f32;
-                    let height = (texture.v2 - texture.v1) * image.height() as f32;
+                    let width = ((texture.u2 - texture.u1) * image.width() as f32).round();
+                    let height = ((texture.v2 - texture.v1) * image.height() as f32).round();
                     for x in 0..width as u32 {
                         for y in 0..height as u32 {
                             let this_full =
