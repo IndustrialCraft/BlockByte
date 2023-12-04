@@ -198,14 +198,15 @@ impl<'a> GUIRenderer<'a> {
                             }
                         }
                         if item_id.1 != 1 {
+                            let text_size = self.text_renderer.get_size(20., &item_id.1.to_string());
                             self.text_renderer.render(
                                 &mut vertices,
                                 element.anchor,
                                 Vec2 {
-                                    x: element.position.x as f32,
-                                    y: element.position.y as f32,
+                                    x: element.position.x as f32 + (size.x / 2.) - (text_size.x / 2.),
+                                    y: element.position.y as f32 - (size.y / 2.) + (text_size.y / 2.),
                                 },
-                                50.,
+                                20.,
                                 &item_id.1.to_string(),
                                 Color {
                                     r: 0,
@@ -218,6 +219,7 @@ impl<'a> GUIRenderer<'a> {
                                 self.gui_scale,
                                 mouse,
                                 element.position.z as f32 + 0.2,
+                                true
                             );
                         }
                     }
@@ -243,6 +245,7 @@ impl<'a> GUIRenderer<'a> {
                         self.gui_scale,
                         mouse,
                         element.position.z as f32,
+                        true
                     );
                 }
             }
@@ -269,6 +272,7 @@ impl<'a> GUIRenderer<'a> {
                             self.gui_scale,
                             mouse,
                             10.,
+                            true
                         );
                     }
                 }
@@ -390,6 +394,31 @@ pub struct TextRenderer<'a> {
     pub font: rusttype::Font<'a>,
 }
 impl<'a> TextRenderer<'a> {
+    pub fn get_size(&self, size: f32, text: &str) -> Vec2{
+        let layout = self
+            .font
+            .layout(text, Scale::uniform(size), rusttype::Point { x: 0., y: 0. });
+        let glyphs: Vec<_> = layout.collect();
+        let width: f32 = glyphs
+            .iter()
+            .map(|glyph| glyph.unpositioned().h_metrics().advance_width)
+            .sum();
+        let height = glyphs
+            .iter()
+            .map(|glyph| {
+                glyph
+                    .unpositioned()
+                    .exact_bounding_box()
+                    .map(|bb| -bb.min.y + bb.max.y)
+                    .unwrap_or(0.)
+            })
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap_or(0.);
+        Vec2{
+            x: width,
+            y: height
+        }
+    }
     pub fn render(
         &self,
         vertices: &mut Vec<GUIVertex>,
@@ -403,6 +432,7 @@ impl<'a> TextRenderer<'a> {
         gui_scale: f32,
         mouse: Vec2,
         depth: f32,
+        background: bool
     ) {
         let layout = self
             .font
@@ -452,25 +482,27 @@ impl<'a> TextRenderer<'a> {
                 );
             }
         }
-        let border = 5. * 2.;
-        GUIRenderer::add_rect_vertices(
-            vertices,
-            anchor,
-            Vec2 {
-                x: center.x,
-                y: center.y,
-            },
-            Vec2 {
-                x: width + border,
-                y: height + border,
-            },
-            TexCoords::ZERO,
-            Color::WHITE,
-            aspect_ratio,
-            gui_scale,
-            mouse,
-            depth,
-            None,
-        );
+        if background {
+            let border = 5. * 2.;
+            GUIRenderer::add_rect_vertices(
+                vertices,
+                anchor,
+                Vec2 {
+                    x: center.x,
+                    y: center.y,
+                },
+                Vec2 {
+                    x: width + border,
+                    y: height + border,
+                },
+                TexCoords::ZERO,
+                Color::WHITE,
+                aspect_ratio,
+                gui_scale,
+                mouse,
+                depth,
+                None,
+            );
+        }
     }
 }
