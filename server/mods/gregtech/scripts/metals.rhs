@@ -1,0 +1,10 @@
+let metals = [#{id:"iron",name:"Iron",color:create_color(112./255., 110./255., 102./255., 1.)}, #{id:"copper",name:"Copper",color:create_color(176./255., 68./255., 5./255., 1.)}];
+let parts = [#{id:"ingot",name:"Ingot",texture:"images/ingot.png"}, #{id:"dust",name:"Dust",texture:"images/dust.png"}, #{id:"plate",name:"Plate",texture:"images/plate.png"}, #{id:"gear",name:"Gear",texture:"images/gear.png"}];
+for part in parts{
+    let texture = load_image(part.texture);
+    for metal in metals{
+        let id = "gregtech:" + metal.id + "_" + part.id;
+        register_image(id, texture.color(metal.color));
+        create_item().client_name(metal.name + " " + part.name).client_model_texture(id).register(id);
+    }
+}
