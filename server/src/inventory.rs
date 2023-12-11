@@ -106,7 +106,7 @@ pub type InventorySetItemHandler = Box<dyn Fn(&Inventory, u32) + Send + Sync>;
 pub struct Inventory {
     owner: WeakInventoryWrapper,
     items: Mutex<Box<[Option<ItemStack>]>>,
-    viewers: Mutex<FxHashMap<Uuid, GuiInventoryViewer>>,
+    viewers: Mutex<FxHashMap<Uuid, Arc<GuiInventoryViewer>>>,
     pub user_data: Mutex<UserData>,
     set_item_handler: Option<InventorySetItemHandler>,
     client_properties: Mutex<UserData>,
@@ -151,7 +151,7 @@ impl Inventory {
                         viewer: viewer.1.viewer.clone(),
                         id: viewer.1.id.clone(),
                     },
-                    id.clone(),
+                    id.to_string(),
                     value.clone(),
                     previous.clone(),
                 ),
@@ -283,12 +283,13 @@ impl Inventory {
                         viewer: viewer.viewer.clone(),
                         id: viewer.id.clone(),
                     },
-                    property.0.clone(),
+                    property.0.to_string(),
                     property.1.clone(),
+                    Dynamic::UNIT
                 ),
             );
         }
-        self.viewers.lock().insert(id.clone(), viewer);
+        self.viewers.lock().insert(id.clone(), Arc::new(viewer));
     }
     pub fn remove_viewer(&self, id: &Uuid) {
         if let Some(viewer) = self.viewers.lock().remove(id) {
@@ -341,128 +342,166 @@ impl Inventory {
             ));
         }
     }
-    pub fn resolve_slot(&self, view_id: &Uuid, id: &str) -> Option<u32> {
+    pub fn resolve_id(&self, view_id: &Uuid, id: &str) -> Option<String> {
         let viewers = self.viewers.lock();
         let viewer = viewers.get(view_id).unwrap();
         if id.starts_with(&viewer.id.to_string()) {
-            id.to_string()
-                .replace(format!("{}_", &viewer.id.to_string()).as_str(), "")
-                .parse()
-                .ok()
+            Some(id.to_string()
+                .replace(format!("{}_", &viewer.id.to_string()).as_str(), ""))
         } else {
             None
         }
     }
-    pub fn on_click_slot(
+    pub fn on_click(
         &self,
         viewer_id: Uuid,
         player: &PlayerData,
-        id: u32,
+        id: &str,
         button: MouseButton,
         shifting: bool,
     ) {
+        let slot = id.parse::<u32>().ok();
         let result = {
-            let viewers = self.viewers.lock();
-            let viewer = viewers.get(&viewer_id).unwrap();
-            viewer
-                .on_click
-                .call_function(
-                    &player.server.engine,
-                    None,
-                    (
-                        player.ptr(),
-                        OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
-                        id as i64,
-                        button,
-                        shifting,
+            let viewer = {
+                let viewers = self.viewers.lock();
+                viewers.get(&viewer_id).unwrap().clone()
+            };
+            match slot{
+                Some(slot) => viewer
+                    .on_click
+                    .call_function(
+                        &player.server.engine,
+                        None,
+                        (
+                            player.ptr(),
+                            OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
+                            slot as i64,
+                            button,
+                            shifting,
+                        ),
                     ),
-                )
+                None => viewer
+                    .on_click
+                    .call_function(
+                        &player.server.engine,
+                        None,
+                        (
+                            player.ptr(),
+                            OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
+                            id.to_string(),
+                            button,
+                            shifting,
+                        ),
+                    ),
+            }
                 .try_cast::<InteractionResult>()
                 .unwrap_or(InteractionResult::Ignored)
         };
         if let InteractionResult::Ignored = result {
             if button == MouseButton::Left {
-                let mut hand = player.hand_item.lock().clone();
-                let mut slot = self.get_full_view().get_item(id).unwrap().clone();
-                match (hand.as_mut(), slot.as_mut()) {
-                    (Some(hand), Some(slot)) => {
-                        if Arc::ptr_eq(hand.get_type(), slot.get_type()) {
-                            if hand.get_count() < hand.item_type.stack_size
-                                && slot.get_count() < slot.item_type.stack_size
-                            {
-                                let transfer = (hand.get_type().stack_size - hand.get_count())
-                                    .min(slot.get_count())
-                                    as i32;
-                                hand.add_count(transfer);
-                                slot.add_count(-transfer);
+                if let Some(slot_id) = slot {
+                    let mut hand = player.hand_item.lock().clone();
+                    let mut slot = self.get_full_view().get_item(slot_id).unwrap().clone();
+                    match (hand.as_mut(), slot.as_mut()) {
+                        (Some(hand), Some(slot)) => {
+                            if Arc::ptr_eq(hand.get_type(), slot.get_type()) {
+                                if hand.get_count() < hand.item_type.stack_size
+                                    && slot.get_count() < slot.item_type.stack_size
+                                {
+                                    let transfer = (hand.get_type().stack_size - hand.get_count())
+                                        .min(slot.get_count())
+                                        as i32;
+                                    hand.add_count(transfer);
+                                    slot.add_count(-transfer);
+                                }
                             }
                         }
+                        _ => {}
                     }
-                    _ => {}
+                    player.set_inventory_hand(slot);
+                    self.get_full_view().set_item(slot_id, hand).unwrap();
                 }
-                player.set_inventory_hand(slot);
-                self.get_full_view().set_item(id, hand).unwrap();
             }
         }
     }
-    pub fn on_scroll_slot(
+    pub fn on_scroll(
         &self,
         viewer_id: Uuid,
         player: &PlayerData,
-        id: u32,
+        id: &str,
         x: i32,
         y: i32,
         shifting: bool,
     ) {
+        let slot = id.parse::<u32>().ok();
         let result = {
-            let viewers = self.viewers.lock();
-            let viewer = viewers.get(&viewer_id).unwrap();
-            viewer
-                .on_scroll
-                .call_function(
-                    &player.server.engine,
-                    None,
-                    (
-                        player.ptr(),
-                        OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
-                        id as i64,
-                        x as i64,
-                        y as i64,
-                        shifting,
+            let viewer = {
+                let viewers = self.viewers.lock();
+                viewers.get(&viewer_id).unwrap().clone()
+            };
+            match slot{
+                Some(slot) => viewer
+                    .on_scroll
+                    .call_function(
+                        &player.server.engine,
+                        None,
+                        (
+                            player.ptr(),
+                            OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
+                            slot as i64,
+                            x as i64,
+                            y as i64,
+                            shifting,
+                        ),
                     ),
-                )
-                .try_cast::<InteractionResult>()
+                None => viewer
+                    .on_scroll
+                    .call_function(
+                        &player.server.engine,
+                        None,
+                        (
+                            player.ptr(),
+                            OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
+                            id.to_string(),
+                            x as i64,
+                            y as i64,
+                            shifting,
+                        ),
+                    ),
+            }.try_cast::<InteractionResult>()
                 .unwrap_or(InteractionResult::Ignored)
         };
         if let InteractionResult::Ignored = result {
-            player.modify_inventory_hand(|first| {
-                self.get_full_view()
-                    .modify_item(id, |second| {
-                        let (first, second) = if y < 0 {
-                            (first, second)
-                        } else {
-                            (second, first)
-                        };
+            if let Some(slot) = slot {
+                player.modify_inventory_hand(|first| {
+                    self.get_full_view()
+                        .modify_item(slot, |second| {
+                            let (first, second) = if y < 0 {
+                                (first, second)
+                            } else {
+                                (second, first)
+                            };
 
-                        if let Some(first) = first {
-                            match second {
-                                Some(second) => {
-                                    if Arc::ptr_eq(first.get_type(), second.get_type())
-                                        && second.get_count() < second.get_type().stack_size
-                                    {
-                                        second.add_count(1);
+                            if let Some(first) = first {
+                                match second {
+                                    Some(second) => {
+                                        if Arc::ptr_eq(first.get_type(), second.get_type())
+                                            && second.get_count() < second.get_type().stack_size
+                                        {
+                                            second.add_count(1);
+                                            first.add_count(-1);
+                                        }
+                                    }
+                                    None => {
+                                        *second = Some(ItemStack::new(first.get_type(), 1));
                                         first.add_count(-1);
                                     }
                                 }
-                                None => {
-                                    *second = Some(ItemStack::new(first.get_type(), 1));
-                                    first.add_count(-1);
-                                }
                             }
-                        }
-                    })
-                    .unwrap();
-            });
+                        })
+                        .unwrap();
+                });
+            }
         }
     }
     pub fn serialize(&self) -> InventorySaveData {
@@ -552,6 +591,7 @@ impl ScriptingObject for OwnedInventoryView {
                 view.view().set_item(index as u32, item).unwrap();
             },
         );
+        engine.register_fn("get_inventory", |view: &mut OwnedInventoryView|{view.inventory.clone()});
     }
 }
 pub struct GuiInventoryData {

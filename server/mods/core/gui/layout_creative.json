@@ -1,0 +1,718 @@
+{
+  "elements": {
+    "text": {
+      "component_type": {
+        "TextComponent": {
+          "font_size": 20,
+          "text": "aaa"
+        }
+      },
+      "position": {
+        "x": 0,
+        "y": 300,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "previous": {
+      "component_type": {
+        "ImageComponent": {
+          "texture": "core:previous",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": -150,
+        "y": 300,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "next": {
+      "component_type": {
+        "ImageComponent": {
+          "texture": "core:next",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 150,
+        "y": 300,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "0": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": -520,
+        "y": -195,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "1": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": -390,
+        "y": -195,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "2": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": -260,
+        "y": -195,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "3": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": -130,
+        "y": -195,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "4": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 0,
+        "y": -195,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "5": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 130,
+        "y": -195,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "6": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 260,
+        "y": -195,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "7": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 390,
+        "y": -195,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "8": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 520,
+        "y": -195,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "9": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": -520,
+        "y": -65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "10": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": -390,
+        "y": -65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "11": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": -260,
+        "y": -65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "12": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": -130,
+        "y": -65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "13": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 0,
+        "y": -65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "14": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 130,
+        "y": -65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "15": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 260,
+        "y": -65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "16": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 390,
+        "y": -65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "17": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 520,
+        "y": -65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "18": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": -520,
+        "y": 65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "19": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": -390,
+        "y": 65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "20": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": -260,
+        "y": 65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "21": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": -130,
+        "y": 65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "22": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 0,
+        "y": 65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "23": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 130,
+        "y": 65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "24": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 260,
+        "y": 65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "25": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 390,
+        "y": 65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    },
+    "26": {
+      "component_type": {
+        "SlotComponent": {
+          "item_id": null,
+          "background": "bb:slot",
+          "size": {
+            "x": 100,
+            "y": 100
+          }
+        }
+      },
+      "position": {
+        "x": 520,
+        "y": 65,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    }
+  }
+}

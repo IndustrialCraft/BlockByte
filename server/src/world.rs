@@ -1525,23 +1525,23 @@ impl Entity {
                     }
                     NetworkMessageC2S::GuiClick(element, button, shifting) => {
                         {
-                            let slot = self.inventory.resolve_slot(self.get_id(), element.as_str());
-                            if let Some(slot) = slot {
+                            let id = self.inventory.resolve_id(self.get_id(), element.as_str());
+                            if let Some(id) = id {
                                 self.inventory
-                                    .on_click_slot(self.id, &player, slot, button, shifting);
+                                    .on_click(self.id, &player, &id, button, shifting);
                                 continue;
                             }
                         }
                         {
                             if let Some(open_inventory) = &mut *player.open_inventory.lock() {
                                 let inventory = open_inventory.0.get_inventory();
-                                let slot =
-                                    inventory.resolve_slot(&open_inventory.1, element.as_str());
-                                if let Some(slot) = slot {
-                                    inventory.on_click_slot(
+                                let id =
+                                    inventory.resolve_id(&open_inventory.1, element.as_str());
+                                if let Some(id) = id {
+                                    inventory.on_click(
                                         open_inventory.1,
                                         &player,
-                                        slot,
+                                        &id,
                                         button,
                                         shifting,
                                     );
@@ -1552,23 +1552,23 @@ impl Entity {
                     }
                     NetworkMessageC2S::GuiScroll(element, x, y, shifting) => {
                         {
-                            let slot = self.inventory.resolve_slot(self.get_id(), element.as_str());
-                            if let Some(slot) = slot {
+                            let id = self.inventory.resolve_id(self.get_id(), element.as_str());
+                            if let Some(id) = id {
                                 self.inventory
-                                    .on_scroll_slot(self.id, &player, slot, x, y, shifting);
+                                    .on_scroll(self.id, &player, &id, x, y, shifting);
                                 continue;
                             }
                         }
                         {
                             if let Some(open_inventory) = &mut *player.open_inventory.lock() {
                                 let inventory = open_inventory.0.get_inventory();
-                                let slot =
-                                    inventory.resolve_slot(&open_inventory.1, element.as_str());
-                                if let Some(slot) = slot {
-                                    inventory.on_scroll_slot(
+                                let id =
+                                    inventory.resolve_id(&open_inventory.1, element.as_str());
+                                if let Some(id) = id {
+                                    inventory.on_scroll(
                                         open_inventory.1,
                                         &player,
-                                        slot,
+                                        &id,
                                         x,
                                         y,
                                         shifting,
