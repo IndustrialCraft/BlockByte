@@ -1,10 +1,10 @@
 {
   "elements": {
-    "text": {
+    "page": {
       "component_type": {
         "TextComponent": {
-          "font_size": 20,
-          "text": "aaa"
+          "font_size": 40,
+          "text": ""
         }
       },
       "position": {

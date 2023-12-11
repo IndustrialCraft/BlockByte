@@ -31,7 +31,6 @@ register_event("bb:keyboard", ||{
                 creative_inventory.full_view().set_item(i, item);
             }
             player.open_inventory(creative_inventory, 0..27, "core:layout_creative", |viewer,id,value,old_value|{
-                print(id + " " + value);
                 if id == "core:page"{
                     viewer.set_text("page", "page: " + value);
                 }
