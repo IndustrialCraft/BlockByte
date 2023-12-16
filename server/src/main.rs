@@ -333,6 +333,9 @@ impl Server {
             events: loaded_mods.6,
             engine: {
                 let mut engine = Engine::new();
+                for (module_id, module) in loaded_mods.9{
+                    engine.register_static_module(module_id, module);
+                }
                 ModManager::runtime_engine_load(&mut engine, this.clone());
                 engine
             },
