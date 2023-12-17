@@ -104,11 +104,24 @@ pub struct ClientEntityData {
 pub struct ModelBone {
     pub child_bones: Vec<ModelBone>,
     pub cube_elements: Vec<ModelCubeElement>,
+    pub mesh_elements: Vec<ModelMeshElement>,
     pub animations: HashMap<u32, ModelAnimationData>,
     pub origin: Vec3,
     pub item_elements: Vec<ModelItemElement>,
 }
 //todo: use transformation
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ModelMeshElement {
+    pub rotation: Vec3,
+    pub origin: Vec3,
+    pub vertices: Vec<Vec3>,
+    pub faces: Vec<ModelMeshElementFace>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ModelMeshElementFace {
+    pub vertices: Vec<(u16, f32, f32)>
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModelCubeElement {
     pub position: Vec3,

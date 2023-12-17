@@ -358,6 +358,14 @@ impl TexCoords {
             v2: self.v1 + (sub.v2 * self_h),
         }
     }
+    pub fn map(&self, u: f32, v: f32) -> (f32,f32) {
+        let self_w = self.u2 - self.u1;
+        let self_h = self.v2 - self.v1;
+        (
+            self.u1 + (u * self_w),
+            self.v1 + (v * self_h),
+        )
+    }
     pub fn flip_horizontally(&self) -> TexCoords {
         TexCoords {
             u1: self.u2,

@@ -1,9 +1,6 @@
 use std::{collections::HashMap, str::FromStr};
 
-use block_byte_common::content::{
-    ModelAnimationData, ModelAnimationKeyframe, ModelBone, ModelCubeElement, ModelData,
-    ModelItemElement,
-};
+use block_byte_common::content::{ModelAnimationData, ModelAnimationKeyframe, ModelBone, ModelCubeElement, ModelData, ModelItemElement, ModelMeshElement, ModelMeshElementFace};
 use block_byte_common::{TexCoords, Vec2, Vec3};
 use either::Either;
 use json::JsonValue;
@@ -34,10 +31,15 @@ fn main() {
                     let (id, cube) = if name.starts_with("item_") {
                         let (element, id) =
                             ItemElement::from_json(name.replacen("item_", "", 1), element);
-                        (id, Either::Right(element))
+                        (id, ModelElement::Item(element))
                     } else {
-                        let (element, id) = cube_element_from_json(element, &texture_resolution);
-                        (id, Either::Left(element))
+                        if element["type"] == "cube" {
+                            let (element, id) = cube_element_from_json(element, &texture_resolution);
+                            (id, ModelElement::Cube(element))
+                        } else {
+                            let (element, id) = mesh_element_from_json(element, &texture_resolution);
+                            (id, ModelElement::Mesh(element))
+                        }
                     };
                     elements.insert(id, cube);
                 }
@@ -108,6 +110,7 @@ struct Bone {
     uuid: uuid::Uuid,
     child_bones: Vec<Bone>,
     cube_elements: Vec<ModelCubeElement>,
+    mesh_elements: Vec<ModelMeshElement>,
     animations: HashMap<u32, ModelAnimationData>,
     origin: Vec3,
     name: String,
@@ -145,30 +148,29 @@ impl Bone {
                 .map(|bone| bone.to_content())
                 .collect(),
             cube_elements: self.cube_elements,
+            mesh_elements: self.mesh_elements,
             item_elements: self.item_elements,
         }
     }
     pub fn children_from_json(
         json: &JsonValue,
-        elements: &mut HashMap<uuid::Uuid, Either<ModelCubeElement, ModelItemElement>>,
+        elements: &mut HashMap<uuid::Uuid, ModelElement>,
         origin: Vec3,
         name: String,
         uuid: uuid::Uuid,
     ) -> Self {
         let mut child_bones = Vec::new();
         let mut cube_elements = Vec::new();
+        let mut mesh_elements = Vec::new();
         let mut item_elements = Vec::new();
         for child in json.members() {
             match child {
                 JsonValue::String(id) => {
                     let uuid = uuid::Uuid::from_str(id.as_str()).unwrap();
                     match elements.remove(&uuid).unwrap() {
-                        Either::Left(cube) => {
-                            cube_elements.push(cube);
-                        }
-                        Either::Right(item) => {
-                            item_elements.push(item);
-                        }
+                        ModelElement::Cube(element) => {cube_elements.push(element);}
+                        ModelElement::Mesh(element) => {mesh_elements.push(element);}
+                        ModelElement::Item(element) => {item_elements.push(element);}
                     }
                 }
                 JsonValue::Object(bone) => {
@@ -181,6 +183,7 @@ impl Bone {
             uuid,
             child_bones,
             cube_elements,
+            mesh_elements,
             origin,
             name,
             item_elements,
@@ -189,7 +192,7 @@ impl Bone {
     }
     pub fn from_json(
         json: &JsonValue,
-        elements: &mut HashMap<uuid::Uuid, Either<ModelCubeElement, ModelItemElement>>,
+        elements: &mut HashMap<uuid::Uuid, ModelElement>,
     ) -> Self {
         Self::children_from_json(
             &json["children"],
@@ -199,6 +202,11 @@ impl Bone {
             uuid::Uuid::from_str(json["uuid"].as_str().unwrap()).unwrap(),
         )
     }
+}
+pub enum ModelElement{
+    Cube(ModelCubeElement),
+    Mesh(ModelMeshElement),
+    Item(ModelItemElement),
 }
 struct Vec3Json {}
 impl Vec3Json {
@@ -287,6 +295,48 @@ pub fn cube_element_from_json(
             right: CubeElementFace::from_json(&faces["east"], resolution),
             up: CubeElementFace::from_json(&faces["up"], resolution),
             down: CubeElementFace::from_json(&faces["down"], resolution),
+        },
+        uuid::Uuid::from_str(json["uuid"].as_str().unwrap()).unwrap(),
+    )
+}
+pub fn mesh_element_from_json(
+    json: &JsonValue,
+    resolution: &(u32, u32),
+) -> (ModelMeshElement, uuid::Uuid) {
+    let rotation = &json["rotation"];
+    let mut vertices = Vec::new();
+    let mut vertex_mapping = HashMap::new();
+    for (id, vertex) in json["vertices"].entries(){
+        vertex_mapping.insert(id, vertices.len() as u16);
+        vertices.push(Vec3Json::from_json_pos(vertex));
+    }
+    (
+        ModelMeshElement {
+            rotation: if rotation.is_null() {
+                Vec3 {
+                    x: 0.,
+                    y: 0.,
+                    z: 0.,
+                }
+            } else {
+                Vec3Json::from_json_rot(rotation)
+            },
+            origin: Vec3Json::from_json_pos(&json["origin"]),
+            vertices,
+            faces: {
+                let mut faces = Vec::new();
+                for (_, face) in json["faces"].entries(){
+                    let mut vertices = Vec::new();
+                    for vertex in face["vertices"].members(){
+                        let vertex = vertex.as_str().unwrap();
+                        let id = *vertex_mapping.get(vertex).unwrap();
+                        let uv = &face["uv"][vertex];
+                        vertices.push((id, uv[0].as_f32().unwrap() / resolution.0 as f32, uv[1].as_f32().unwrap() / resolution.1 as f32));
+                    }
+                    faces.push(ModelMeshElementFace{vertices});
+                }
+                faces
+            }
         },
         uuid::Uuid::from_str(json["uuid"].as_str().unwrap()).unwrap(),
     )

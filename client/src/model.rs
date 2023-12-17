@@ -1,8 +1,6 @@
 use crate::content::{ItemModel, ItemRegistry};
 use crate::render::FaceVerticesExtension;
-use block_byte_common::content::{
-    ModelAnimationData, ModelBone, ModelCubeElement, ModelData, ModelItemElement, Transformation,
-};
+use block_byte_common::content::{ModelAnimationData, ModelBone, ModelCubeElement, ModelData, ModelItemElement, ModelMeshElement, Transformation};
 use block_byte_common::{Face, Position, TexCoords, Vec3};
 use cgmath::{Matrix4, Point3, Rad, SquareMatrix, Transform, Vector3};
 use std::collections::HashMap;
@@ -29,7 +27,7 @@ impl Model {
                         data.animations
                             .iter()
                             .position(|anim| anim.0 == animation)
-                            .unwrap() as u32,
+                            .unwrap_or(0) as u32,
                     );
                 }
                 animations_resolved
@@ -91,6 +89,9 @@ impl Model {
         for child_cube_element in &bone.cube_elements {
             self.add_cube_element(child_cube_element, transform, vertex_consumer);
         }
+        for child_mesh_element in &bone.mesh_elements {
+            self.add_mesh_element(child_mesh_element, transform, vertex_consumer);
+        }
         if let Some(item_registry) = item_registry {
             for child_item_element in &bone.item_elements {
                 self.add_item_element(
@@ -136,6 +137,49 @@ impl Model {
                     ));
                 },
             );
+        }
+    }
+    fn add_mesh_element<F>(
+        &self,
+        mesh_element: &ModelMeshElement,
+        parent_transform: Matrix4<f32>,
+        vertex_consumer: &mut F,
+    ) where
+        F: FnMut(Position, (f32, f32)),
+    {
+        for face in &mesh_element.faces {
+            let mut vertices = Vec::new();
+            for (vertex, u, v) in &face.vertices{
+                let position = mesh_element.vertices[*vertex as usize];
+                let position = (parent_transform
+                    * Self::create_matrix_trs(
+                    &Vec3::ZERO,
+                    &mesh_element.rotation,
+                    &mesh_element.origin,
+                    &Vec3::ONE,
+                ))
+                    .transform_point(Point3 {
+                        x: position.x,
+                        y: position.y,
+                        z: position.z,
+                    });
+                vertices.push((
+                    Position {
+                        x: position.x as f64,
+                        y: position.y as f64,
+                        z: position.z as f64,
+                    },
+                    self.texture.map(*u, *v),
+                ));
+            }
+            if vertices.len() == 4{
+                vertex_consumer.call_mut(vertices[0]);
+                vertex_consumer.call_mut(vertices[1]);
+                vertex_consumer.call_mut(vertices[2]);
+                vertex_consumer.call_mut(vertices[1]);
+                vertex_consumer.call_mut(vertices[3]);
+                vertex_consumer.call_mut(vertices[2]);
+            }
         }
     }
 
@@ -253,9 +297,9 @@ impl Model {
         let origin = Matrix4::from_translation(Vector3::new(origin.x, origin.y, origin.z));
         Matrix4::from_translation(Vector3::new(translation.x, translation.y, translation.z))
             * (origin
-                * Matrix4::from_angle_z(Rad(-rotation.z))
-                * Matrix4::from_angle_y(Rad(-rotation.y))
-                * Matrix4::from_angle_x(Rad(-rotation.x))
+                * Matrix4::from_angle_z(Rad(rotation.z))
+                * Matrix4::from_angle_y(Rad(rotation.y))
+                * Matrix4::from_angle_x(Rad(rotation.x))
                 * origin.invert().unwrap())
             * Matrix4::from_nonuniform_scale(scale.x, scale.y, scale.z)
     }
