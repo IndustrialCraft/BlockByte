@@ -173,12 +173,17 @@ impl Model {
                 ));
             }
             if vertices.len() == 4{
-                vertex_consumer.call_mut(vertices[0]);
-                vertex_consumer.call_mut(vertices[1]);
-                vertex_consumer.call_mut(vertices[2]);
-                vertex_consumer.call_mut(vertices[1]);
-                vertex_consumer.call_mut(vertices[3]);
-                vertex_consumer.call_mut(vertices[2]);
+                for i in 0..4{
+                    let mut vertices = vertices.clone();
+                    vertices.remove(i);
+                    vertex_consumer.call_mut(vertices[0]);
+                    vertex_consumer.call_mut(vertices[1]);
+                    vertex_consumer.call_mut(vertices[2]);
+                    vertex_consumer.call_mut(vertices[2]);
+                    vertex_consumer.call_mut(vertices[1]);
+                    vertex_consumer.call_mut(vertices[0]);
+                    //todo: optimize
+                }
             }
         }
     }
