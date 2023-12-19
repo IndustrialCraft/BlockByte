@@ -11,7 +11,10 @@ use image::{ImageOutputFormat, Rgba, RgbaImage};
 use json::JsonValue;
 use parking_lot::{Mutex, MutexGuard, RwLock};
 use rhai::plugin::*;
-use rhai::{exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, GlobalRuntimeState, StaticVec, AST, Scope};
+use rhai::{
+    exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, GlobalRuntimeState, Scope, StaticVec,
+    AST,
+};
 use splines::{Interpolation, Spline};
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
@@ -77,7 +80,7 @@ impl Mod {
         id: &str,
         engine: &Engine,
         script_errors: &mut Vec<(String, Box<EvalAltResult>)>,
-    ) -> Vec<(String,Module)>{
+    ) -> Vec<(String, Module)> {
         let mut modules = Vec::new();
         let scripts_path = {
             let mut scripts_path = self.path.clone();
@@ -85,14 +88,21 @@ impl Mod {
             scripts_path
         };
         for script in WalkDir::new(&scripts_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|entry| entry.metadata().unwrap().is_file())
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|entry| entry.metadata().unwrap().is_file())
         {
             let parsed = engine.compile_file(script.clone().into_path()).unwrap();
             let module = Module::eval_ast_as_new(Scope::new(), &parsed, engine).unwrap();
-            let module_name = script.into_path().canonicalize().unwrap().to_str().unwrap().to_string();
-            let module_name = module_name.replace(scripts_path.canonicalize().unwrap().to_str().unwrap(), "");
+            let module_name = script
+                .into_path()
+                .canonicalize()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string();
+            let module_name =
+                module_name.replace(scripts_path.canonicalize().unwrap().to_str().unwrap(), "");
             let module_name = module_name.replace("/", "::");
             let module_name = module_name.replace(".rhs", "");
             let module_name = format!("{}{}", id, module_name);
@@ -138,7 +148,7 @@ impl ModManager {
         EventManager,
         Vec<(String, Box<EvalAltResult>)>,
         Arc<RwLock<Engine>>,
-        Vec<(String, Arc<Module>)>
+        Vec<(String, Arc<Module>)>,
     ) {
         let mut errors = Vec::new();
         let mut mods = HashMap::new();
@@ -367,12 +377,16 @@ impl ModManager {
                 path.clear();
                 path.push(loaded_mod.1.path.clone());
             }
-            let script_modules = loaded_mod
-                .1
-                .load_scripts(loaded_mod.0.as_str(), &loading_engine.read(), &mut errors);
+            let script_modules = loaded_mod.1.load_scripts(
+                loaded_mod.0.as_str(),
+                &loading_engine.read(),
+                &mut errors,
+            );
             for (module_id, module) in script_modules {
                 let module = Arc::new(module);
-                loading_engine.write().register_static_module(module_id.as_str(), module.clone());
+                loading_engine
+                    .write()
+                    .register_static_module(module_id.as_str(), module.clone());
                 modules.push((module_id, module));
             }
         }
@@ -412,7 +426,7 @@ impl ModManager {
             events,
             errors,
             loading_engine,
-            modules
+            modules,
         )
     }
     pub fn load_structures(
@@ -764,12 +778,12 @@ impl ScriptingObject for Transformation {
             Transformation {
                 position: Vec3::ZERO,
                 rotation: match face {
-                    Face::Front => Vec3 {
+                    Face::Back => Vec3 {
                         x: 90f32.to_radians(),
                         y: 0.,
                         z: 0.,
                     },
-                    Face::Back => Vec3 {
+                    Face::Front => Vec3 {
                         x: 270f32.to_radians(),
                         y: 0.,
                         z: 0.,
@@ -780,12 +794,12 @@ impl ScriptingObject for Transformation {
                         y: 0.,
                         z: 0.,
                     },
-                    Face::Left => Vec3 {
+                    Face::Right => Vec3 {
                         x: 0.,
                         y: 0.,
                         z: 270f32.to_radians(),
                     },
-                    Face::Right => Vec3 {
+                    Face::Left => Vec3 {
                         x: 0.,
                         y: 0.,
                         z: 90f32.to_radians(),
