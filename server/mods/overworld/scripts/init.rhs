@@ -65,26 +65,26 @@ create_block(|p|{
     if player.get_entity().get_hand_item().get_id() != "overworld:log_block"{
         return;
     }
-    let world = player.get_entity().get_location().world;
-    let size = world.get_block(position).get_property("size") + 1;
+    let location = BlockLocation(position, player.get_entity().get_location().world);
+    let size = location.get_block().get_property("size") + 1;
     if size > 8{
         size = 1;
     }
-    world.set_block(position, BlockState("overworld:log").with_property("size", size));
+    location.set_block(BlockState("overworld:log").with_property("size", size));
     return InteractionResult::Consumed;
 })
 .neighbor_update(|location|{
-    let initial_state = location.world.get_block_load(location.position);
+    let initial_state = location.get_block_load();
     let state = initial_state;
     let tag = Tag("overworld:logs_connecting");
-    state = state.with_property("front", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Front))));
-    state = state.with_property("back", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Back))));
-    state = state.with_property("left", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Left))));
-    state = state.with_property("right", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Right))));
-    state = state.with_property("up", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Up))));
-    state = state.with_property("down", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Down))));
+    state = state.with_property("front", tag.contains(location.offset_by_face(Face::Front).get_block_load()));
+    state = state.with_property("back", tag.contains(location.offset_by_face(Face::Back).get_block_load()));
+    state = state.with_property("left", tag.contains(location.offset_by_face(Face::Left).get_block_load()));
+    state = state.with_property("right", tag.contains(location.offset_by_face(Face::Right).get_block_load()));
+    state = state.with_property("up", tag.contains(location.offset_by_face(Face::Up).get_block_load()));
+    state = state.with_property("down", tag.contains(location.offset_by_face(Face::Down).get_block_load()));
     if state != initial_state{
-        location.world.set_block(location.position, state);
+        location.set_block(state);
     }
 }).register("overworld:log").register_item("overworld:log_block","Log Block");
 create_block(|p|{
@@ -111,17 +111,17 @@ create_block(|p|{
     return model;
 }).add_property_bool("front").add_property_bool("back").add_property_bool("left").add_property_bool("right").add_property_bool("up").add_property_bool("down")
 .neighbor_update(|location|{
-    let initial_state = location.world.get_block_load(location.position);
+    let initial_state = location.get_block_load();
     let state = initial_state;
     let tag = Tag("overworld:cactus_connecting");
-    state = state.with_property("front", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Front))));
-    state = state.with_property("back", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Back))));
-    state = state.with_property("left", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Left))));
-    state = state.with_property("right", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Right))));
-    state = state.with_property("up", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Up))));
-    state = state.with_property("down", tag.contains(location.world.get_block_load(location.position.offset_by_face(Face::Down))));
+    state = state.with_property("front", tag.contains(location.offset_by_face(Face::Front).get_block_load()));
+    state = state.with_property("back", tag.contains(location.offset_by_face(Face::Back).get_block_load()));
+    state = state.with_property("left", tag.contains(location.offset_by_face(Face::Left).get_block_load()));
+    state = state.with_property("right", tag.contains(location.offset_by_face(Face::Right).get_block_load()));
+    state = state.with_property("up", tag.contains(location.offset_by_face(Face::Up).get_block_load()));
+    state = state.with_property("down", tag.contains(location.offset_by_face(Face::Down).get_block_load()));
     if state != initial_state{
-        location.world.set_block(location.position, state);
+        location.set_block(state);
     }
 }).register("overworld:cactus").register_item("overworld:cactus_block","Cactus Block");
 

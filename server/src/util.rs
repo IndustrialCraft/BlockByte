@@ -1,12 +1,13 @@
 use crate::mods::ScriptingObject;
+use crate::registry::BlockStateRef;
 use crate::Server;
-use block_byte_common::{BlockPosition, Position};
-use rhai::Engine;
+use block_byte_common::{BlockPosition, Face, Position};
+use rhai::{Dynamic, Engine};
 use serde::{Deserialize, Serialize};
 use std::sync::Weak;
 use std::{fmt::Display, sync::Arc};
 
-use crate::world::{Chunk, World};
+use crate::world::{BlockData, Chunk, World};
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Serialize, Deserialize)]
 pub struct Identifier {
@@ -136,6 +137,49 @@ impl ScriptingObject for BlockLocation {
             |location: &mut BlockLocation| location.world.clone(),
             |location: &mut BlockLocation, world: Arc<World>| {
                 location.world = world;
+            },
+        );
+        engine.register_fn(
+            "set_block",
+            |location: &mut BlockLocation, block: BlockStateRef| {
+                location.world.set_block(location.position, block, true);
+            },
+        );
+        engine.register_fn("get_block_load", |location: &mut BlockLocation| {
+            location
+                .world
+                .get_block_load(location.position)
+                .get_block_state()
+        });
+        engine.register_fn("get_block", |location: &mut BlockLocation| {
+            location
+                .world
+                .get_block(&location.position)
+                .map(|block| Dynamic::from(block.get_block_state()))
+                .unwrap_or(Dynamic::UNIT)
+        });
+        engine.register_fn(
+            "get_block_data_load",
+            |location: &mut BlockLocation| match location.world.get_block_load(location.position) {
+                BlockData::Simple(_) => Dynamic::UNIT,
+                BlockData::Data(data) => Dynamic::from(data),
+            },
+        );
+        engine.register_fn("get_block_data", |location: &mut BlockLocation| {
+            location
+                .world
+                .get_block(&location.position)
+                .map(|block| match block {
+                    BlockData::Simple(_) => Dynamic::UNIT,
+                    BlockData::Data(data) => Dynamic::from(data),
+                })
+                .unwrap_or(Dynamic::UNIT)
+        });
+        engine.register_fn(
+            "offset_by_face",
+            |location: &mut BlockLocation, face: Face| BlockLocation {
+                position: location.position.offset_by_face(face),
+                world: location.world.clone(),
             },
         );
     }

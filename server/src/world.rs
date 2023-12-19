@@ -319,27 +319,6 @@ impl ScriptingObject for World {
             },
         );
         engine.register_fn(
-            "set_block",
-            |world: &mut Arc<World>, position: BlockPosition, block: BlockStateRef| {
-                world.set_block(position, block, true);
-            },
-        );
-        engine.register_fn(
-            "get_block_load",
-            |world: &mut Arc<World>, position: BlockPosition| {
-                world.get_block_load(position).get_block_state()
-            },
-        );
-        engine.register_fn(
-            "get_block",
-            |world: &mut Arc<World>, position: BlockPosition| {
-                world
-                    .get_block(&position)
-                    .map(|block| Dynamic::from(block.get_block_state()))
-                    .unwrap_or(Dynamic::UNIT)
-            },
-        );
-        engine.register_fn(
             "get_block_data",
             |world: &mut Arc<World>, position: BlockPosition| match world.get_block_load(position) {
                 BlockData::Simple(_) => Dynamic::UNIT,
@@ -1535,8 +1514,7 @@ impl Entity {
                         {
                             if let Some(open_inventory) = &mut *player.open_inventory.lock() {
                                 let inventory = open_inventory.0.get_inventory();
-                                let id =
-                                    inventory.resolve_id(&open_inventory.1, element.as_str());
+                                let id = inventory.resolve_id(&open_inventory.1, element.as_str());
                                 if let Some(id) = id {
                                     inventory.on_click(
                                         open_inventory.1,
@@ -1562,8 +1540,7 @@ impl Entity {
                         {
                             if let Some(open_inventory) = &mut *player.open_inventory.lock() {
                                 let inventory = open_inventory.0.get_inventory();
-                                let id =
-                                    inventory.resolve_id(&open_inventory.1, element.as_str());
+                                let id = inventory.resolve_id(&open_inventory.1, element.as_str());
                                 if let Some(id) = id {
                                     inventory.on_scroll(
                                         open_inventory.1,

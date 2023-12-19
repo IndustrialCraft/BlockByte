@@ -172,5 +172,5 @@ register_event("bb:player_join", ||{this.entity = Entity("core:player", this.loc
 register_event("bb:post_player_join", ||{
     this.player.creative(true);
     this.player.movement_type(MovementType::NoClip);
-    this.player.speed(1);
+    this.player.speed(1.);
 });
