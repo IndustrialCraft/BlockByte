@@ -226,7 +226,7 @@ impl Inventory {
                 }
                 InventoryWrapper::Block(block) => {
                     let chunk = block.chunk.upgrade().unwrap();
-                    let block_type = chunk.world.server.block_registry.state_by_ref(&block.state);
+                    let block_type = chunk.world.server.block_registry.state_by_ref(block.state);
                     if let Some(mapping) = block_type.parent.item_model_mapping.mapping.get(&index)
                     {
                         chunk.announce_to_viewers(&NetworkMessageS2C::ModelItem(
@@ -285,7 +285,7 @@ impl Inventory {
                     },
                     property.0.to_string(),
                     property.1.clone(),
-                    Dynamic::UNIT
+                    Dynamic::UNIT,
                 ),
             );
         }
@@ -346,8 +346,10 @@ impl Inventory {
         let viewers = self.viewers.lock();
         let viewer = viewers.get(view_id).unwrap();
         if id.starts_with(&viewer.id.to_string()) {
-            Some(id.to_string()
-                .replace(format!("{}_", &viewer.id.to_string()).as_str(), ""))
+            Some(
+                id.to_string()
+                    .replace(format!("{}_", &viewer.id.to_string()).as_str(), ""),
+            )
         } else {
             None
         }
@@ -366,36 +368,32 @@ impl Inventory {
                 let viewers = self.viewers.lock();
                 viewers.get(&viewer_id).unwrap().clone()
             };
-            match slot{
-                Some(slot) => viewer
-                    .on_click
-                    .call_function(
-                        &player.server.engine,
-                        None,
-                        (
-                            player.ptr(),
-                            OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
-                            slot as i64,
-                            button,
-                            shifting,
-                        ),
+            match slot {
+                Some(slot) => viewer.on_click.call_function(
+                    &player.server.engine,
+                    None,
+                    (
+                        player.ptr(),
+                        OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
+                        slot as i64,
+                        button,
+                        shifting,
                     ),
-                None => viewer
-                    .on_click
-                    .call_function(
-                        &player.server.engine,
-                        None,
-                        (
-                            player.ptr(),
-                            OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
-                            id.to_string(),
-                            button,
-                            shifting,
-                        ),
+                ),
+                None => viewer.on_click.call_function(
+                    &player.server.engine,
+                    None,
+                    (
+                        player.ptr(),
+                        OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
+                        id.to_string(),
+                        button,
+                        shifting,
                     ),
+                ),
             }
-                .try_cast::<InteractionResult>()
-                .unwrap_or(InteractionResult::Ignored)
+            .try_cast::<InteractionResult>()
+            .unwrap_or(InteractionResult::Ignored)
         };
         if let InteractionResult::Ignored = result {
             if button == MouseButton::Left {
@@ -439,37 +437,34 @@ impl Inventory {
                 let viewers = self.viewers.lock();
                 viewers.get(&viewer_id).unwrap().clone()
             };
-            match slot{
-                Some(slot) => viewer
-                    .on_scroll
-                    .call_function(
-                        &player.server.engine,
-                        None,
-                        (
-                            player.ptr(),
-                            OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
-                            slot as i64,
-                            x as i64,
-                            y as i64,
-                            shifting,
-                        ),
+            match slot {
+                Some(slot) => viewer.on_scroll.call_function(
+                    &player.server.engine,
+                    None,
+                    (
+                        player.ptr(),
+                        OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
+                        slot as i64,
+                        x as i64,
+                        y as i64,
+                        shifting,
                     ),
-                None => viewer
-                    .on_scroll
-                    .call_function(
-                        &player.server.engine,
-                        None,
-                        (
-                            player.ptr(),
-                            OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
-                            id.to_string(),
-                            x as i64,
-                            y as i64,
-                            shifting,
-                        ),
+                ),
+                None => viewer.on_scroll.call_function(
+                    &player.server.engine,
+                    None,
+                    (
+                        player.ptr(),
+                        OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
+                        id.to_string(),
+                        x as i64,
+                        y as i64,
+                        shifting,
                     ),
-            }.try_cast::<InteractionResult>()
-                .unwrap_or(InteractionResult::Ignored)
+                ),
+            }
+            .try_cast::<InteractionResult>()
+            .unwrap_or(InteractionResult::Ignored)
         };
         if let InteractionResult::Ignored = result {
             if let Some(slot) = slot {
@@ -591,7 +586,9 @@ impl ScriptingObject for OwnedInventoryView {
                 view.view().set_item(index as u32, item).unwrap();
             },
         );
-        engine.register_fn("get_inventory", |view: &mut OwnedInventoryView|{view.inventory.clone()});
+        engine.register_fn("get_inventory", |view: &mut OwnedInventoryView| {
+            view.inventory.clone()
+        });
     }
 }
 pub struct GuiInventoryData {

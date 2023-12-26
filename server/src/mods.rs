@@ -32,6 +32,7 @@ use walkdir::WalkDir;
 use crate::inventory::{GUILayout, InventoryWrapper, ItemStack, ModGuiViewer, OwnedInventoryView};
 use crate::registry::{
     Block, BlockState, BlockStateProperty, BlockStatePropertyStorage, BlockStateRef,
+    InteractionResult,
 };
 use crate::util::BlockLocation;
 use crate::world::{PlayerData, UserData, World, WorldBlock};
@@ -189,11 +190,12 @@ impl ModManager {
             .register_fn("add_property_face", BlockBuilder::add_property_face)
             .register_fn("add_property_bool", BlockBuilder::add_property_bool)
             .register_fn("add_property_number", BlockBuilder::add_property_number)
-            .register_fn("breaking_tool", BlockBuilder::breaking_tool)
-            .register_fn("ticker", BlockBuilder::ticker)
-            .register_fn("right_click_action", BlockBuilder::right_click_action)
-            .register_fn("neighbor_update", BlockBuilder::neighbor_update)
-            .register_fn("breaking_speed", BlockBuilder::breaking_speed)
+            .register_fn("on_tick", BlockBuilder::on_tick)
+            .register_fn("on_right_click", BlockBuilder::on_right_click)
+            .register_fn("on_left_click", BlockBuilder::on_left_click)
+            .register_fn("on_neighbor_update", BlockBuilder::on_neighbor_update)
+            .register_fn("on_place", BlockBuilder::on_place)
+            .register_fn("on_destroy", BlockBuilder::on_destroy)
             .register_fn("create_air", ModClientBlockData::create_air)
             .register_fn("create_cube", ModClientBlockData::create_cube)
             .register_fn("create_static", ModClientBlockData::create_static)
@@ -862,7 +864,7 @@ impl ScriptingObject for IdentifierTag {
                             .upgrade()
                             .unwrap()
                             .block_registry
-                            .state_by_ref(&block)
+                            .state_by_ref(block)
                             .parent
                             .id,
                     )
@@ -1011,11 +1013,13 @@ pub struct RegisteredBlock {
 pub struct BlockBuilder {
     pub client: ScriptCallback,
     pub data_container: Option<(u32,)>,
-    pub breaking_data: (f32, Option<(ToolType, f32)>),
-    pub ticker: Option<ScriptCallback>,
-    pub right_click_action: Option<ScriptCallback>,
-    pub neighbor_update: Option<ScriptCallback>,
     pub properties: BlockStatePropertyStorage,
+    pub on_tick: ScriptCallback,
+    pub on_right_click: ScriptCallback,
+    pub on_left_click: ScriptCallback,
+    pub on_neighbor_update: ScriptCallback,
+    pub on_place: ScriptCallback,
+    pub on_destroy: ScriptCallback,
 }
 
 impl BlockBuilder {
@@ -1023,11 +1027,13 @@ impl BlockBuilder {
         BlockBuilder {
             client: ScriptCallback::new(client),
             data_container: None,
-            breaking_data: (1., None),
-            ticker: None,
-            right_click_action: None,
-            neighbor_update: None,
             properties: BlockStatePropertyStorage::new(),
+            on_tick: ScriptCallback::empty(),
+            on_right_click: ScriptCallback::empty(),
+            on_left_click: ScriptCallback::empty(),
+            on_neighbor_update: ScriptCallback::empty(),
+            on_place: ScriptCallback::empty(),
+            on_destroy: ScriptCallback::empty(),
         }
     }
     pub fn add_property_horizontal_face(&mut self, name: &str) -> Self {
@@ -1056,29 +1062,34 @@ impl BlockBuilder {
         );
         this
     }
-    pub fn ticker(&mut self, ticker: FnPtr) -> Self {
+    pub fn on_tick(&mut self, ticker: FnPtr) -> Self {
         let mut this = self.clone();
-        this.ticker = Some(ScriptCallback::new(ticker));
+        this.on_tick = ScriptCallback::new(ticker);
         this
     }
-    pub fn right_click_action(&mut self, click_action: FnPtr) -> Self {
+    pub fn on_right_click(&mut self, click_action: FnPtr) -> Self {
         let mut this = self.clone();
-        this.right_click_action = Some(ScriptCallback::new(click_action));
+        this.on_right_click = ScriptCallback::new(click_action);
         this
     }
-    pub fn neighbor_update(&mut self, neighbor_update: FnPtr) -> Self {
+    pub fn on_left_click(&mut self, click_action: FnPtr) -> Self {
         let mut this = self.clone();
-        this.neighbor_update = Some(ScriptCallback::new(neighbor_update));
+        this.on_left_click = ScriptCallback::new(click_action);
         this
     }
-    pub fn breaking_speed(&mut self, breaking_speed: f64) -> Self {
+    pub fn on_neighbor_update(&mut self, neighbor_update: FnPtr) -> Self {
         let mut this = self.clone();
-        this.breaking_data.0 = breaking_speed as f32;
+        this.on_neighbor_update = ScriptCallback::new(neighbor_update);
         this
     }
-    pub fn breaking_tool(&mut self, tool_type: ToolType, hardness: f64) -> Self {
+    pub fn on_place(&mut self, place_action: FnPtr) -> Self {
         let mut this = self.clone();
-        this.breaking_data.1 = Some((tool_type, hardness as f32));
+        this.on_place = ScriptCallback::new(place_action);
+        this
+    }
+    pub fn on_destroy(&mut self, destroy_action: FnPtr) -> Self {
+        let mut this = self.clone();
+        this.on_destroy = ScriptCallback::new(destroy_action);
         this
     }
     pub fn mark_data_container(&mut self, inventory_size: i64) -> Self {
@@ -1458,6 +1469,16 @@ impl ScriptCallback {
         } else {
             Dynamic::UNIT
         }
+    }
+    pub fn call_action(
+        &self,
+        engine: &Engine,
+        this: Option<&mut Dynamic>,
+        args: impl FuncArgs,
+    ) -> InteractionResult {
+        self.call_function(engine, this, args)
+            .try_cast::<InteractionResult>()
+            .unwrap_or(InteractionResult::Ignored)
     }
     pub fn is_empty(&self) -> bool {
         self.function.is_none()

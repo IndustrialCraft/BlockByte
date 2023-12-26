@@ -27,12 +27,15 @@ use fxhash::{FxHashMap, FxHashSet};
 use json::{object, JsonValue};
 use parking_lot::Mutex;
 use pathfinding::prelude::astar;
-use rand::Rng;
+use rand::{thread_rng, Rng};
 use rhai::{Dynamic, Engine, FnPtr};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::inventory::{GuiInventoryData, GuiInventoryViewer, InventorySaveData, InventoryView};
+use crate::inventory::{
+    GuiInventoryData, GuiInventoryViewer, InventorySaveData, InventoryView,
+    LootTableGenerationParameters,
+};
 use crate::mods::{ScriptCallback, ScriptingObject, UserDataWrapper};
 use crate::registry::{Block, BlockState};
 use crate::util::BlockLocation;
@@ -192,7 +195,13 @@ impl World {
         }
         false
     }
-    pub fn set_block(&self, position: BlockPosition, block: BlockStateRef, update_neighbors: bool) {
+    pub fn set_block(
+        &self,
+        position: BlockPosition,
+        block: BlockStateRef,
+        update_neighbors: bool,
+        player: Option<Arc<PlayerData>>,
+    ) {
         let chunk_offset = position.chunk_offset();
         self.load_chunk(position.to_chunk_pos()).set_block(
             chunk_offset.0,
@@ -200,29 +209,7 @@ impl World {
             chunk_offset.2,
             block,
             update_neighbors,
-        );
-    }
-    pub fn break_block(&self, position: BlockPosition, params: BlockBreakParameters) {
-        let chunk_offset = position.chunk_offset();
-        let chunk = self.load_chunk(position.to_chunk_pos());
-        let block_state = self.server.block_registry.state_by_ref(
-            &chunk
-                .get_block(chunk_offset.0, chunk_offset.1, chunk_offset.2)
-                .get_block_state(),
-        );
-        block_state.on_break(
-            ChunkBlockLocation {
-                position,
-                chunk: chunk.clone(),
-            },
-            params,
-        );
-        chunk.set_block(
-            chunk_offset.0,
-            chunk_offset.1,
-            chunk_offset.2,
-            BlockStateRef::from_state_id(0),
-            true,
+            player,
         );
     }
     pub fn get_block_load(&self, position: BlockPosition) -> BlockData {
@@ -239,8 +226,13 @@ impl World {
             .map(|chunk| chunk.get_block(chunk_offset.0, chunk_offset.1, chunk_offset.2))
     }
 
-    pub fn replace_block<F>(&self, position: BlockPosition, replacer: F, update_neighbors: bool)
-    where
+    pub fn replace_block<F>(
+        &self,
+        position: BlockPosition,
+        replacer: F,
+        update_neighbors: bool,
+        player: Option<Arc<PlayerData>>,
+    ) where
         F: FnOnce(BlockData) -> Option<BlockStateRef>,
     {
         let chunk_offset = position.chunk_offset();
@@ -254,6 +246,7 @@ impl World {
                 chunk_offset.2,
                 new_block,
                 update_neighbors,
+                player,
             );
         }
     }
@@ -386,7 +379,7 @@ impl BlockData {
             BlockData::Simple(id) => BlockStateRef::from_state_id(*id),
             BlockData::Data(data) => data.state,
         };
-        let state = block_registry.state_by_ref(&state);
+        let state = block_registry.state_by_ref(state);
         state.collidable
     }
 }
@@ -500,8 +493,14 @@ impl Chunk {
                 array_init(|z| {
                     let block_id = chunk_save_data.blocks[x][y][z];
                     let block = block_palette.get(block_id as usize).unwrap();
+                    let offset = (x as u8, y as u8, z as u8);
                     let block_state_ref = match block.0 {
-                        Some(block_id) => block_id.get_state_ref(block.1),
+                        Some(block_id) => {
+                            if !block_id.on_tick.is_empty() {
+                                self.ticking_blocks.lock().insert(offset);
+                            }
+                            block_id.get_state_ref(block.1)
+                        }
                         None => BlockStateRef::AIR,
                     };
                     let block_data = block_state_ref.create_block_data(
@@ -512,13 +511,10 @@ impl Chunk {
                             z: (self.position.z * 16) + z as i32,
                         },
                     );
-                    let offset = (x as u8, y as u8, z as u8);
+
                     if let BlockData::Data(block) = &block_data {
                         if let Some(data) = chunk_save_data.block_data.remove(&offset) {
                             block.deserialize(data);
-                            if block.needs_ticking() {
-                                self.ticking_blocks.lock().insert(offset);
-                            }
                         }
                     }
                     block_data
@@ -535,7 +531,7 @@ impl Chunk {
             |block_position, block| {
                 if block_position.to_chunk_pos() == self.position {
                     let offset = block_position.chunk_offset();
-                    self.set_block(offset.0, offset.1, offset.2, block, false);
+                    self.set_block(offset.0, offset.1, offset.2, block, false, None);
                 }
             },
             position,
@@ -548,6 +544,7 @@ impl Chunk {
         offset_z: u8,
         block: BlockStateRef,
         update_neighbors: bool,
+        player: Option<Arc<PlayerData>>,
     ) {
         match self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize] {
             BlockData::Simple(id) => {
@@ -562,11 +559,63 @@ impl Chunk {
             y: self.position.y * 16 + offset_y as i32,
             z: self.position.z * 16 + offset_z as i32,
         };
-        let previous_ticking =
-            match &self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize] {
-                BlockData::Simple(_) => false,
-                BlockData::Data(block) => block.needs_ticking(),
-            };
+        let block_location = BlockLocation {
+            world: self.world.clone(),
+            position: block_position,
+        };
+        let previous_block = &self
+            .world
+            .server
+            .block_registry
+            .state_by_ref(
+                self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize]
+                    .get_block_state(),
+            )
+            .parent;
+        if let Some(player) = &player {
+            if !*player.creative.lock() {
+                if let Some(loottable) = &self.world.server.loot_tables.get(&previous_block.id) {
+                    loottable.generate_items(
+                        |item| {
+                            for _ in 0..item.get_count() {
+                                let rotation: f32 = thread_rng().gen_range((0.)..(360.));
+                                let rotation_radians = rotation.to_radians();
+                                let vertical_strength = 0.4;
+                                let horizontal_strength = 0.2;
+                                self.world.drop_item_on_ground(
+                                    Position {
+                                        x: block_position.x as f64 + 0.5,
+                                        y: block_position.y as f64 + 0.5,
+                                        z: block_position.z as f64 + 0.5,
+                                    },
+                                    item.copy(1),
+                                    Some(rotation),
+                                    Some((
+                                        rotation_radians.sin() as f64 * horizontal_strength,
+                                        vertical_strength,
+                                        rotation_radians.cos() as f64 * horizontal_strength,
+                                    )),
+                                );
+                            }
+                        },
+                        LootTableGenerationParameters {
+                            item: player.get_entity().get_hand_item().as_ref(),
+                        },
+                    );
+                }
+            }
+        }
+        let previous_ticking = !previous_block.on_tick.is_empty();
+        let player = player
+            .map(|player| Dynamic::from(player))
+            .unwrap_or(Dynamic::UNIT);
+        let _ = previous_block.on_destroy.call_function(
+            &self.world.server.engine,
+            Some(&mut Dynamic::from(block_location.clone())),
+            (player.clone(),),
+        );
+        let new_block = &self.world.server.block_registry.state_by_ref(block).parent;
+        let new_ticking = !new_block.on_tick.is_empty();
         let block = block.create_block_data(&self.this.upgrade().unwrap(), block_position);
         if self.loading_stage.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
             self.announce_to_viewers(&NetworkMessageS2C::SetBlock(
@@ -574,11 +623,10 @@ impl Chunk {
                 block.get_client_id(),
             ));
         }
-        let new_ticking = match &block {
-            BlockData::Simple(_) => false,
+        match &block {
+            BlockData::Simple(_) => {}
             BlockData::Data(block) => {
                 block.update_to_clients();
-                block.needs_ticking()
             }
         };
         let offset = (offset_x, offset_y, offset_z);
@@ -592,6 +640,11 @@ impl Chunk {
             _ => {}
         }
         self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize] = block;
+        let _ = new_block.on_place.call_function(
+            &self.world.server.engine,
+            Some(&mut Dynamic::from(block_location)),
+            (player,),
+        );
         if update_neighbors {
             self.schedule_update((offset_x, offset_y, offset_z));
             for neighbor_face in Face::all() {
@@ -684,12 +737,26 @@ impl Chunk {
             self.ticking_blocks
                 .lock()
                 .iter()
-                .map(
-                    |e| match &blocks[e.0 as usize][e.1 as usize][e.2 as usize] {
-                        BlockData::Simple(_) => panic!("simple block was marked as tickable"),
-                        BlockData::Data(block) => block.clone(),
-                    },
-                )
+                .map(|e| {
+                    (
+                        self.world
+                            .server
+                            .block_registry
+                            .state_by_ref(
+                                blocks[e.0 as usize][e.1 as usize][e.2 as usize].get_block_state(),
+                            )
+                            .parent
+                            .clone(),
+                        BlockLocation {
+                            world: self.world.clone(),
+                            position: BlockPosition {
+                                x: self.position.x * 16 + e.0 as i32,
+                                y: self.position.y * 16 + e.1 as i32,
+                                z: self.position.z * 16 + e.2 as i32,
+                            },
+                        },
+                    )
+                })
                 .collect()
         };
         let block_updates: Vec<_> = { self.scheduled_updates.lock().drain().collect() };
@@ -704,11 +771,15 @@ impl Chunk {
                     entity.tick();
                 }
                 for block in blocks {
-                    block.tick();
+                    let _ = block.0.on_tick.call_function(
+                        &chunk.world.server.engine,
+                        Some(&mut Dynamic::from(block.1)),
+                        (),
+                    );
                 }
                 for block_update in block_updates {
                     let state = chunk.world.server.block_registry.state_by_ref(
-                        &chunk
+                        chunk
                             .get_block(block_update.0, block_update.1, block_update.2)
                             .get_block_state(),
                     );
@@ -744,7 +815,7 @@ impl Chunk {
                                 BlockData::Simple(id) => (BlockStateRef::from_state_id(*id), None),
                                 BlockData::Data(block) => (block.state, Some(block.serialize())),
                             };
-                            let block = block_registry.state_by_ref(&block_state_ref);
+                            let block = block_registry.state_by_ref(block_state_ref);
                             let block_map_len = block_map.len();
                             let numeric_id = *block_map
                                 .entry((&block.parent.id, block.state_id))
@@ -1563,13 +1634,31 @@ impl Entity {
                             .set_animation(Some(if moved { 2 } else { 1 }));
                     }
                     NetworkMessageC2S::RequestBlockBreakTime(id, position) => {
+                        let world = { self.location.lock().chunk.world.clone() };
+                        if world
+                            .server
+                            .block_registry
+                            .state_by_ref(world.get_block_load(position).get_block_state())
+                            .parent
+                            .on_left_click
+                            .call_action(
+                                &world.server.engine,
+                                Some(&mut Dynamic::from(BlockLocation {
+                                    world: world.clone(),
+                                    position,
+                                })),
+                                (Dynamic::from(self.get_player().unwrap()),),
+                            )
+                            == InteractionResult::Consumed
+                        {
+                            continue;
+                        }
                         let block_break_time = if *player.creative.lock() {
                             0.
                         } else {
-                            let world = self.get_location().chunk.world.clone();
+                            /*let world = self.get_location().chunk.world.clone();
                             let block_state = world.get_block_load(position).get_block_state();
-                            let block_state =
-                                world.server.block_registry.state_by_ref(&block_state);
+                            let block_state = world.server.block_registry.state_by_ref(block_state);
                             let block_tool = &block_state.parent.breaking_data;
                             let item = self.get_hand_item();
                             let tool_data = item
@@ -1594,7 +1683,8 @@ impl Entity {
                                 }
                                 _ => tool_data.map(|tool_data| tool_data.speed).unwrap_or(1.),
                             };
-                            block_break_time / block_tool.0
+                            block_break_time / block_tool.0*/
+                            1.
                         };
                         if block_break_time >= 0. {
                             player.send_message(&NetworkMessageS2C::BlockBreakTimeResponse(
@@ -1606,7 +1696,12 @@ impl Entity {
                     }
                     NetworkMessageC2S::BreakBlock(block_position) => {
                         let world = &self.get_location().chunk.world;
-                        world.break_block(block_position, BlockBreakParameters::from_entity(self));
+                        world.set_block(
+                            block_position,
+                            BlockStateRef::AIR,
+                            true,
+                            self.get_player(),
+                        );
                     }
                     NetworkMessageC2S::RightClickBlock(block_position, face, shifting) => {
                         let hand_slot = *self.slot.lock();
@@ -1617,32 +1712,19 @@ impl Entity {
                             .get_block_load(block_position);
                         let mut right_click_result = InteractionResult::Ignored;
                         if !shifting {
-                            let (block, data) = match block {
-                                BlockData::Simple(state) => (
-                                    self.server
-                                        .block_registry
-                                        .state_by_ref(&BlockStateRef::from_state_id(state))
-                                        .parent
-                                        .clone(),
-                                    None,
-                                ),
-                                BlockData::Data(block) => (block.block.clone(), Some(block.ptr())),
-                            };
-
-                            right_click_result = block
-                                .right_click_action
-                                .call_function(
-                                    &self.server.engine,
-                                    None,
-                                    (
-                                        player.ptr(),
-                                        block_position,
-                                        data.map(|data| Dynamic::from(data.ptr()))
-                                            .unwrap_or(Dynamic::UNIT),
-                                    ),
-                                )
-                                .try_cast::<InteractionResult>()
-                                .unwrap_or(InteractionResult::Ignored);
+                            let block = &self
+                                .server
+                                .block_registry
+                                .state_by_ref(block.get_block_state())
+                                .parent;
+                            right_click_result = block.on_right_click.call_action(
+                                &self.server.engine,
+                                Some(&mut Dynamic::from(BlockLocation {
+                                    world: self.get_location().chunk.world.clone(),
+                                    position: block_position,
+                                })),
+                                (player.ptr(),),
+                            );
                         }
                         if right_click_result == InteractionResult::Consumed {
                             continue;
@@ -2167,7 +2249,7 @@ impl AABB {
                 predicate.call((world
                     .server
                     .block_registry
-                    .state_by_ref(&world.get_block_load(*position).get_block_state()),))
+                    .state_by_ref(world.get_block_load(*position).get_block_state()),))
             })
             .is_some()
     }
@@ -2278,7 +2360,7 @@ impl Structure {
     pub fn export(&self, block_registry: &BlockRegistry) -> JsonValue {
         let mut blocks = Vec::new();
         for (position, block) in &self.blocks {
-            let state = block_registry.state_by_ref(&block.0);
+            let state = block_registry.state_by_ref(block.0);
             blocks.push(object! {
                 x:position.x,
                 y:position.y,
@@ -2343,7 +2425,7 @@ impl WorldBlock {
             .world
             .server
             .block_registry
-            .state_by_ref(&state)
+            .state_by_ref(state)
             .parent
             .clone();
         Arc::new_cyclic(|this| WorldBlock {
@@ -2376,17 +2458,8 @@ impl WorldBlock {
             ));
         }
     }
-    pub fn tick(&self) {
-        let _ =
-            self.block
-                .ticker
-                .call_function(&self.chunk().world.server.engine, None, (self.ptr(),));
-    }
     pub fn get_inputs_view_for_side(&self, _side: Face) -> InventoryView {
         self.inventory.get_full_view()
-    }
-    pub fn needs_ticking(&self) -> bool {
-        !self.block.ticker.is_empty()
     }
     pub fn serialize(&self) -> BlockSaveData {
         BlockSaveData {

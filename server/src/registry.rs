@@ -55,12 +55,13 @@ impl BlockRegistry {
                         item_model_mapping: ItemModelMapping {
                             mapping: HashMap::new(),
                         },
-                        breaking_data: (0., None),
-                        loottable: None,
                         properties: BlockStatePropertyStorage::new(),
-                        ticker: ScriptCallback::empty(),
-                        right_click_action: ScriptCallback::empty(),
-                        neighbor_update: ScriptCallback::empty(),
+                        on_tick: ScriptCallback::empty(),
+                        on_right_click: ScriptCallback::empty(),
+                        on_left_click: ScriptCallback::empty(),
+                        on_neighbor_update: ScriptCallback::empty(),
+                        on_place: ScriptCallback::empty(),
+                        on_destroy: ScriptCallback::empty(),
                     })
                 },
                 |_, _| ModClientBlockData {
@@ -117,7 +118,7 @@ impl BlockRegistry {
     pub fn block_by_identifier(&self, id: &Identifier) -> Option<&Arc<Block>> {
         self.blocks.get(id)
     }
-    pub fn state_by_ref(&self, block_state_ref: &BlockStateRef) -> &BlockState {
+    pub fn state_by_ref(&self, block_state_ref: BlockStateRef) -> &BlockState {
         self.states.get(block_state_ref.state_id as usize).unwrap()
     }
     pub fn state_from_string(&self, state: &str) -> Result<BlockStateRef, ()> {
@@ -273,12 +274,13 @@ pub struct Block {
     pub default_state: u32,
     pub data_container: Option<(u32,)>,
     pub item_model_mapping: ItemModelMapping,
-    pub breaking_data: (f32, Option<(ToolType, f32)>),
-    pub loottable: Option<Identifier>,
     pub properties: BlockStatePropertyStorage,
-    pub ticker: ScriptCallback,
-    pub right_click_action: ScriptCallback,
-    pub neighbor_update: ScriptCallback,
+    pub on_tick: ScriptCallback,
+    pub on_right_click: ScriptCallback,
+    pub on_left_click: ScriptCallback,
+    pub on_neighbor_update: ScriptCallback,
+    pub on_place: ScriptCallback,
+    pub on_destroy: ScriptCallback,
 }
 
 impl ScriptingObject for Block {
@@ -457,7 +459,7 @@ impl BlockStateRef {
             .world
             .server
             .block_registry
-            .state_by_ref(self)
+            .state_by_ref(*self)
             .to_block_data(chunk, position)
     }
     pub fn from_state_id(state_id: u32) -> Self {
@@ -501,61 +503,11 @@ impl BlockState {
         }
     }
     pub fn on_block_update(&self, location: ChunkBlockLocation) {
-        let _ = self.parent.neighbor_update.call_function(
+        let _ = self.parent.on_neighbor_update.call_function(
             &location.chunk.world.server.engine,
-            None,
-            (Into::<BlockLocation>::into(&location),),
+            Some(&mut Dynamic::from(Into::<BlockLocation>::into(&location))),
+            (),
         );
-        /*if let Some(hangs_on) = &self.hangs_on {
-            if let Some(block_data) = location
-                .chunk
-                .world
-                .get_block(&location.position.offset_by_face(*hangs_on))
-            {
-                if block_data.is_air() {
-                    location.chunk.world.break_block(
-                        location.position,
-                        BlockBreakParameters {
-                            player: None,
-                            item: None,
-                        },
-                    );
-                }
-            }
-        }*/
-    }
-    pub fn on_break(&self, location: ChunkBlockLocation, params: BlockBreakParameters) {
-        if let Some(loottable) = &self.parent.loottable {
-            let server = &location.chunk.world.server;
-            let loottable = server.loot_tables.get(loottable).unwrap();
-            loottable.generate_items(
-                |item| {
-                    for _ in 0..item.get_count() {
-                        let rotation: f32 = thread_rng().gen_range((0.)..(360.));
-                        let rotation_radians = rotation.to_radians();
-                        let vertical_strength = 0.4;
-                        let horizontal_strength = 0.2;
-                        location.chunk.world.drop_item_on_ground(
-                            Position {
-                                x: location.position.x as f64 + 0.5,
-                                y: location.position.y as f64 + 0.5,
-                                z: location.position.z as f64 + 0.5,
-                            },
-                            item.copy(1),
-                            Some(rotation),
-                            Some((
-                                rotation_radians.sin() as f64 * horizontal_strength,
-                                vertical_strength,
-                                rotation_radians.cos() as f64 * horizontal_strength,
-                            )),
-                        );
-                    }
-                },
-                LootTableGenerationParameters {
-                    item: params.item.as_ref(),
-                },
-            );
-        }
     }
     pub fn with_property(&self, property: &str, value: Dynamic) -> Result<BlockStateRef, ()> {
         self.parent
@@ -604,7 +556,7 @@ impl ScriptingObject for BlockState {
                 "with_property",
                 move |state: &mut BlockStateRef, property: &str, value: Dynamic| {
                     let server = server.upgrade().unwrap();
-                    let block_state = server.block_registry.state_by_ref(state);
+                    let block_state = server.block_registry.state_by_ref(*state);
                     match block_state.with_property(property, value) {
                         Ok(state) => Dynamic::from(state),
                         Err(_) => Dynamic::UNIT,
@@ -618,7 +570,7 @@ impl ScriptingObject for BlockState {
                 "get_property",
                 move |state: &mut BlockStateRef, property: &str| {
                     let server = server.upgrade().unwrap();
-                    let block_state = server.block_registry.state_by_ref(state);
+                    let block_state = server.block_registry.state_by_ref(*state);
                     block_state.get_property(property)
                 },
             );
@@ -630,7 +582,7 @@ impl ScriptingObject for BlockState {
                     .upgrade()
                     .unwrap()
                     .block_registry
-                    .state_by_ref(state)
+                    .state_by_ref(*state)
                     .to_string()
             });
         }
@@ -696,12 +648,13 @@ impl Item {
         if let Some(place) = &self.place_block {
             let block_position = block_position.offset_by_face(block_face);
             let world = player.get_entity().get_location().chunk.world.clone();
+            let creative = *player.creative.lock();
             world.replace_block(
                 block_position,
                 |block| match block {
                     BlockData::Simple(0) => {
                         if !world.collides_entity_with_block(block_position) {
-                            if !*player.creative.lock() {
+                            if !creative {
                                 item.add_count(-1);
                             }
                             Some(*place)
@@ -712,6 +665,7 @@ impl Item {
                     _ => None,
                 },
                 true,
+                Some(player),
             );
             //let target_chunk = world.get_chunk(block_position.to_chunk_pos()).unwrap();
             /*target_chunk.announce_to_viewers(NetworkMessageS2C::BlockItem(

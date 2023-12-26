@@ -1,6 +1,0 @@
-create_block(|p|{
-    create_static("guns:shotgun","guns:shotgun")
-}).register("guns:shotgun").register_item("guns:shotgun", "Shotgun");
-
-register_image("guns:shotgun", "images/shotgun.png");
-register_model("guns:shotgun", "models/shotgun.bbm");

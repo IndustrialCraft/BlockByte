@@ -142,7 +142,9 @@ impl ScriptingObject for BlockLocation {
         engine.register_fn(
             "set_block",
             |location: &mut BlockLocation, block: BlockStateRef| {
-                location.world.set_block(location.position, block, true);
+                location
+                    .world
+                    .set_block(location.position, block, true, None);
             },
         );
         engine.register_fn("get_block_load", |location: &mut BlockLocation| {

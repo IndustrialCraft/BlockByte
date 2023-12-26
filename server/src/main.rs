@@ -154,18 +154,13 @@ impl Server {
                                 mapping.mapping.insert(0, 0);
                                 mapping
                             },
-                            ticker: block_data.ticker.clone().unwrap_or(ScriptCallback::empty()),
-                            right_click_action: block_data
-                                .right_click_action
-                                .clone()
-                                .unwrap_or(ScriptCallback::empty()),
-                            breaking_data: block_data.breaking_data.clone(),
-                            loottable: None, //todo: block loot
                             properties: block_data.properties.clone(),
-                            neighbor_update: block_data
-                                .neighbor_update
-                                .clone()
-                                .unwrap_or(ScriptCallback::empty()),
+                            on_tick: block_data.on_tick.clone(),
+                            on_right_click: block_data.on_right_click.clone(),
+                            on_left_click: block_data.on_left_click.clone(),
+                            on_neighbor_update: block_data.on_neighbor_update.clone(),
+                            on_place: block_data.on_place.clone(),
+                            on_destroy: block_data.on_destroy.clone(),
                         })
                     },
                     |state, block| {
@@ -333,7 +328,7 @@ impl Server {
             events: loaded_mods.6,
             engine: {
                 let mut engine = Engine::new();
-                for (module_id, module) in loaded_mods.9{
+                for (module_id, module) in loaded_mods.9 {
                     engine.register_static_module(module_id, module);
                 }
                 ModManager::runtime_engine_load(&mut engine, this.clone());

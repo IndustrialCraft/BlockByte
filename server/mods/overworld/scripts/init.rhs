@@ -1,21 +1,21 @@
 create_block(|p|{
     create_cube("overworld:stone","overworld:stone","overworld:stone","overworld:stone","overworld:stone","overworld:stone")
-}).breaking_tool(ToolType::Pickaxe,1.).register("overworld:stone").register_item("overworld:stone_block","Stone Block");
+}).register("overworld:stone").register_item("overworld:stone_block","Stone Block");
 create_block(|p|{
     create_cube("overworld:water","overworld:water","overworld:water","overworld:water","overworld:water","overworld:water").transparent(true).render_data(1).fluid(true)
 }).register("overworld:water");
 create_block(|p|{
     create_cube("overworld:grass_side","overworld:grass_side","overworld:grass_side","overworld:grass_side","overworld:grass","overworld:dirt")
-}).breaking_tool(ToolType::Shovel,1.).register("overworld:grass").register_item("overworld:grass_block","Grass Block");
+}).register("overworld:grass").register_item("overworld:grass_block","Grass Block");
 create_block(|p|{
     create_cube("overworld:savanna_grass_side","overworld:savanna_grass_side","overworld:savanna_grass_side","overworld:savanna_grass_side","overworld:savanna_grass","overworld:dirt")
-}).breaking_tool(ToolType::Shovel,1.).register("overworld:savanna_grass").register_item("overworld:savanna_grass_block","Savanna Grass Block");
+}).register("overworld:savanna_grass").register_item("overworld:savanna_grass_block","Savanna Grass Block");
 create_block(|p|{
     create_cube("overworld:dirt","overworld:dirt","overworld:dirt","overworld:dirt","overworld:dirt","overworld:dirt")
-}).breaking_tool(ToolType::Shovel,1.).register("overworld:dirt").register_item("overworld:dirt_block","Dirt Block");
+}).register("overworld:dirt").register_item("overworld:dirt_block","Dirt Block");
 create_block(|p|{
     create_cube("overworld:sand","overworld:sand","overworld:sand","overworld:sand","overworld:sand","overworld:sand")
-}).breaking_tool(ToolType::Shovel,1.).register("overworld:sand").register_item("overworld:sand_block","Sand Block");
+}).register("overworld:sand").register_item("overworld:sand_block","Sand Block");
 create_block(|p|{
     create_cube("overworld:leaves","overworld:leaves","overworld:leaves","overworld:leaves","overworld:leaves","overworld:leaves").transparent(true)
 }).register("overworld:leaves").register_item("overworld:leaves_block","Leaves Block");
@@ -57,7 +57,7 @@ create_block(|p|{
         return model;
     }
 }).add_property_number("size", 1..=8).add_property_bool("front").add_property_bool("back").add_property_bool("left").add_property_bool("right").add_property_bool("up").add_property_bool("down")
-.right_click_action(|player,position,block|{
+.on_right_click(|player|{
     let hand_item = player.get_entity().get_hand_item();
     if hand_item == (){
         return;
@@ -65,26 +65,25 @@ create_block(|p|{
     if player.get_entity().get_hand_item().get_id() != "overworld:log_block"{
         return;
     }
-    let location = BlockLocation(position, player.get_entity().get_location().world);
-    let size = location.get_block().get_property("size") + 1;
+    let size = this.get_block().get_property("size") + 1;
     if size > 8{
         size = 1;
     }
-    location.set_block(BlockState("overworld:log").with_property("size", size));
+    this.set_block(BlockState("overworld:log").with_property("size", size));
     return InteractionResult::Consumed;
 })
-.neighbor_update(|location|{
-    let initial_state = location.get_block_load();
+.on_neighbor_update(||{
+    let initial_state = this.get_block_load();
     let state = initial_state;
     let tag = Tag("overworld:logs_connecting");
-    state = state.with_property("front", tag.contains(location.offset_by_face(Face::Front).get_block_load()));
-    state = state.with_property("back", tag.contains(location.offset_by_face(Face::Back).get_block_load()));
-    state = state.with_property("left", tag.contains(location.offset_by_face(Face::Left).get_block_load()));
-    state = state.with_property("right", tag.contains(location.offset_by_face(Face::Right).get_block_load()));
-    state = state.with_property("up", tag.contains(location.offset_by_face(Face::Up).get_block_load()));
-    state = state.with_property("down", tag.contains(location.offset_by_face(Face::Down).get_block_load()));
+    state = state.with_property("front", tag.contains(this.offset_by_face(Face::Front).get_block_load()));
+    state = state.with_property("back", tag.contains(this.offset_by_face(Face::Back).get_block_load()));
+    state = state.with_property("left", tag.contains(this.offset_by_face(Face::Left).get_block_load()));
+    state = state.with_property("right", tag.contains(this.offset_by_face(Face::Right).get_block_load()));
+    state = state.with_property("up", tag.contains(this.offset_by_face(Face::Up).get_block_load()));
+    state = state.with_property("down", tag.contains(this.offset_by_face(Face::Down).get_block_load()));
     if state != initial_state{
-        location.set_block(state);
+        this.set_block(state);
     }
 }).register("overworld:log").register_item("overworld:log_block","Log Block");
 create_block(|p|{
@@ -110,18 +109,18 @@ create_block(|p|{
     }
     return model;
 }).add_property_bool("front").add_property_bool("back").add_property_bool("left").add_property_bool("right").add_property_bool("up").add_property_bool("down")
-.neighbor_update(|location|{
-    let initial_state = location.get_block_load();
+.on_neighbor_update(||{
+    let initial_state = this.get_block_load();
     let state = initial_state;
     let tag = Tag("overworld:cactus_connecting");
-    state = state.with_property("front", tag.contains(location.offset_by_face(Face::Front).get_block_load()));
-    state = state.with_property("back", tag.contains(location.offset_by_face(Face::Back).get_block_load()));
-    state = state.with_property("left", tag.contains(location.offset_by_face(Face::Left).get_block_load()));
-    state = state.with_property("right", tag.contains(location.offset_by_face(Face::Right).get_block_load()));
-    state = state.with_property("up", tag.contains(location.offset_by_face(Face::Up).get_block_load()));
-    state = state.with_property("down", tag.contains(location.offset_by_face(Face::Down).get_block_load()));
+    state = state.with_property("front", tag.contains(this.offset_by_face(Face::Front).get_block_load()));
+    state = state.with_property("back", tag.contains(this.offset_by_face(Face::Back).get_block_load()));
+    state = state.with_property("left", tag.contains(this.offset_by_face(Face::Left).get_block_load()));
+    state = state.with_property("right", tag.contains(this.offset_by_face(Face::Right).get_block_load()));
+    state = state.with_property("up", tag.contains(this.offset_by_face(Face::Up).get_block_load()));
+    state = state.with_property("down", tag.contains(this.offset_by_face(Face::Down).get_block_load()));
     if state != initial_state{
-        location.set_block(state);
+        this.set_block(state);
     }
 }).register("overworld:cactus").register_item("overworld:cactus_block","Cactus Block");
 
