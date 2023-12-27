@@ -11,18 +11,17 @@ use std::{
 use block_byte_common::content::{
     ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData,
 };
-use block_byte_common::{BlockPosition, Face, HorizontalFace, Position};
+use block_byte_common::{BlockPosition, Face, HorizontalFace};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use rand::{thread_rng, Rng};
 use rhai::{Dynamic, Engine, Map};
 use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
 
-use crate::inventory::{LootTableGenerationParameters, Recipe};
+use crate::inventory::Recipe;
 use crate::mods::{ModClientBlockData, ScriptingObject};
 use crate::util::BlockLocation;
-use crate::world::{BlockBreakParameters, PlayerData};
+use crate::world::PlayerData;
 use crate::{
     inventory::ItemStack,
     mods::{ClientContentData, ScriptCallback},
@@ -648,7 +647,7 @@ impl Item {
         if let Some(place) = &self.place_block {
             let block_position = block_position.offset_by_face(block_face);
             let world = player.get_entity().get_location().chunk.world.clone();
-            let creative = *player.creative.lock();
+            let creative = true; //todo
             world.replace_block(
                 block_position,
                 |block| match block {

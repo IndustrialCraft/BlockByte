@@ -94,7 +94,6 @@ impl Mod {
             .filter(|entry| entry.metadata().unwrap().is_file())
         {
             let parsed = engine.compile_file(script.clone().into_path()).unwrap();
-            let module = Module::eval_ast_as_new(Scope::new(), &parsed, engine).unwrap();
             let module_name = script
                 .into_path()
                 .canonicalize()
@@ -102,16 +101,15 @@ impl Mod {
                 .to_str()
                 .unwrap()
                 .to_string();
-            let module_name =
+            let module_path =
                 module_name.replace(scripts_path.canonicalize().unwrap().to_str().unwrap(), "");
-            let module_name = module_name.replace("/", "::");
+            let module_name = module_path.replace("/", "::");
             let module_name = module_name.replace(".rhs", "");
             let module_name = format!("{}{}", id, module_name);
-            /*if let Err(error) = engine.eval_file::<()>(script.into_path()) {
-                script_errors.push((self.namespace.clone(), error));
-            }*/
-            modules.push((module_name, module));
-            //todo
+            match Module::eval_ast_as_new(Scope::new(), &parsed, engine) {
+                Ok(module) => modules.push((module_name, module)),
+                Err(error) => script_errors.push((format!("{}{}", id, module_path), error)),
+            }
         }
         modules
     }

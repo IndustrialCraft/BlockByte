@@ -128,7 +128,7 @@ impl Server {
     fn new(port: u16, save_directory: PathBuf) -> Arc<Server> {
         let mut loaded_mods = ModManager::load_mods(Path::new("mods"));
         for error in &loaded_mods.7 {
-            println!("script error from mod {}: {}", error.0, error.1.to_string());
+            println!("script error at {}: {}", error.0, error.1.to_string());
         }
         if loaded_mods.7.len() > 0 {
             println!("server stopped because of mod errors");

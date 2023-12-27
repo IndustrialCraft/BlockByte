@@ -1091,10 +1091,8 @@ impl LootTable {
         }
         Self { tables }
     }
-    pub fn generate_items<T>(&self, consumer: T, parameters: LootTableGenerationParameters)
-    where
-        T: Fn(ItemStack),
-    {
+    pub fn generate_items(&self, parameters: LootTableGenerationParameters) -> Vec<ItemStack> {
+        let mut items = Vec::new();
         for table in &self.tables {
             if match (
                 &table.2.tool_type,
@@ -1114,9 +1112,10 @@ impl LootTable {
                 .unwrap()
                 .round() as u32;
             if count > 0 {
-                consumer.call((ItemStack::new(&table.0, count),));
+                items.push(ItemStack::new(&table.0, count));
             }
         }
+        items
     }
 }
 #[derive(Serialize, Deserialize)]

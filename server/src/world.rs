@@ -110,6 +110,33 @@ impl World {
             *item_entity.rotation_shifting.lock() = (rotation, false);
         }
     }
+    pub fn scatter_items(&self, position: Position, items: Vec<ItemStack>, one_by_one: bool) {
+        for item in items {
+            for _ in 0..item.get_count() {
+                let rotation: f32 = thread_rng().gen_range((0.)..(360.));
+                let rotation_radians = rotation.to_radians();
+                let vertical_strength = 0.4;
+                let horizontal_strength = 0.2;
+                self.drop_item_on_ground(
+                    position,
+                    if one_by_one {
+                        item.copy(1)
+                    } else {
+                        item.clone()
+                    },
+                    Some(rotation),
+                    Some((
+                        rotation_radians.sin() as f64 * horizontal_strength,
+                        vertical_strength,
+                        rotation_radians.cos() as f64 * horizontal_strength,
+                    )),
+                );
+                if !one_by_one {
+                    break;
+                }
+            }
+        }
+    }
     pub fn get_world_path(&self) -> PathBuf {
         let mut path = self.server.save_directory.clone();
         path.push("worlds");
@@ -573,36 +600,18 @@ impl Chunk {
             )
             .parent;
         if let Some(player) = &player {
-            if !*player.creative.lock() {
-                if let Some(loottable) = &self.world.server.loot_tables.get(&previous_block.id) {
-                    loottable.generate_items(
-                        |item| {
-                            for _ in 0..item.get_count() {
-                                let rotation: f32 = thread_rng().gen_range((0.)..(360.));
-                                let rotation_radians = rotation.to_radians();
-                                let vertical_strength = 0.4;
-                                let horizontal_strength = 0.2;
-                                self.world.drop_item_on_ground(
-                                    Position {
-                                        x: block_position.x as f64 + 0.5,
-                                        y: block_position.y as f64 + 0.5,
-                                        z: block_position.z as f64 + 0.5,
-                                    },
-                                    item.copy(1),
-                                    Some(rotation),
-                                    Some((
-                                        rotation_radians.sin() as f64 * horizontal_strength,
-                                        vertical_strength,
-                                        rotation_radians.cos() as f64 * horizontal_strength,
-                                    )),
-                                );
-                            }
-                        },
-                        LootTableGenerationParameters {
-                            item: player.get_entity().get_hand_item().as_ref(),
-                        },
-                    );
-                }
+            if let Some(loottable) = &self.world.server.loot_tables.get(&previous_block.id) {
+                self.world.scatter_items(
+                    Position {
+                        x: block_position.x as f64 + 0.5,
+                        y: block_position.y as f64 + 0.5,
+                        z: block_position.z as f64 + 0.5,
+                    },
+                    loottable.generate_items(LootTableGenerationParameters {
+                        item: player.get_entity().get_hand_item().as_ref(),
+                    }),
+                    true,
+                );
             }
         }
         let previous_ticking = !previous_block.on_tick.is_empty();
@@ -959,7 +968,6 @@ pub struct PlayerData {
     pub chunk_loading_manager: ChunkLoadingManager,
     pub speed: Mutex<f32>,
     pub move_type: Mutex<MovementType>,
-    pub creative: Mutex<bool>,
     pub hand_item: Mutex<Option<ItemStack>>,
     pub user_data: Mutex<UserData>,
     pub server: Arc<Server>,
@@ -983,7 +991,6 @@ impl PlayerData {
             entity: Mutex::new(entity.clone()),
             speed: Mutex::new(1.),
             move_type: Mutex::new(MovementType::Normal),
-            creative: Mutex::new(true),
             hand_item: Mutex::new(None),
             user_data: Mutex::new(UserData::new()),
             overlays: Mutex::new(HashMap::new()),
@@ -1146,12 +1153,6 @@ impl ScriptingObject for PlayerData {
             "send_chat_message",
             |player: &mut Arc<PlayerData>, message: &str| {
                 player.send_chat_message(message.to_string());
-            },
-        );
-        engine.register_fn(
-            "creative",
-            |player: &mut Arc<PlayerData>, creative: bool| {
-                *player.creative.lock() = creative;
             },
         );
         engine.register_fn("speed", |player: &mut Arc<PlayerData>, speed: f64| {
@@ -1689,13 +1690,13 @@ impl Entity {
                     }
                     NetworkMessageC2S::RequestBlockBreakTime(id, position) => {
                         let world = { self.location.lock().chunk.world.clone() };
-                        if world
+                        let block_break_time = world
                             .server
                             .block_registry
                             .state_by_ref(world.get_block_load(position).get_block_state())
                             .parent
                             .on_left_click
-                            .call_action(
+                            .call_function(
                                 &world.server.engine,
                                 Some(&mut Dynamic::from(BlockLocation {
                                     world: world.clone(),
@@ -1703,50 +1704,14 @@ impl Entity {
                                 })),
                                 (Dynamic::from(self.get_player().unwrap()),),
                             )
-                            == InteractionResult::Consumed
-                        {
-                            continue;
-                        }
-                        let block_break_time = if *player.creative.lock() {
-                            0.
-                        } else {
-                            /*let world = self.get_location().chunk.world.clone();
-                            let block_state = world.get_block_load(position).get_block_state();
-                            let block_state = world.server.block_registry.state_by_ref(block_state);
-                            let block_tool = &block_state.parent.breaking_data;
-                            let item = self.get_hand_item();
-                            let tool_data = item
-                                .as_ref()
-                                .and_then(|item| item.item_type.tool_data.as_ref());
-                            let block_break_time = match (&block_tool.1, tool_data) {
-                                (Some(block_tool), Some(tool_data)) => {
-                                    if (!tool_data.breaks_type(block_tool.0))
-                                        || (tool_data.hardness < block_tool.1 && block_tool.1 != 0.)
-                                    {
-                                        -1.
-                                    } else {
-                                        tool_data.speed
-                                    }
-                                }
-                                (Some(block_tool), None) => {
-                                    if block_tool.1 != 0. {
-                                        -1.
-                                    } else {
-                                        1.
-                                    }
-                                }
-                                _ => tool_data.map(|tool_data| tool_data.speed).unwrap_or(1.),
-                            };
-                            block_break_time / block_tool.0*/
-                            1.
-                        };
+                            .as_float()
+                            .unwrap_or(0.);
                         if block_break_time >= 0. {
                             player.send_message(&NetworkMessageS2C::BlockBreakTimeResponse(
                                 id,
-                                block_break_time,
+                                block_break_time as f32,
                             ));
                         }
-                        //todo: check time
                     }
                     NetworkMessageC2S::BreakBlock(block_position) => {
                         let world = &self.get_location().chunk.world;
