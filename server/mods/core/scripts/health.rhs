@@ -1,0 +1,21 @@
+register_event("bb:post_player_join", ||{
+    this.player.open_overlay("core:health", "core:layout_health");
+    core::health::set_health(this.player, 100);
+});
+register_event("bb:command", ||{
+    if this.command[0] == "sethealth"{
+        let health = parse_int(this.command[1]);
+        core::health::set_health(this.player, health);
+    }
+    if this.command[0] == "damage"{
+        let damage = parse_int(this.command[1]);
+        core::health::set_health(this.player, core::health::get_health(this.player)-damage);
+    }
+});
+fn set_health(player, health){
+    player.user_data["core:health"] = health;
+    player.get_overlay("core:health").set_text("health", health.to_string());
+}
+fn get_health(player){
+    return player.user_data["core:health"];
+}

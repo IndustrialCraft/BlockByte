@@ -613,8 +613,8 @@ impl GuiInventoryData {
 }
 #[derive(Clone)]
 pub struct ModGuiViewer {
-    viewer: Arc<PlayerData>,
-    id: Uuid,
+    pub viewer: Arc<PlayerData>,
+    pub id: Uuid,
 }
 impl ScriptingObject for ModGuiViewer {
     fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {

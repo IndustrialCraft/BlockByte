@@ -33,8 +33,8 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::inventory::{
-    GuiInventoryData, GuiInventoryViewer, InventorySaveData, InventoryView,
-    LootTableGenerationParameters,
+    GUILayout, GuiInventoryData, GuiInventoryViewer, InventorySaveData, InventoryView,
+    LootTableGenerationParameters, ModGuiViewer,
 };
 use crate::mods::{ScriptCallback, ScriptingObject, UserDataWrapper};
 use crate::registry::{Block, BlockState};
@@ -963,6 +963,7 @@ pub struct PlayerData {
     pub hand_item: Mutex<Option<ItemStack>>,
     pub user_data: Mutex<UserData>,
     pub server: Arc<Server>,
+    pub overlays: Mutex<HashMap<Identifier, Uuid>>,
     this: Weak<PlayerData>,
 }
 impl PlayerData {
@@ -985,6 +986,7 @@ impl PlayerData {
             creative: Mutex::new(true),
             hand_item: Mutex::new(None),
             user_data: Mutex::new(UserData::new()),
+            overlays: Mutex::new(HashMap::new()),
             server,
             this: this.clone(),
         });
@@ -1111,6 +1113,25 @@ impl PlayerData {
     pub fn send_chat_message(&self, text: String) {
         self.send_message(&NetworkMessageS2C::ChatMessage(text));
     }
+    pub fn open_overlay(&self, id: Identifier, layout: Arc<GUILayout>) -> Uuid {
+        let mut overlays = self.overlays.lock();
+        if let Some(id) = overlays.get(&id) {
+            self.send_message(&NetworkMessageS2C::GuiRemoveElements(id.to_string()));
+        }
+        let uuid = Uuid::new_v4();
+        overlays.insert(id, uuid);
+        layout.send_to_player(self, uuid.to_string().as_str());
+        uuid
+    }
+    pub fn get_overlay(&self, id: &Identifier) -> Option<Uuid> {
+        self.overlays.lock().get(id).map(|id| *id)
+    }
+    pub fn close_overlay(&self, id: &Identifier) {
+        let mut overlays = self.overlays.lock();
+        if let Some(id) = overlays.remove(id) {
+            self.send_message(&NetworkMessageS2C::GuiRemoveElements(id.to_string()));
+        }
+    }
     pub fn ptr(&self) -> Arc<PlayerData> {
         self.this.upgrade().unwrap()
     }
@@ -1208,6 +1229,39 @@ impl ScriptingObject for PlayerData {
                 .as_ref()
                 .map(|item| Dynamic::from(item.clone()))
                 .unwrap_or(Dynamic::UNIT)
+        });
+        {
+            let server = server.clone();
+            engine.register_fn(
+                "open_overlay",
+                move |player: &mut Arc<PlayerData>, id: &str, layout: &str| ModGuiViewer {
+                    id: player.open_overlay(
+                        Identifier::parse(id).unwrap(),
+                        server
+                            .upgrade()
+                            .unwrap()
+                            .gui_layouts
+                            .get(&Identifier::parse(layout).unwrap())
+                            .unwrap()
+                            .clone(),
+                    ),
+                    viewer: player.clone(),
+                },
+            );
+        }
+        engine.register_fn("get_overlay", |player: &mut Arc<PlayerData>, id: &str| {
+            player
+                .get_overlay(&Identifier::parse(id).unwrap())
+                .map(|id| {
+                    Dynamic::from(ModGuiViewer {
+                        id,
+                        viewer: player.clone(),
+                    })
+                })
+                .unwrap_or(Dynamic::UNIT)
+        });
+        engine.register_fn("close_overlay", |player: &mut Arc<PlayerData>, id: &str| {
+            player.close_overlay(&Identifier::parse(id).unwrap());
         });
     }
 }

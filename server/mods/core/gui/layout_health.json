@@ -1,0 +1,24 @@
+{
+  "elements": {
+    "health": {
+      "component_type": {
+        "TextComponent": {
+          "font_size": 100,
+          "text": ""
+        }
+      },
+      "position": {
+        "x": 0,
+        "y": -300,
+        "z": 0
+      },
+      "anchor": "Center",
+      "base_color": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      }
+    }
+  }
+}
