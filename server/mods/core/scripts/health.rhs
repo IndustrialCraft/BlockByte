@@ -14,8 +14,10 @@ register_event("bb:command", ||{
 });
 fn set_health(player, health){
     player.user_data["core:health"] = health;
-    player.get_overlay("core:health").set_text("health", health.to_string());
+    player.get_overlay("core:health").set_slice("health_fg", 0., 0., health/100., 1.);
 }
 fn get_health(player){
     return player.user_data["core:health"];
 }
+register_image("core:bar", "images/bar.png");
+register_image("core:health_bar", load_image("images/bar.png").color(create_color(255., 0., 0., 255.)));
