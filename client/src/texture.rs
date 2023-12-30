@@ -7,7 +7,7 @@ use texture_packer::exporter::ImageExporter;
 use texture_packer::importer::ImageImporter;
 use wgpu::{BindGroup, BindGroupLayout, Sampler, TextureView};
 
-pub struct Texture {
+pub struct GPUTexture {
     pub texture: wgpu::Texture,
     pub view: TextureView,
     pub sampler: Sampler,
@@ -15,7 +15,7 @@ pub struct Texture {
     pub diffuse_bind_group: BindGroup,
 }
 
-impl Texture {
+impl GPUTexture {
     pub fn from_image(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -210,9 +210,8 @@ pub fn pack_textures(
                 .expect("missing texture corrupted"),
         )
         .unwrap();
+    use texture_packer::texture::Texture;
     for (name, frame) in packer.get_frames() {
-        use texture_packer::texture::Texture;
-
         let texture = TexCoords {
             u1: frame.frame.x as f32 / packer.width() as f32,
             v1: frame.frame.y as f32 / packer.height() as f32,
@@ -229,6 +228,7 @@ pub fn pack_textures(
         TextureAtlas {
             missing_texture: texture_map.get("missing").unwrap().clone(),
             textures: texture_map,
+            width: packer.width(),
         },
         exporter.to_rgba8(),
     )
@@ -238,6 +238,7 @@ pub fn pack_textures(
 pub struct TextureAtlas {
     textures: HashMap<String, TexCoords>,
     pub missing_texture: TexCoords,
+    pub width: u32
 }
 impl TextureAtlas {
     pub fn get(&self, texture: &str) -> TexCoords {

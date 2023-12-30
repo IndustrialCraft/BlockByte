@@ -1,4 +1,4 @@
-use crate::content::{ItemModel, ItemRegistry};
+use crate::content::{ItemModel, ItemRegistry, Texture};
 use crate::render::FaceVerticesExtension;
 use block_byte_common::content::{ModelAnimationData, ModelBone, ModelCubeElement, ModelData, ModelItemElement, ModelMeshElement, Transformation};
 use block_byte_common::{Face, Position, TexCoords, Vec3};
@@ -7,14 +7,14 @@ use std::collections::HashMap;
 
 pub struct Model {
     data: ModelData,
-    texture: TexCoords,
+    pub texture: Texture,
     animations: Vec<u32>,
     items: Vec<String>,
 }
 impl Model {
     pub fn new(
         data: ModelData,
-        texture: TexCoords,
+        texture: Texture,
         animations: Vec<String>,
         items: Vec<String>,
     ) -> Self {
@@ -113,7 +113,7 @@ impl Model {
     {
         for face in Face::all() {
             face.add_vertices(
-                self.texture.map_sub(&cube_element.texture_by_face(*face)),
+                self.texture.get_first_coords().map_sub(&cube_element.texture_by_face(*face)),
                 &mut |position, coords| {
                     let position = (parent_transform
                         * Self::create_matrix_trs(
@@ -169,7 +169,7 @@ impl Model {
                         y: position.y as f64,
                         z: position.z as f64,
                     },
-                    self.texture.map(*u, *v),
+                    self.texture.get_first_coords().map(*u, *v),
                 ));
             }
             if vertices.len() == 4{

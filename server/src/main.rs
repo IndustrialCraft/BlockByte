@@ -37,7 +37,7 @@ use crate::mods::{
 };
 use crate::registry::RecipeManager;
 use crate::world::PlayerData;
-use block_byte_common::content::{ClientEntityData, ClientItemData, ClientItemModel};
+use block_byte_common::content::{ClientEntityData, ClientItemData, ClientItemModel, ClientTexture};
 use block_byte_common::Position;
 use crossbeam_channel::Receiver;
 use fxhash::FxHashMap;
@@ -238,7 +238,7 @@ impl Server {
                     client_id,
                     client_data: ClientEntityData {
                         model: "bb:item".to_string(),
-                        texture: "".to_string(),
+                        texture: ClientTexture::Static{id:"".to_string()},
                         hitbox_w: 0.5,
                         hitbox_h: 0.1,
                         hitbox_d: 0.5,

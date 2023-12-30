@@ -3,10 +3,7 @@ use crate::model::Model;
 use crate::texture::{pack_textures, TextureAtlas};
 use ambisonic::rodio::Source;
 use ambisonic::{Ambisonic, AmbisonicBuilder, StereoConfig};
-use block_byte_common::content::{
-    ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData,
-    ClientItemModel, ModelData, Transformation,
-};
+use block_byte_common::content::{ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData, ClientItemModel, ClientTexture, ModelData, Transformation};
 use block_byte_common::{Face, Position, TexCoords, Vec2};
 use image::RgbaImage;
 use std::collections::HashMap;
@@ -124,12 +121,12 @@ impl BlockRegistry {
                 ClientBlockRenderDataType::Air => BlockRenderDataType::Air,
                 ClientBlockRenderDataType::Cube(cube) => {
                     BlockRenderDataType::Cube(BlockCubeRenderData {
-                        front: texture_atlas.get(cube.front.as_str()),
-                        back: texture_atlas.get(cube.back.as_str()),
-                        left: texture_atlas.get(cube.left.as_str()),
-                        right: texture_atlas.get(cube.right.as_str()),
-                        up: texture_atlas.get(cube.up.as_str()),
-                        down: texture_atlas.get(cube.down.as_str()),
+                        front: Texture::from_common(cube.front, texture_atlas),
+                        back: Texture::from_common(cube.back, texture_atlas),
+                        left: Texture::from_common(cube.left, texture_atlas),
+                        right: Texture::from_common(cube.right, texture_atlas),
+                        up: Texture::from_common(cube.up, texture_atlas),
+                        down: Texture::from_common(cube.down, texture_atlas),
                     })
                 }
                 ClientBlockRenderDataType::Static(static_data) => {
@@ -144,7 +141,7 @@ impl BlockRegistry {
                                             .get(static_data.0.as_str())
                                             .unwrap_or(models.get("missing").unwrap())
                                             .clone(),
-                                        texture_atlas.get(static_data.1.as_str()),
+                                        Texture::from_common(static_data.1, texture_atlas),
                                         Vec::new(),
                                         Vec::new(),
                                     ),
@@ -157,10 +154,10 @@ impl BlockRegistry {
 
                 ClientBlockRenderDataType::Foliage(foliage) => {
                     BlockRenderDataType::Foliage(BlockFoliageRenderData {
-                        texture_1: texture_atlas.get(foliage.texture_1.as_str()),
-                        texture_2: texture_atlas.get(foliage.texture_2.as_str()),
-                        texture_3: texture_atlas.get(foliage.texture_3.as_str()),
-                        texture_4: texture_atlas.get(foliage.texture_4.as_str()),
+                        texture_1: Texture::from_common(foliage.texture_1, texture_atlas),
+                        texture_2: Texture::from_common(foliage.texture_2, texture_atlas),
+                        texture_3: Texture::from_common(foliage.texture_3, texture_atlas),
+                        texture_4: Texture::from_common(foliage.texture_4, texture_atlas),
                     })
                 }
             },
@@ -170,7 +167,7 @@ impl BlockRegistry {
                         .get(dynamic.model.as_str())
                         .unwrap_or(models.get("missing").unwrap())
                         .clone(),
-                    texture_atlas.get(dynamic.texture.as_str()),
+                    Texture::from_common(dynamic.texture, texture_atlas),
                     dynamic.animations,
                     dynamic.items,
                 )
@@ -214,15 +211,15 @@ pub enum BlockRenderDataType {
 }
 
 pub struct BlockCubeRenderData {
-    pub front: TexCoords,
-    pub back: TexCoords,
-    pub right: TexCoords,
-    pub left: TexCoords,
-    pub up: TexCoords,
-    pub down: TexCoords,
+    pub front: Texture,
+    pub back: Texture,
+    pub right: Texture,
+    pub left: Texture,
+    pub up: Texture,
+    pub down: Texture,
 }
 impl BlockCubeRenderData {
-    pub fn by_face(&self, face: Face) -> TexCoords {
+    pub fn by_face(&self, face: Face) -> Texture {
         match face {
             Face::Front => self.front,
             Face::Back => self.back,
@@ -238,10 +235,10 @@ pub struct BlockStaticRenderData {
     pub models: Vec<(Model, Transformation)>,
 }
 pub struct BlockFoliageRenderData {
-    pub texture_1: TexCoords,
-    pub texture_2: TexCoords,
-    pub texture_3: TexCoords,
-    pub texture_4: TexCoords,
+    pub texture_1: Texture,
+    pub texture_2: Texture,
+    pub texture_3: Texture,
+    pub texture_4: Texture,
 }
 
 pub struct ItemData {
@@ -326,9 +323,9 @@ impl ItemRegistry {
                     let block = block_registry.get_block(block);
                     match &block.block_type {
                         BlockRenderDataType::Cube(cube_data) => ItemModel::Block {
-                            front: cube_data.front,
-                            up: cube_data.up,
-                            right: cube_data.right,
+                            front: cube_data.front.get_first_coords(),
+                            up: cube_data.up.get_first_coords(),
+                            right: cube_data.right.get_first_coords(),
                         },
                         _ => ItemModel::Texture {
                             texture: texture_atlas.missing_texture,
@@ -360,7 +357,7 @@ impl EntityRegistry {
                     .get(entity_data.model.as_str())
                     .unwrap_or(models.get("missing").unwrap())
                     .clone(),
-                texture_atlas.get(entity_data.texture.as_str()),
+                Texture::from_common(entity_data.texture, texture_atlas),
                 entity_data.animations,
                 entity_data.items,
             ),
@@ -368,13 +365,13 @@ impl EntityRegistry {
             hitbox_h: entity_data.hitbox_h,
             hitbox_d: entity_data.hitbox_d,
             hitbox_h_shifting: entity_data.hitbox_h_shifting,
-            viewmodel: entity_data.viewmodel.as_ref().map(|viewmodel| {
+            viewmodel: entity_data.viewmodel.map(|viewmodel| {
                 Model::new(
                     models
                         .get(viewmodel.0.as_str())
                         .unwrap_or(models.get("missing").unwrap())
                         .clone(),
-                    texture_atlas.get(viewmodel.1.as_str()),
+                    Texture::from_common(viewmodel.1, texture_atlas),
                     viewmodel.2.clone(),
                     viewmodel.3.clone(),
                 )
@@ -389,6 +386,30 @@ pub struct EntityData {
     pub hitbox_d: f64,
     pub hitbox_h_shifting: f64,
     pub viewmodel: Option<Model>,
+}
+#[derive(Copy, Clone)]
+pub enum Texture{
+    Static{coords:TexCoords},
+    Animated{coords:TexCoords,time:u8,stages:u8,shift:f32}
+}
+impl Texture{
+    pub fn get_first_coords(&self) -> TexCoords{
+        match self{
+            Texture::Static { coords } => *coords,
+            Texture::Animated { coords, shift, .. } => TexCoords{
+                u1: coords.u1,
+                v1: coords.v1,
+                u2: coords.u1 + *shift,
+                v2: coords.v2,
+            },
+        }
+    }
+    pub fn from_common(texture: ClientTexture, atlas: &TextureAtlas) -> Self{
+        match texture{
+            ClientTexture::Static { id } => Texture::Static {coords: atlas.get(id.as_str())},
+            ClientTexture::Animated { id, time, stages, shift } => Texture::Animated {coords: atlas.get(id.as_str()), time, stages, shift: shift as f32 / atlas.width as f32}
+        }
+    }
 }
 
 //todo: better audio

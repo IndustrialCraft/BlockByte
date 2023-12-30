@@ -1,9 +1,9 @@
-use crate::content::{EntityRegistry, ItemRegistry};
+use crate::content::{EntityRegistry, ItemRegistry, Texture};
 use crate::game::{ClientPlayer, World};
 use crate::gui::GUIRenderer;
 use crate::model::{Model, ModelInstanceData};
 use crate::texture;
-use crate::texture::Texture;
+use crate::texture::GPUTexture;
 use block_byte_common::{Face, Position, TexCoords, Vec3, AABB};
 use cgmath::{Matrix4, SquareMatrix};
 use image::RgbaImage;
@@ -32,7 +32,7 @@ pub struct RenderState {
     gui_render_pipeline: wgpu::RenderPipeline,
     model_render_pipeline: wgpu::RenderPipeline,
     pub(crate) outline_renderer: OutlineRenderer,
-    texture: Texture,
+    texture: GPUTexture,
     camera_uniform: CameraUniform,
     camera_buffer: Buffer,
     camera_bind_group: wgpu::BindGroup,
@@ -91,7 +91,7 @@ impl RenderState {
             view_formats: vec![],
         };
         surface.configure(&device, &config);
-        let texture = Texture::from_image(&device, &queue, &texture_image, Some("main texture"));
+        let texture = GPUTexture::from_image(&device, &queue, &texture_image, Some("main texture"));
         let chunk_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Chunk Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("assets/chunk_shader.wgsl").into()),
@@ -903,10 +903,34 @@ pub struct ChunkVertex {
     pub position: [f32; 3],
     pub tex_coords: [f32; 2],
     pub render_data: u32,
+    pub animation_shift: f32
+}
+impl ChunkVertex{
+    pub fn new(position: Position, coords: [f32;2], render_data: u32, texture: Texture) -> Self{
+        match texture{
+            Texture::Static { .. } => {
+                ChunkVertex{
+                    position: [position.x as f32,position.y as f32,position.z as f32],
+                    tex_coords: coords,
+                    animation_shift: 0.,
+                    render_data
+                }
+            }
+            Texture::Animated { shift, stages, time, .. } => {
+                ChunkVertex{
+                    position: [position.x as f32,position.y as f32,position.z as f32],
+                    tex_coords: coords,
+                    animation_shift: shift,
+                    render_data: render_data | ((stages as u32) << 24) | ((time as u32) << 16),
+                }
+            }
+        }
+
+    }
 }
 impl ChunkVertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 3] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Uint32];
+    const ATTRIBS: [wgpu::VertexAttribute; 4] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Uint32, 3 => Float32];
 
     fn desc() -> wgpu::VertexBufferLayout<'static> {
         use std::mem;

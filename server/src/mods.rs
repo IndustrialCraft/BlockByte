@@ -1,9 +1,5 @@
 use anyhow::{bail, Context, Result};
-use block_byte_common::content::{
-    ClientBlockCubeRenderData, ClientBlockData, ClientBlockDynamicData,
-    ClientBlockFoliageRenderData, ClientBlockRenderDataType, ClientBlockStaticRenderData,
-    ClientEntityData, Transformation,
-};
+use block_byte_common::content::{ClientBlockCubeRenderData, ClientBlockData, ClientBlockDynamicData, ClientBlockFoliageRenderData, ClientBlockRenderDataType, ClientBlockStaticRenderData, ClientEntityData, ClientTexture, Transformation};
 use block_byte_common::messages::MovementType;
 use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, KeyboardKey, Position, Vec3};
 use image::io::Reader;
@@ -1115,12 +1111,12 @@ impl ModClientBlockData {
         down: &str,
     ) -> Self {
         Self::new(ClientBlockRenderDataType::Cube(ClientBlockCubeRenderData {
-            front: front.to_string(),
-            back: back.to_string(),
-            right: right.to_string(),
-            left: left.to_string(),
-            up: up.to_string(),
-            down: down.to_string(),
+            front: ClientTexture::Static{id:front.to_string()},
+            back: ClientTexture::Static{id:back.to_string()},
+            right: ClientTexture::Static{id:right.to_string()},
+            left: ClientTexture::Static{id:left.to_string()},
+            up: ClientTexture::Static{id: up.to_string()},
+            down: ClientTexture::Static{id:down.to_string()},
         }))
     }
     pub fn create_static(model: &str, texture: &str) -> Self {
@@ -1128,7 +1124,7 @@ impl ModClientBlockData {
             ClientBlockStaticRenderData {
                 models: vec![(
                     model.to_string(),
-                    texture.to_string(),
+                    ClientTexture::Static{id:texture.to_string()},
                     Transformation::identity(),
                 )],
             },
@@ -1137,7 +1133,7 @@ impl ModClientBlockData {
     pub fn create_static_transform(model: &str, texture: &str, transform: Transformation) -> Self {
         Self::new(ClientBlockRenderDataType::Static(
             ClientBlockStaticRenderData {
-                models: vec![(model.to_string(), texture.to_string(), transform)],
+                models: vec![(model.to_string(), ClientTexture::Static{id:texture.to_string()}, transform)],
             },
         ))
     }
@@ -1151,7 +1147,7 @@ impl ModClientBlockData {
             ClientBlockRenderDataType::Static(models) => {
                 models
                     .models
-                    .push((model.to_string(), texture.to_string(), transform));
+                    .push((model.to_string(), ClientTexture::Static{id:texture.to_string()}, transform));
             }
             _ => panic!(),
         }
@@ -1165,10 +1161,10 @@ impl ModClientBlockData {
     ) -> Self {
         Self::new(ClientBlockRenderDataType::Foliage(
             ClientBlockFoliageRenderData {
-                texture_1: texture_1.to_string(),
-                texture_2: texture_2.to_string(),
-                texture_3: texture_3.to_string(),
-                texture_4: texture_4.to_string(),
+                texture_1: ClientTexture::Static{id:texture_1.to_string()},
+                texture_2: ClientTexture::Static{id:texture_2.to_string()},
+                texture_3: ClientTexture::Static{id:texture_3.to_string()},
+                texture_4: ClientTexture::Static{id:texture_4.to_string()},
             },
         ))
     }
@@ -1208,7 +1204,7 @@ impl ModClientBlockData {
     pub fn dynamic(&mut self, model: &str, texture: &str) -> Self {
         self.client.dynamic = Some(ClientBlockDynamicData {
             model: model.to_string(),
-            texture: texture.to_string(),
+            texture: ClientTexture::Static{id:texture.to_string()},
             animations: Vec::new(),
             items: Vec::new(),
         });
@@ -1326,7 +1322,7 @@ impl EntityBuilder {
         EntityBuilder {
             client: ClientEntityData {
                 model: String::new(),
-                texture: String::new(),
+                texture: ClientTexture::Static{id:String::new()},
                 hitbox_w: 1.,
                 hitbox_h: 1.,
                 hitbox_d: 1.,
@@ -1342,7 +1338,7 @@ impl EntityBuilder {
         let mut this = self.clone();
         this.client.viewmodel = Some((
             model.to_string(),
-            texture.to_string(),
+            ClientTexture::Static{id:texture.to_string()},
             Vec::new(),
             Vec::new(),
         ));
@@ -1376,7 +1372,7 @@ impl EntityBuilder {
     pub fn client_model(&mut self, model: &str, texture: &str) -> Self {
         let mut this = self.clone();
         this.client.model = model.to_string();
-        this.client.texture = texture.to_string();
+        this.client.texture = ClientTexture::Static{id:texture.to_string()};
         this
     }
     pub fn client_hitbox(&mut self, width: f64, height: f64, depth: f64) -> Self {

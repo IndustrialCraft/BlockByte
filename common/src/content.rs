@@ -23,7 +23,7 @@ pub struct ClientBlockData {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientBlockDynamicData {
     pub model: String,
-    pub texture: String,
+    pub texture: ClientTexture,
     pub animations: Vec<String>,
     pub items: Vec<String>,
 }
@@ -38,24 +38,24 @@ pub enum ClientBlockRenderDataType {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientBlockCubeRenderData {
-    pub front: String,
-    pub back: String,
-    pub right: String,
-    pub left: String,
-    pub up: String,
-    pub down: String,
+    pub front: ClientTexture,
+    pub back: ClientTexture,
+    pub right: ClientTexture,
+    pub left: ClientTexture,
+    pub up: ClientTexture,
+    pub down: ClientTexture,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientBlockStaticRenderData {
-    pub models: Vec<(String, String, Transformation)>,
+    pub models: Vec<(String, ClientTexture, Transformation)>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientBlockFoliageRenderData {
-    pub texture_1: String,
-    pub texture_2: String,
-    pub texture_3: String,
-    pub texture_4: String,
+    pub texture_1: ClientTexture,
+    pub texture_2: ClientTexture,
+    pub texture_3: ClientTexture,
+    pub texture_4: ClientTexture,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -66,7 +66,7 @@ pub struct ClientItemData {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ClientItemModel {
-    Texture(String),
+    Texture(String),//todo: support animated textures
     Block(u32),
 }
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -90,14 +90,14 @@ impl Transformation {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientEntityData {
     pub model: String,
-    pub texture: String,
+    pub texture: ClientTexture,
     pub hitbox_w: f64,
     pub hitbox_h: f64,
     pub hitbox_d: f64,
     pub hitbox_h_shifting: f64,
     pub animations: Vec<String>,
     pub items: Vec<String>,
-    pub viewmodel: Option<(String, String, Vec<String>, Vec<String>)>,
+    pub viewmodel: Option<(String, ClientTexture, Vec<String>, Vec<String>)>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -228,4 +228,9 @@ pub struct ModelAnimationKeyframe {
 pub struct ModelData {
     pub root_bone: ModelBone,
     pub animations: Vec<(String, f32)>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ClientTexture {
+    Static{id:String},
+    Animated{id:String,time:u8,stages:u8,shift:u32}
 }

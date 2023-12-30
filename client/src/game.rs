@@ -341,7 +341,7 @@ impl Chunk {
                                 }
 
                                 let texture = cube_data.by_face(*face);
-                                face.add_vertices(texture, &mut |position, coords| {
+                                face.add_vertices(texture.get_first_coords(), &mut |position, coords| {
                                     let position_flags = ((position.x > 0.5) as u32)
                                         | (((position.y > 0.5) as u32) << 1)
                                         | (((position.z > 0.5) as u32) << 2);
@@ -350,16 +350,8 @@ impl Chunk {
                                     } else {
                                         &mut vertices
                                     })
-                                    .push(ChunkVertex {
-                                        position: [
-                                            (base_position.x + position.x) as f32,
-                                            (base_position.y + position.y) as f32,
-                                            (base_position.z + position.z) as f32,
-                                        ],
-                                        tex_coords: [coords.0, coords.1],
-                                        render_data: block.render_data as u32
-                                            | (position_flags << 8),
-                                    })
+                                    .push(ChunkVertex::new(base_position+position, [coords.0, coords.1], block.render_data as u32
+                                        | (position_flags << 8), texture));
                                 });
                             }
                         }
@@ -373,47 +365,30 @@ impl Chunk {
                                         let position_flags = ((position.x > 0.5) as u32)
                                             | (((position.y > 0.5) as u32) << 1)
                                             | (((position.z > 0.5) as u32) << 2);
-                                        vertices.push(ChunkVertex {
-                                            position: [
-                                                (base_position.x + position.x) as f32 + 0.5,
-                                                (base_position.y + position.y) as f32,
-                                                (base_position.z + position.z) as f32 + 0.5,
-                                            ],
-                                            tex_coords: [coords.0, coords.1],
-                                            render_data: block.render_data as u32
-                                                | (position_flags << 8),
-                                        })
+                                        vertices.push(ChunkVertex::new(base_position+position+Position{x: 0.5,y: 0., z: 0.5}, [coords.0, coords.1], block.render_data as u32
+                                            | (position_flags << 8), model.0.texture))
                                     },
                                 );
                             }
                         }
                         BlockRenderDataType::Foliage(foliage) => {
                             for face in &[Face::Front, Face::Back, Face::Left, Face::Right] {
+                                let texture = match face {
+                                    Face::Front => foliage.texture_1,
+                                    Face::Back => foliage.texture_2,
+                                    Face::Left => foliage.texture_3,
+                                    Face::Right => foliage.texture_4,
+                                    _ => unreachable!(),
+                                };
                                 face.add_vertices(
-                                    match face {
-                                        Face::Front => foliage.texture_1,
-                                        Face::Back => foliage.texture_2,
-                                        Face::Left => foliage.texture_3,
-                                        Face::Right => foliage.texture_4,
-                                        _ => unreachable!(),
-                                    },
+                                    texture.get_first_coords(),
                                     &mut |position, coords| {
                                         let position_flags = ((position.x > 0.5) as u32)
                                             | (((position.y > 0.5) as u32) << 1)
                                             | (((position.z > 0.5) as u32) << 2);
                                         let shift = face.opposite().get_offset();
-                                        foliage_vertices.push(ChunkVertex {
-                                            position: [
-                                                (base_position.x + position.x) as f32
-                                                    + (shift.x as f32 * 0.3),
-                                                (base_position.y + position.y) as f32,
-                                                (base_position.z + position.z) as f32
-                                                    + (shift.z as f32 * 0.3),
-                                            ],
-                                            tex_coords: [coords.0, coords.1],
-                                            render_data: block.render_data as u32
-                                                | (position_flags << 8),
-                                        });
+                                        foliage_vertices.push(ChunkVertex::new(base_position+position+Position{x: shift.x as f64 * 0.3, y: 0., z: shift.z as f64 * 0.3}, [coords.0, coords.1], block.render_data as u32
+                                            | (position_flags << 8), texture));
                                     },
                                 );
                             }
