@@ -58,6 +58,7 @@ pub struct World {
         Mutex<HashMap<ChunkPosition, Vec<(BlockPosition, Arc<Structure>)>>>,
     id: Identifier,
     temporary: bool,
+    pub user_data: Mutex<UserData>,
 }
 
 impl World {
@@ -76,6 +77,7 @@ impl World {
             unloaded_structure_placements: Mutex::new(HashMap::new()),
             id,
             temporary: false,
+            user_data: Mutex::new(UserData::new()),
         });
         std::fs::create_dir_all(world.get_world_path()).unwrap();
         world
@@ -330,8 +332,20 @@ impl World {
     }
 }
 impl ScriptingObject for World {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
         engine.register_type_with_name::<Arc<World>>("World");
+        {
+            let server = server.clone();
+            engine.register_fn("load_world", move |id: &str| {
+                server
+                    .upgrade()
+                    .unwrap()
+                    .get_or_create_world(Identifier::parse(id).unwrap())
+            });
+        }
+        engine.register_get("user_data", |world: &mut Arc<World>| {
+            UserDataWrapper::World(world.ptr())
+        });
         engine.register_fn(
             "place_structure",
             |world: &mut Arc<World>, structure: Arc<Structure>, position: BlockPosition| {

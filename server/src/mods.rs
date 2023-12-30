@@ -886,6 +886,7 @@ pub enum UserDataWrapper {
     Entity(Arc<Entity>),
     Block(Arc<WorldBlock>),
     Inventory(InventoryWrapper),
+    World(Arc<World>),
 }
 impl UserDataWrapper {
     fn get_user_data(&self) -> MutexGuard<UserData> {
@@ -894,6 +895,7 @@ impl UserDataWrapper {
             UserDataWrapper::Entity(entity) => entity.user_data.lock(),
             UserDataWrapper::Block(block) => block.user_data.lock(),
             UserDataWrapper::Inventory(inventory) => inventory.get_inventory().user_data.lock(),
+            UserDataWrapper::World(world) => world.user_data.lock(),
         }
     }
 }

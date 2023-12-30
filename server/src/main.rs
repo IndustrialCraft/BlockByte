@@ -399,6 +399,10 @@ impl Server {
             let player = {
                 let mut event_data = rhai::Map::new();
                 event_data.insert("location".into(), Dynamic::from(self.get_spawn_location()));
+                let event_data = self.call_event(
+                    Identifier::new("bb", "resolve_spawn_location"),
+                    event_data.into(),
+                );
                 let event_data =
                     self.call_event(Identifier::new("bb", "player_join"), event_data.into());
                 let mut event_data: rhai::Map = event_data.try_cast().unwrap();
