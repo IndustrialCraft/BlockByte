@@ -390,24 +390,32 @@ pub struct EntityData {
 #[derive(Copy, Clone)]
 pub enum Texture{
     Static{coords:TexCoords},
-    Animated{coords:TexCoords,time:u8,stages:u8,shift:f32}
+    Animated{coords:TexCoords,time:u8,stages:u8}
 }
 impl Texture{
     pub fn get_first_coords(&self) -> TexCoords{
         match self{
             Texture::Static { coords } => *coords,
-            Texture::Animated { coords, shift, .. } => TexCoords{
+            Texture::Animated { coords, .. } => TexCoords{
                 u1: coords.u1,
                 v1: coords.v1,
-                u2: coords.u1 + *shift,
+                u2: coords.u1 + self.get_shift(),
                 v2: coords.v2,
             },
+        }
+    }
+    pub fn get_shift(&self) -> f32{
+        match self{
+            Texture::Static { .. } => 0.,
+            Texture::Animated { coords, stages, .. } => {
+                (coords.u2-coords.u1)/(*stages as f32)
+            }
         }
     }
     pub fn from_common(texture: ClientTexture, atlas: &TextureAtlas) -> Self{
         match texture{
             ClientTexture::Static { id } => Texture::Static {coords: atlas.get(id.as_str())},
-            ClientTexture::Animated { id, time, stages, shift } => Texture::Animated {coords: atlas.get(id.as_str()), time, stages, shift: shift as f32 / atlas.width as f32}
+            ClientTexture::Animated { id, time, stages } => Texture::Animated {coords: atlas.get(id.as_str()), time, stages}
         }
     }
 }

@@ -232,5 +232,5 @@ pub struct ModelData {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ClientTexture {
     Static{id:String},
-    Animated{id:String,time:u8,stages:u8,shift:u32}
+    Animated{id:String,time:u8,stages:u8}
 }

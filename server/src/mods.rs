@@ -192,6 +192,7 @@ impl ModManager {
             .register_fn("on_destroy", BlockBuilder::on_destroy)
             .register_fn("create_air", ModClientBlockData::create_air)
             .register_fn("create_cube", ModClientBlockData::create_cube)
+            .register_fn("create_cube", ModClientBlockData::create_cube_texture)
             .register_fn("create_static", ModClientBlockData::create_static)
             .register_fn("create_static", ModClientBlockData::create_static_transform)
             .register_fn("add_static_model", ModClientBlockData::add_static_model)
@@ -294,6 +295,12 @@ impl ModManager {
             "HorizontalFace",
             exported_module!(HorizontalFaceModule).into(),
         );
+        loading_engine.register_type_with_name::<ClientTexture>("Texture");
+        loading_engine.register_fn("create_animated_texture", |id: &str, time: i64, stages: i64|ClientTexture::Animated{
+            id: id.to_string(),
+            time: time as u8,
+            stages: stages as u8,
+        });
 
         /*loading_engine.register_fn(
             "create_biome",
@@ -1117,6 +1124,23 @@ impl ModClientBlockData {
             left: ClientTexture::Static{id:left.to_string()},
             up: ClientTexture::Static{id: up.to_string()},
             down: ClientTexture::Static{id:down.to_string()},
+        }))
+    }
+    pub fn create_cube_texture(
+        front: ClientTexture,
+        back: ClientTexture,
+        right: ClientTexture,
+        left: ClientTexture,
+        up: ClientTexture,
+        down: ClientTexture,
+    ) -> Self {
+        Self::new(ClientBlockRenderDataType::Cube(ClientBlockCubeRenderData {
+            front,
+            back,
+            right,
+            left,
+            up,
+            down,
         }))
     }
     pub fn create_static(model: &str, texture: &str) -> Self {

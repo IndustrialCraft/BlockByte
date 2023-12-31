@@ -916,11 +916,11 @@ impl ChunkVertex{
                     render_data
                 }
             }
-            Texture::Animated { shift, stages, time, .. } => {
+            Texture::Animated { stages, time, .. } => {
                 ChunkVertex{
                     position: [position.x as f32,position.y as f32,position.z as f32],
                     tex_coords: coords,
-                    animation_shift: shift,
+                    animation_shift: texture.get_shift(),
                     render_data: render_data | ((stages as u32) << 24) | ((time as u32) << 16),
                 }
             }

@@ -155,6 +155,8 @@ register_event("bb:command", ||{
 
 create_entity().client_viewmodel("core:viewmodel", "").client_viewmodel_add_item("main_hand").client_viewmodel_add_animation("equip").client_model("core:player","core:player").client_add_item("main_hand").client_hitbox(0.6, 1.7, 0.6).register("core:player");
 
+register_image("core:animation_test", "images/animation_test.png");
+
 register_image("bb:slot", "images/slot.png");
 register_image("bb:cursor", "images/cursor.png");
 
@@ -173,3 +175,8 @@ register_event("bb:post_player_join", ||{
     this.player.movement_type(MovementType::Normal);
     this.player.speed(1.);
 });
+
+let animated_texture = create_animated_texture("core:animation_test", 60, 4);
+create_block(|p|{
+    create_cube(animated_texture,animated_texture,animated_texture,animated_texture,animated_texture,animated_texture)
+}).register("core:animation_test").register_item("core:animation_test","Animation Test Block");
