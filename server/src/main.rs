@@ -37,7 +37,9 @@ use crate::mods::{
 };
 use crate::registry::RecipeManager;
 use crate::world::PlayerData;
-use block_byte_common::content::{ClientEntityData, ClientItemData, ClientItemModel, ClientTexture};
+use block_byte_common::content::{
+    ClientEntityData, ClientItemData, ClientItemModel, ClientTexture,
+};
 use block_byte_common::Position;
 use crossbeam_channel::Receiver;
 use fxhash::FxHashMap;
@@ -80,7 +82,14 @@ fn main() {
         println!("server started");
         let mut highest_sleep_time = 0;
         while running.load(std::sync::atomic::Ordering::Relaxed) {
+            let mspt_timer = Instant::now();
             server.tick();
+            if false {
+                println!(
+                    "mspt: {}",
+                    Instant::now().duration_since(mspt_timer).as_micros() as f64 / 1000.
+                );
+            }
             let sleep_time = (tick_count as i64 * 50)
                 - Instant::now().duration_since(start_time).as_millis() as i64;
             if sleep_time > 0 {
@@ -238,7 +247,7 @@ impl Server {
                     client_id,
                     client_data: ClientEntityData {
                         model: "bb:item".to_string(),
-                        texture: ClientTexture::Static{id:"".to_string()},
+                        texture: ClientTexture::Static { id: "".to_string() },
                         hitbox_w: 0.5,
                         hitbox_h: 0.1,
                         hitbox_d: 0.5,
@@ -427,8 +436,7 @@ impl Server {
         for player in &*self.players.lock() {
             player.tick();
         }
-        let worlds: Vec<Arc<World>> = self.worlds.lock().values().cloned().collect();
-        for world in worlds {
+        for world in self.worlds.lock().values() {
             world.tick();
         }
         self.worlds

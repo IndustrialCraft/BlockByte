@@ -296,24 +296,17 @@ impl World {
         chunks.get(&position).map(|c| c.clone())
     }
     pub fn tick(&self) {
-        let chunks: Vec<_> = self.chunks.lock().values().cloned().collect();
-        for chunk in chunks {
-            chunk.tick();
-        }
-        let non_empty = {
-            let mut chunks = self.chunks.lock();
-            chunks
-                .extract_if(|_, chunk| {
-                    let should_unload = chunk.should_unload();
-                    if should_unload {
-                        chunk.destroy();
-                    }
-                    should_unload
-                })
-                .count();
-            chunks.len() > 0
-        };
-        if non_empty {
+        let mut chunks = self.chunks.lock();
+        chunks
+            .extract_if(|_, chunk| {
+                let should_unload = chunk.tick();
+                if should_unload {
+                    chunk.destroy();
+                }
+                should_unload
+            })
+            .count();
+        if chunks.len() > 0 {
             self.unload_timer.reset();
         } else {
             self.unload_timer.inc();
@@ -431,7 +424,6 @@ pub struct Chunk {
     blocks: Mutex<[[[BlockData; 16]; 16]; 16]>,
     entities: Mutex<Vec<Arc<Entity>>>,
     viewers: Mutex<FxHashSet<ChunkViewer>>,
-    unload_timer: AtomicU8,
     loading_stage: AtomicU8,
     ticking_blocks: Mutex<HashSet<(u8, u8, u8)>>,
     scheduled_updates: Mutex<HashSet<(u8, u8, u8)>>,
@@ -447,7 +439,6 @@ impl Chunk {
                 array_init(|_| array_init(|_| BlockData::Simple(0)))
             })),
             world: world.clone(),
-            unload_timer: AtomicU8::new(0),
             entities: Mutex::new(Vec::new()),
             viewers: Mutex::new(FxHashSet::default()),
             loading_stage: AtomicU8::new(0),
@@ -722,12 +713,9 @@ impl Chunk {
             viewer.player.send_message(message);
         }
     }
-    pub fn tick(&self) {
-        self.unload_timer
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-        self.entities
-            .lock()
+    pub fn tick(&self) -> bool {
+        let mut entities = self.entities.lock();
+        entities
             .extract_if(|entity| {
                 let new_location = entity.get_location();
                 let not_same_chunk = new_location.chunk.position != self.position;
@@ -754,7 +742,7 @@ impl Chunk {
                 removed || not_same_chunk
             })
             .count();
-        let entities: Vec<_> = self.entities.lock().iter().map(|e| e.clone()).collect();
+        let entities: Vec<_> = entities.iter().map(|e| e.clone()).collect();
         let blocks: Vec<_> = {
             let blocks = self.blocks.lock();
             self.ticking_blocks
@@ -783,10 +771,6 @@ impl Chunk {
                 .collect()
         };
         let block_updates: Vec<_> = { self.scheduled_updates.lock().drain().collect() };
-        if self.viewers.lock().len() > 0 {
-            self.unload_timer
-                .store(0, std::sync::atomic::Ordering::Relaxed);
-        }
         if entities.len() > 0 || blocks.len() > 0 || block_updates.len() > 0 {
             let chunk = self.ptr();
             self.world.server.thread_pool.execute(Box::new(move || {
@@ -817,9 +801,7 @@ impl Chunk {
                 }
             }));
         }
-    }
-    pub fn should_unload(&self) -> bool {
-        self.unload_timer.load(std::sync::atomic::Ordering::Relaxed) >= Chunk::UNLOAD_TIME
+        self.viewers.lock().len() == 0
     }
     pub fn destroy(&self) {
         let chunk = self.this.upgrade().unwrap();

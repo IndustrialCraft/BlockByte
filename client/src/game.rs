@@ -341,18 +341,27 @@ impl Chunk {
                                 }
 
                                 let texture = cube_data.by_face(*face);
-                                face.add_vertices(texture.get_first_coords(), &mut |position, coords| {
-                                    let position_flags = ((position.x > 0.5) as u32)
-                                        | (((position.y > 0.5) as u32) << 1)
-                                        | (((position.z > 0.5) as u32) << 2);
-                                    (if block.transparent {
-                                        &mut transparent_vertices
-                                    } else {
-                                        &mut vertices
-                                    })
-                                    .push(ChunkVertex::new(base_position+position, [coords.0, coords.1], block.render_data as u32
-                                        | (position_flags << 8), texture));
-                                });
+                                face.add_vertices(
+                                    texture.get_first_coords(),
+                                    &mut |position, coords| {
+                                        let position_flags = ((position.x > 0.5) as u32)
+                                            | (((position.y > 0.5) as u32) << 1)
+                                            | (((position.z > 0.5) as u32) << 2);
+                                        (if block.transparent {
+                                            &mut transparent_vertices
+                                        } else {
+                                            &mut vertices
+                                        })
+                                        .push(
+                                            ChunkVertex::new(
+                                                base_position + position,
+                                                [coords.0, coords.1],
+                                                block.render_data as u32 | (position_flags << 8),
+                                                texture,
+                                            ),
+                                        );
+                                    },
+                                );
                             }
                         }
                         BlockRenderDataType::Static(model) => {
@@ -365,8 +374,18 @@ impl Chunk {
                                         let position_flags = ((position.x > 0.5) as u32)
                                             | (((position.y > 0.5) as u32) << 1)
                                             | (((position.z > 0.5) as u32) << 2);
-                                        vertices.push(ChunkVertex::new(base_position+position+Position{x: 0.5,y: 0., z: 0.5}, [coords.0, coords.1], block.render_data as u32
-                                            | (position_flags << 8), model.0.texture))
+                                        vertices.push(ChunkVertex::new(
+                                            base_position
+                                                + position
+                                                + Position {
+                                                    x: 0.5,
+                                                    y: 0.,
+                                                    z: 0.5,
+                                                },
+                                            [coords.0, coords.1],
+                                            block.render_data as u32 | (position_flags << 8),
+                                            model.0.texture,
+                                        ))
                                     },
                                 );
                             }
@@ -387,8 +406,18 @@ impl Chunk {
                                             | (((position.y > 0.5) as u32) << 1)
                                             | (((position.z > 0.5) as u32) << 2);
                                         let shift = face.opposite().get_offset();
-                                        foliage_vertices.push(ChunkVertex::new(base_position+position+Position{x: shift.x as f64 * 0.3, y: 0., z: shift.z as f64 * 0.3}, [coords.0, coords.1], block.render_data as u32
-                                            | (position_flags << 8), texture));
+                                        foliage_vertices.push(ChunkVertex::new(
+                                            base_position
+                                                + position
+                                                + Position {
+                                                    x: shift.x as f64 * 0.3,
+                                                    y: 0.,
+                                                    z: shift.z as f64 * 0.3,
+                                                },
+                                            [coords.0, coords.1],
+                                            block.render_data as u32 | (position_flags << 8),
+                                            texture,
+                                        ));
                                     },
                                 );
                             }
