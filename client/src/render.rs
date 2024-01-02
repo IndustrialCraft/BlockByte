@@ -22,7 +22,7 @@ use winit::window::Window;
 pub struct RenderState {
     surface: wgpu::Surface,
     device: wgpu::Device,
-    pub(crate) queue: wgpu::Queue,
+    pub queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: PhysicalSize<u32>,
     window: Window,
@@ -31,7 +31,7 @@ pub struct RenderState {
     chunk_foliage_render_pipeline: wgpu::RenderPipeline,
     gui_render_pipeline: wgpu::RenderPipeline,
     model_render_pipeline: wgpu::RenderPipeline,
-    pub(crate) outline_renderer: OutlineRenderer,
+    pub outline_renderer: OutlineRenderer,
     texture: GPUTexture,
     camera_uniform: CameraUniform,
     camera_buffer: Buffer,
@@ -39,11 +39,11 @@ pub struct RenderState {
     time_buffer: Buffer,
     time_bind_group: wgpu::BindGroup,
     depth_texture: (wgpu::Texture, Sampler, TextureView),
-    pub(crate) mouse: PhysicalPosition<f64>,
+    pub mouse: PhysicalPosition<f64>,
 }
 
 impl RenderState {
-    pub(crate) async fn new(window: Window, texture_image: RgbaImage) -> Self {
+    pub async fn new(window: Window, texture_image: RgbaImage) -> Self {
         let size = window.inner_size();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
@@ -903,29 +903,24 @@ pub struct ChunkVertex {
     pub position: [f32; 3],
     pub tex_coords: [f32; 2],
     pub render_data: u32,
-    pub animation_shift: f32
+    pub animation_shift: f32,
 }
-impl ChunkVertex{
-    pub fn new(position: Position, coords: [f32;2], render_data: u32, texture: Texture) -> Self{
-        match texture{
-            Texture::Static { .. } => {
-                ChunkVertex{
-                    position: [position.x as f32,position.y as f32,position.z as f32],
-                    tex_coords: coords,
-                    animation_shift: 0.,
-                    render_data
-                }
-            }
-            Texture::Animated { stages, time, .. } => {
-                ChunkVertex{
-                    position: [position.x as f32,position.y as f32,position.z as f32],
-                    tex_coords: coords,
-                    animation_shift: texture.get_shift(),
-                    render_data: render_data | ((stages as u32) << 24) | ((time as u32) << 16),
-                }
-            }
+impl ChunkVertex {
+    pub fn new(position: Position, coords: [f32; 2], render_data: u32, texture: Texture) -> Self {
+        match texture {
+            Texture::Static { .. } => ChunkVertex {
+                position: [position.x as f32, position.y as f32, position.z as f32],
+                tex_coords: coords,
+                animation_shift: 0.,
+                render_data,
+            },
+            Texture::Animated { stages, time, .. } => ChunkVertex {
+                position: [position.x as f32, position.y as f32, position.z as f32],
+                tex_coords: coords,
+                animation_shift: texture.get_shift(),
+                render_data: render_data | ((stages as u32) << 24) | ((time as u32) << 16),
+            },
         }
-
     }
 }
 impl ChunkVertex {

@@ -1055,7 +1055,7 @@ pub struct Conditions {
     tool_type: Option<ToolType>,
 }
 pub struct LootTableGenerationParameters<'a> {
-    pub(crate) item: Option<&'a ItemStack>,
+    pub item: Option<&'a ItemStack>,
 }
 impl LootTable {
     pub fn from_json(json: JsonValue, item_registry: &ItemRegistry) -> Self {

@@ -371,8 +371,8 @@ impl PartialEq for World {
 }
 
 pub struct BlockBreakParameters {
-    pub(crate) player: Option<Arc<Entity>>,
-    pub(crate) item: Option<ItemStack>,
+    pub player: Option<Arc<Entity>>,
+    pub item: Option<ItemStack>,
 }
 impl BlockBreakParameters {
     pub fn from_entity(entity: &Entity) -> Self {
@@ -1277,7 +1277,7 @@ pub struct Entity {
     pub server: Arc<Server>,
     velocity: Mutex<(f64, f64, f64)>,
     pub user_data: Mutex<UserData>,
-    pub(crate) slot: Mutex<u32>,
+    pub slot: Mutex<u32>,
     pub player: Mutex<Option<Weak<PlayerData>>>,
     pathfinder: Mutex<Pathfinder>,
 }
@@ -2429,7 +2429,7 @@ pub struct WorldBlock {
     pub state: BlockStateRef,
     pub block: Arc<Block>,
     pub inventory: Inventory,
-    pub(crate) user_data: Mutex<UserData>,
+    pub user_data: Mutex<UserData>,
     animation_controller: AnimationController<WorldBlock>,
 }
 

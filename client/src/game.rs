@@ -23,7 +23,7 @@ pub struct ClientPlayer {
     speed: f32,
     movement_type: MovementType,
     block_registry: Rc<BlockRegistry>,
-    pub(crate) hitbox: Option<(f64, f64, f64, f64)>,
+    pub hitbox: Option<(f64, f64, f64, f64)>,
 }
 impl ClientPlayer {
     const UP: Vector3<f32> = Vector3 {
