@@ -160,10 +160,12 @@ impl Server {
                                 let mut mapping = ItemModelMapping {
                                     mapping: HashMap::new(),
                                 };
-                                mapping.mapping.insert(0, 0);
+                                //todo: register in scripts
+                                //mapping.mapping.insert(0, 0);
                                 mapping
                             },
                             properties: block_data.properties.clone(),
+                            networks: block_data.networks.clone(),
                             on_tick: block_data.on_tick.clone(),
                             on_right_click: block_data.on_right_click.clone(),
                             on_left_click: block_data.on_left_click.clone(),

@@ -1,5 +1,9 @@
 use anyhow::{bail, Context, Result};
-use block_byte_common::content::{ClientBlockCubeRenderData, ClientBlockData, ClientBlockDynamicData, ClientBlockFoliageRenderData, ClientBlockRenderDataType, ClientBlockStaticRenderData, ClientEntityData, ClientTexture, Transformation};
+use block_byte_common::content::{
+    ClientBlockCubeRenderData, ClientBlockData, ClientBlockDynamicData,
+    ClientBlockFoliageRenderData, ClientBlockRenderDataType, ClientBlockStaticRenderData,
+    ClientEntityData, ClientTexture, Transformation,
+};
 use block_byte_common::messages::MovementType;
 use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, KeyboardKey, Position, Vec3};
 use image::io::Reader;
@@ -23,6 +27,7 @@ use std::{
     sync::{Arc, Weak},
 };
 use twox_hash::XxHash64;
+use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::inventory::{GUILayout, InventoryWrapper, ItemStack, ModGuiViewer, OwnedInventoryView};
@@ -31,7 +36,7 @@ use crate::registry::{
     InteractionResult,
 };
 use crate::util::BlockLocation;
-use crate::world::{PlayerData, UserData, World, WorldBlock};
+use crate::world::{BlockNetwork, PlayerData, UserData, World, WorldBlock};
 use crate::{
     inventory::{LootTable, Recipe},
     registry::{BlockRegistry, ItemRegistry, ToolData, ToolType},
@@ -177,6 +182,7 @@ impl ModManager {
         loading_engine
             .register_type_with_name::<BlockBuilder>("BlockBuilder")
             .register_fn("create_block", BlockBuilder::new)
+            .register_fn("add_network_type", BlockBuilder::add_network_type)
             .register_fn(
                 "add_property_horizontal_face",
                 BlockBuilder::add_property_horizontal_face,
@@ -296,11 +302,14 @@ impl ModManager {
             exported_module!(HorizontalFaceModule).into(),
         );
         loading_engine.register_type_with_name::<ClientTexture>("Texture");
-        loading_engine.register_fn("create_animated_texture", |id: &str, time: i64, stages: i64|ClientTexture::Animated{
-            id: id.to_string(),
-            time: time as u8,
-            stages: stages as u8,
-        });
+        loading_engine.register_fn(
+            "create_animated_texture",
+            |id: &str, time: i64, stages: i64| ClientTexture::Animated {
+                id: id.to_string(),
+                time: time as u8,
+                stages: stages as u8,
+            },
+        );
 
         /*loading_engine.register_fn(
             "create_biome",
@@ -609,6 +618,8 @@ impl ModManager {
         );
         engine.register_static_module("KeyboardKey", exported_module!(KeyboardKeyModule).into());
 
+        engine.register_fn("random_uuid", || Uuid::new_v4().to_string());
+
         Self::load_scripting_object::<PlayerData>(engine, &server);
         Self::load_scripting_object::<Entity>(engine, &server);
         Self::load_scripting_object::<WorldBlock>(engine, &server);
@@ -633,6 +644,7 @@ impl ModManager {
         Self::load_scripting_object::<KeyboardKey>(engine, &server);
         Self::load_scripting_object::<Server>(engine, &server);
         Self::load_scripting_object::<OwnedInventoryView>(engine, &server);
+        Self::load_scripting_object::<BlockNetwork>(engine, &server);
     }
     fn load_scripting_object<T>(engine: &mut Engine, server: &Weak<Server>)
     where
@@ -890,6 +902,7 @@ pub enum UserDataWrapper {
     Block(Arc<WorldBlock>),
     Inventory(InventoryWrapper),
     World(Arc<World>),
+    BlockNetwork(Arc<BlockNetwork>),
 }
 impl UserDataWrapper {
     fn get_user_data(&self) -> MutexGuard<UserData> {
@@ -899,6 +912,7 @@ impl UserDataWrapper {
             UserDataWrapper::Block(block) => block.user_data.lock(),
             UserDataWrapper::Inventory(inventory) => inventory.get_inventory().user_data.lock(),
             UserDataWrapper::World(world) => world.user_data.lock(),
+            UserDataWrapper::BlockNetwork(network) => network.user_data.lock(),
         }
     }
 }
@@ -1017,6 +1031,7 @@ pub struct BlockBuilder {
     pub client: ScriptCallback,
     pub data_container: Option<(u32,)>,
     pub properties: BlockStatePropertyStorage,
+    pub networks: HashMap<Identifier, ScriptCallback>,
     pub on_tick: ScriptCallback,
     pub on_right_click: ScriptCallback,
     pub on_left_click: ScriptCallback,
@@ -1031,6 +1046,7 @@ impl BlockBuilder {
             client: ScriptCallback::new(client),
             data_container: None,
             properties: BlockStatePropertyStorage::new(),
+            networks: HashMap::new(),
             on_tick: ScriptCallback::empty(),
             on_right_click: ScriptCallback::empty(),
             on_left_click: ScriptCallback::empty(),
@@ -1038,6 +1054,14 @@ impl BlockBuilder {
             on_place: ScriptCallback::empty(),
             on_destroy: ScriptCallback::empty(),
         }
+    }
+    pub fn add_network_type(&mut self, id: &str, connections: FnPtr) -> Self {
+        let mut this = self.clone();
+        this.networks.insert(
+            Identifier::parse(id).unwrap(),
+            ScriptCallback::new(connections),
+        );
+        this
     }
     pub fn add_property_horizontal_face(&mut self, name: &str) -> Self {
         let mut this = self.clone();
@@ -1118,12 +1142,22 @@ impl ModClientBlockData {
         down: &str,
     ) -> Self {
         Self::new(ClientBlockRenderDataType::Cube(ClientBlockCubeRenderData {
-            front: ClientTexture::Static{id:front.to_string()},
-            back: ClientTexture::Static{id:back.to_string()},
-            right: ClientTexture::Static{id:right.to_string()},
-            left: ClientTexture::Static{id:left.to_string()},
-            up: ClientTexture::Static{id: up.to_string()},
-            down: ClientTexture::Static{id:down.to_string()},
+            front: ClientTexture::Static {
+                id: front.to_string(),
+            },
+            back: ClientTexture::Static {
+                id: back.to_string(),
+            },
+            right: ClientTexture::Static {
+                id: right.to_string(),
+            },
+            left: ClientTexture::Static {
+                id: left.to_string(),
+            },
+            up: ClientTexture::Static { id: up.to_string() },
+            down: ClientTexture::Static {
+                id: down.to_string(),
+            },
         }))
     }
     pub fn create_cube_texture(
@@ -1148,7 +1182,9 @@ impl ModClientBlockData {
             ClientBlockStaticRenderData {
                 models: vec![(
                     model.to_string(),
-                    ClientTexture::Static{id:texture.to_string()},
+                    ClientTexture::Static {
+                        id: texture.to_string(),
+                    },
                     Transformation::identity(),
                 )],
             },
@@ -1157,7 +1193,13 @@ impl ModClientBlockData {
     pub fn create_static_transform(model: &str, texture: &str, transform: Transformation) -> Self {
         Self::new(ClientBlockRenderDataType::Static(
             ClientBlockStaticRenderData {
-                models: vec![(model.to_string(), ClientTexture::Static{id:texture.to_string()}, transform)],
+                models: vec![(
+                    model.to_string(),
+                    ClientTexture::Static {
+                        id: texture.to_string(),
+                    },
+                    transform,
+                )],
             },
         ))
     }
@@ -1169,9 +1211,13 @@ impl ModClientBlockData {
     ) -> Self {
         match &mut self.client.block_type {
             ClientBlockRenderDataType::Static(models) => {
-                models
-                    .models
-                    .push((model.to_string(), ClientTexture::Static{id:texture.to_string()}, transform));
+                models.models.push((
+                    model.to_string(),
+                    ClientTexture::Static {
+                        id: texture.to_string(),
+                    },
+                    transform,
+                ));
             }
             _ => panic!(),
         }
@@ -1185,10 +1231,18 @@ impl ModClientBlockData {
     ) -> Self {
         Self::new(ClientBlockRenderDataType::Foliage(
             ClientBlockFoliageRenderData {
-                texture_1: ClientTexture::Static{id:texture_1.to_string()},
-                texture_2: ClientTexture::Static{id:texture_2.to_string()},
-                texture_3: ClientTexture::Static{id:texture_3.to_string()},
-                texture_4: ClientTexture::Static{id:texture_4.to_string()},
+                texture_1: ClientTexture::Static {
+                    id: texture_1.to_string(),
+                },
+                texture_2: ClientTexture::Static {
+                    id: texture_2.to_string(),
+                },
+                texture_3: ClientTexture::Static {
+                    id: texture_3.to_string(),
+                },
+                texture_4: ClientTexture::Static {
+                    id: texture_4.to_string(),
+                },
             },
         ))
     }
@@ -1228,7 +1282,9 @@ impl ModClientBlockData {
     pub fn dynamic(&mut self, model: &str, texture: &str) -> Self {
         self.client.dynamic = Some(ClientBlockDynamicData {
             model: model.to_string(),
-            texture: ClientTexture::Static{id:texture.to_string()},
+            texture: ClientTexture::Static {
+                id: texture.to_string(),
+            },
             animations: Vec::new(),
             items: Vec::new(),
         });
@@ -1346,7 +1402,7 @@ impl EntityBuilder {
         EntityBuilder {
             client: ClientEntityData {
                 model: String::new(),
-                texture: ClientTexture::Static{id:String::new()},
+                texture: ClientTexture::Static { id: String::new() },
                 hitbox_w: 1.,
                 hitbox_h: 1.,
                 hitbox_d: 1.,
@@ -1362,7 +1418,9 @@ impl EntityBuilder {
         let mut this = self.clone();
         this.client.viewmodel = Some((
             model.to_string(),
-            ClientTexture::Static{id:texture.to_string()},
+            ClientTexture::Static {
+                id: texture.to_string(),
+            },
             Vec::new(),
             Vec::new(),
         ));
@@ -1396,7 +1454,9 @@ impl EntityBuilder {
     pub fn client_model(&mut self, model: &str, texture: &str) -> Self {
         let mut this = self.clone();
         this.client.model = model.to_string();
-        this.client.texture = ClientTexture::Static{id:texture.to_string()};
+        this.client.texture = ClientTexture::Static {
+            id: texture.to_string(),
+        };
         this
     }
     pub fn client_hitbox(&mut self, width: f64, height: f64, depth: f64) -> Self {

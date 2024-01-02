@@ -179,4 +179,12 @@ register_event("bb:post_player_join", ||{
 let animated_texture = create_animated_texture("core:animation_test", 60, 4);
 create_block(|p|{
     create_cube(animated_texture,animated_texture,animated_texture,animated_texture,animated_texture,animated_texture)
+}).data_container(0).add_network_type("core:test", ||{
+    [this.offset_by_face(Face::Front),this.offset_by_face(Face::Back),this.offset_by_face(Face::Left),this.offset_by_face(Face::Right),this.offset_by_face(Face::Up),this.offset_by_face(Face::Down)]
+}).on_right_click(|player|{
+    let user_data = this.get_block_data().network("core:test").user_data;
+    if user_data["core:id"] == (){
+        user_data["core:id"] = random_uuid();
+    }
+    player.send_chat_message("id: " + user_data["core:id"]);
 }).register("core:animation_test").register_item("core:animation_test","Animation Test Block");

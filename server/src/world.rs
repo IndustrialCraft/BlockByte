@@ -28,7 +28,7 @@ use json::{object, JsonValue};
 use parking_lot::Mutex;
 use pathfinding::prelude::astar;
 use rand::{thread_rng, Rng};
-use rhai::{Dynamic, Engine, FnPtr};
+use rhai::{Array, Dynamic, Engine, FnPtr};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -56,7 +56,7 @@ pub struct World {
     world_generator: Box<dyn WorldGenerator + Send + Sync>,
     unloaded_structure_placements:
         Mutex<HashMap<ChunkPosition, Vec<(BlockPosition, Arc<Structure>)>>>,
-    id: Identifier,
+    pub id: Identifier,
     temporary: bool,
     pub user_data: Mutex<UserData>,
 }
@@ -481,6 +481,16 @@ impl Chunk {
                         gen_chunk.world.world_generator.generate(&gen_chunk)
                     }
                 };
+                for x in 0..16 {
+                    for y in 0..16 {
+                        for z in 0..16 {
+                            match gen_chunk.get_block(x, y, z) {
+                                BlockData::Simple(_) => {}
+                                BlockData::Data(data) => data.on_place(),
+                            }
+                        }
+                    }
+                }
             }
 
             gen_chunk
@@ -595,14 +605,19 @@ impl Chunk {
             world: self.world.clone(),
             position: block_position,
         };
+        let previous_block =
+            self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize].clone();
+        match &previous_block {
+            BlockData::Simple(_) => {}
+            BlockData::Data(data) => {
+                data.on_destroy();
+            }
+        }
         let previous_block = &self
             .world
             .server
             .block_registry
-            .state_by_ref(
-                self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize]
-                    .get_block_state(),
-            )
+            .state_by_ref(previous_block.get_block_state())
             .parent;
         if let Some(player) = &player {
             if let Some(loottable) = &self.world.server.loot_tables.get(&previous_block.id) {
@@ -637,12 +652,6 @@ impl Chunk {
                 block.get_client_id(),
             ));
         }
-        match &block {
-            BlockData::Simple(_) => {}
-            BlockData::Data(block) => {
-                block.update_to_clients();
-            }
-        };
         let offset = (offset_x, offset_y, offset_z);
         match (previous_ticking, new_ticking) {
             (true, false) => {
@@ -653,12 +662,20 @@ impl Chunk {
             }
             _ => {}
         }
+        let new_block_data = match &block {
+            BlockData::Simple(_) => None,
+            BlockData::Data(data) => Some(data.clone()),
+        };
         self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize] = block;
         let _ = new_block.on_place.call_function(
             &self.world.server.engine,
             Some(&mut Dynamic::from(block_location)),
             (player,),
         );
+        if let Some(new_block_data) = new_block_data {
+            new_block_data.on_place();
+            new_block_data.update_to_clients();
+        }
         if update_neighbors {
             self.schedule_update((offset_x, offset_y, offset_z));
             for neighbor_face in Face::all() {
@@ -2421,6 +2438,60 @@ impl ScriptingObject for Structure {
         );
     }
 }
+pub struct BlockNetwork {
+    this: Weak<Self>,
+    id: Identifier,
+    pub user_data: Mutex<UserData>,
+    members: Mutex<HashSet<BlockLocation>>,
+}
+impl BlockNetwork {
+    pub fn new(id: Identifier) -> Arc<Self> {
+        Arc::new_cyclic(|this| BlockNetwork {
+            id,
+            this: this.clone(),
+            user_data: Mutex::new(UserData::new()),
+            members: Mutex::new(HashSet::new()),
+        })
+    }
+    pub fn merge(&self, other: Arc<BlockNetwork>) {
+        assert_eq!(self.id, other.id);
+        if Arc::ptr_eq(&self.ptr(), &other) {
+            return;
+        }
+        let members = other.members.lock().drain().collect::<Vec<_>>();
+        for member in members {
+            member.get_data().unwrap().set_network(self.ptr());
+        }
+    }
+    pub fn ptr(&self) -> Arc<BlockNetwork> {
+        self.this.upgrade().unwrap()
+    }
+}
+impl ScriptingObject for BlockNetwork {
+    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
+        engine.register_fn("list_members", |network: &mut Arc<BlockNetwork>| {
+            network
+                .members
+                .lock()
+                .iter()
+                .map(|location| Dynamic::from(location.clone()))
+                .collect::<Array>()
+        });
+        engine.register_get("user_data", |network: &mut Arc<BlockNetwork>| {
+            UserDataWrapper::BlockNetwork(network.ptr())
+        });
+    }
+}
+pub struct NetworkController {
+    networks: HashMap<Identifier, Arc<BlockNetwork>>,
+}
+impl NetworkController {
+    pub fn new() -> Self {
+        NetworkController {
+            networks: HashMap::new(),
+        }
+    }
+}
 
 pub struct WorldBlock {
     this: Weak<WorldBlock>,
@@ -2431,6 +2502,7 @@ pub struct WorldBlock {
     pub inventory: Inventory,
     pub user_data: Mutex<UserData>,
     animation_controller: AnimationController<WorldBlock>,
+    pub network_controller: Mutex<NetworkController>,
 }
 
 impl WorldBlock {
@@ -2455,8 +2527,57 @@ impl WorldBlock {
             animation_controller: AnimationController::new(this.clone(), 0),
             block,
             user_data: Mutex::new(UserData::new()),
+            network_controller: Mutex::new(NetworkController::new()),
             this: this.clone(),
         })
+    }
+    pub fn on_place(&self) {
+        for (id, connector) in &self.block.networks {
+            let connections: Vec<BlockLocation> = connector
+                .call_function(
+                    &self.chunk().world.server.engine,
+                    Some(&mut Dynamic::from(BlockLocation {
+                        world: self.chunk().world.clone(),
+                        position: self.position,
+                    })),
+                    (),
+                )
+                .cast::<Array>()
+                .into_iter()
+                .map(|position| position.cast::<BlockLocation>())
+                .collect();
+            let network = BlockNetwork::new(id.clone());
+            self.set_network(network.clone());
+            for connection in connections {
+                if let Some(block_data) = connection.get_data() {
+                    if let Some(other) = block_data.get_network(id) {
+                        network.merge(other);
+                    }
+                }
+            }
+        }
+    }
+    pub fn get_location(&self) -> BlockLocation {
+        BlockLocation {
+            position: self.position,
+            world: self.chunk().world.clone(),
+        }
+    }
+    pub fn get_network(&self, id: &Identifier) -> Option<Arc<BlockNetwork>> {
+        self.network_controller.lock().networks.get(id).cloned()
+    }
+    pub fn set_network(&self, network: Arc<BlockNetwork>) {
+        if let Some(network) = self.network_controller.lock().networks.get(&network.id) {
+            network.members.lock().remove(&self.get_location());
+        }
+        network.members.lock().insert(self.get_location());
+        self.network_controller
+            .lock()
+            .networks
+            .insert(network.id.clone(), network);
+    }
+    pub fn on_destroy(&self) {
+        //todo: remove network connections
     }
     pub fn on_sent_to_client(&self, player: &PlayerData) {
         self.animation_controller.sync_to(player);
@@ -2522,6 +2643,12 @@ impl ScriptingObject for WorldBlock {
         engine.register_get("location", |block: &mut Arc<WorldBlock>| BlockLocation {
             position: block.position,
             world: block.chunk().world.clone(),
+        });
+        engine.register_fn("network", |block: &mut Arc<WorldBlock>, id: &str| {
+            block
+                .get_network(&Identifier::parse(id).unwrap())
+                .map(|network| Dynamic::from(network))
+                .unwrap_or(Dynamic::UNIT)
         });
     }
 }

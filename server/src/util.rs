@@ -4,10 +4,11 @@ use crate::Server;
 use block_byte_common::{BlockPosition, Face, Position};
 use rhai::{Dynamic, Engine};
 use serde::{Deserialize, Serialize};
+use std::hash::{Hash, Hasher};
 use std::sync::Weak;
 use std::{fmt::Display, sync::Arc};
 
-use crate::world::{BlockData, Chunk, World};
+use crate::world::{BlockData, Chunk, World, WorldBlock};
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Serialize, Deserialize)]
 pub struct Identifier {
@@ -113,10 +114,18 @@ impl From<&Location> for ChunkLocation {
         }
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Eq)]
 pub struct BlockLocation {
     pub position: BlockPosition,
     pub world: Arc<World>,
+}
+impl BlockLocation {
+    pub fn get_data(&self) -> Option<Arc<WorldBlock>> {
+        match self.world.get_block(&self.position).unwrap() {
+            BlockData::Data(data) => Some(data.clone()),
+            BlockData::Simple(_) => None,
+        }
+    }
 }
 impl ScriptingObject for BlockLocation {
     fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
@@ -189,6 +198,12 @@ impl ScriptingObject for BlockLocation {
 impl PartialEq for BlockLocation {
     fn eq(&self, other: &Self) -> bool {
         self.position == other.position && Arc::ptr_eq(&self.world, &other.world)
+    }
+}
+impl Hash for BlockLocation {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.position.hash(state);
+        self.world.id.hash(state);
     }
 }
 impl From<&ChunkBlockLocation> for BlockLocation {
