@@ -917,7 +917,7 @@ impl UserDataWrapper {
     }
 }
 impl ScriptingObject for UserDataWrapper {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
         engine.register_type_with_name::<UserDataWrapper>("UserData");
         engine.register_indexer_get_set(
             |user_data: &mut UserDataWrapper, id: &str| {
@@ -933,6 +933,19 @@ impl ScriptingObject for UserDataWrapper {
                     .put_data_point(&Identifier::parse(id).unwrap(), value);
             },
         );
+        {
+            let server = server.clone();
+            engine.register_fn(
+                "modify",
+                move |user_data: &mut UserDataWrapper, id: &str, callback: FnPtr| {
+                    let mut user_data = user_data.get_user_data();
+                    let data = user_data
+                        .get_data_point_ref_or_init_with_unit(&Identifier::parse(id).unwrap());
+                    let callback = ScriptCallback::new(callback);
+                    callback.call_function(&server.upgrade().unwrap().engine, Some(data), ())
+                },
+            );
+        }
     }
 }
 impl ScriptingObject for Face {
