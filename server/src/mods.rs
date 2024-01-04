@@ -939,10 +939,15 @@ impl ScriptingObject for UserDataWrapper {
                 "modify",
                 move |user_data: &mut UserDataWrapper, id: &str, callback: FnPtr| {
                     let mut user_data = user_data.get_user_data();
-                    let data = user_data
-                        .get_data_point_ref_or_init_with_unit(&Identifier::parse(id).unwrap());
-                    let callback = ScriptCallback::new(callback);
-                    callback.call_function(&server.upgrade().unwrap().engine, Some(data), ())
+                    let id = Identifier::parse(id).unwrap();
+                    let mut data = user_data.take_data_point(&id).unwrap_or(Dynamic::UNIT);
+                    let return_value = ScriptCallback::new(callback).call_function(
+                        &server.upgrade().unwrap().engine,
+                        Some(&mut data),
+                        (),
+                    );
+                    user_data.put_data_point(&id, data);
+                    return_value
                 },
             );
         }

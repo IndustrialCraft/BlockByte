@@ -969,9 +969,6 @@ impl UserData {
     pub fn get_data_point_ref(&mut self, id: &Identifier) -> Option<&mut Dynamic> {
         self.data.get_mut(id)
     }
-    pub fn get_data_point_ref_or_init_with_unit(&mut self, id: &Identifier) -> &mut Dynamic {
-        self.data.entry(id.clone()).or_insert(Dynamic::UNIT)
-    }
     pub fn data_points(&self) -> std::collections::hash_map::Iter<Identifier, Dynamic> {
         self.data.iter()
     }
