@@ -146,15 +146,16 @@ pub async fn run() {
                         *state == ElementState::Pressed,
                         false,
                     ));
+                    virtual_keycode.
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if !gui.is_cursor_locked() {
-                    if let Some(element) = gui.get_selected(render_state.mouse, render_state.size())
-                    {
-                        if *state == ElementState::Pressed {
-                            connection.send_message(&NetworkMessageC2S::GuiClick(
-                                element.0.to_string(),
+                    if *state == ElementState::Pressed {
+                        match gui.get_selected(render_state.mouse, render_state.size()).map(|element| element.0.to_string())
+                        {
+                            Some(id) => connection.send_message(&NetworkMessageC2S::GuiClick(
+                                id,
                                 match button {
                                     MouseButton::Left => {
                                         block_byte_common::messages::MouseButton::Left
@@ -172,7 +173,8 @@ pub async fn run() {
                                     }
                                 },
                                 keys.contains(&VirtualKeyCode::LShift),
-                            ));
+                            )),
+                            None => {}
                         }
                     }
                 } else {
@@ -516,6 +518,7 @@ pub async fn run() {
                     }
                 }
             }
+
             match render_state.render(
                 &camera,
                 &mut world,

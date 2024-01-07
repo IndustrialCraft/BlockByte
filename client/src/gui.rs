@@ -16,6 +16,7 @@ pub struct GUIRenderer<'a> {
     texture_atlas: TextureAtlas,
     cursor_locked: bool,
     text_renderer: TextRenderer<'a>,
+    selected: Option<String>,
 }
 impl<'a> GUIRenderer<'a> {
     pub fn new(
@@ -34,6 +35,7 @@ impl<'a> GUIRenderer<'a> {
             gui_scale: 1. / 700.,
             cursor_locked: true,
             text_renderer,
+            selected: None
         }
     }
     pub fn set_element(&mut self, id: String, element: GUIElement) {
@@ -77,6 +79,7 @@ impl<'a> GUIRenderer<'a> {
                 GUIComponent::ImageComponent { size, .. } => Some(size),
                 GUIComponent::TextComponent { .. } => None,
                 GUIComponent::SlotComponent { size, .. } => Some(size),
+                GUIComponent::LineEdit { size, .. } => Some(size)
             };
             if let Some(size) = size {
                 if Self::mouse_hovers(
@@ -233,6 +236,40 @@ impl<'a> GUIRenderer<'a> {
                             y: element.position.y as f32,
                         },
                         *font_size,
+                        text,
+                        Color {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 255,
+                        },
+                        &self.texture_atlas,
+                        aspect_ratio,
+                        self.gui_scale,
+                        mouse,
+                        element.position.z as f32,
+                        true
+                    );
+                }
+
+                GUIComponent::LineEdit { text, size } => {
+                    Self::add_rect_vertices(&mut vertices, element.anchor, Vec2 {
+                        x: element.position.x as f32,
+                        y: element.position.y as f32,
+                    }, *size, TexCoords::ZERO, Color{
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 255,
+                    }, aspect_ratio, self.gui_scale, mouse, element.position.z as f32 - 0.5, None);
+                    self.text_renderer.render(
+                        &mut vertices,
+                        element.anchor,
+                        Vec2 {
+                            x: element.position.x as f32,
+                            y: element.position.y as f32,
+                        },
+                        size.y,
                         text,
                         Color {
                             r: 0,

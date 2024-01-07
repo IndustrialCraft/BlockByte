@@ -62,6 +62,10 @@ pub enum GUIComponent {
         font_size: f32,
         text: String,
     },
+    LineEdit{
+        text: String,
+        size: Vec2
+    },
     SlotComponent {
         item_id: Option<(u32, u32)>,
         background: String,
