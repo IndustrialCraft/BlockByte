@@ -16,7 +16,7 @@ pub struct GUIRenderer<'a> {
     texture_atlas: TextureAtlas,
     cursor_locked: bool,
     text_renderer: TextRenderer<'a>,
-    selected: Option<String>,
+    pub selected: Option<String>,
 }
 impl<'a> GUIRenderer<'a> {
     pub fn new(
@@ -35,8 +35,16 @@ impl<'a> GUIRenderer<'a> {
             gui_scale: 1. / 700.,
             cursor_locked: true,
             text_renderer,
-            selected: None
+            selected: None,
         }
+    }
+    pub fn edit_element_text(&mut self, id: &str) -> Option<&mut String> {
+        self.elements
+            .get_mut(id)
+            .and_then(|element| match &mut element.component_type {
+                GUIComponent::LineEdit { text, .. } => Some(text),
+                _ => None,
+            })
     }
     pub fn set_element(&mut self, id: String, element: GUIElement) {
         self.elements.insert(id, element);
@@ -79,7 +87,7 @@ impl<'a> GUIRenderer<'a> {
                 GUIComponent::ImageComponent { size, .. } => Some(size),
                 GUIComponent::TextComponent { .. } => None,
                 GUIComponent::SlotComponent { size, .. } => Some(size),
-                GUIComponent::LineEdit { size, .. } => Some(size)
+                GUIComponent::LineEdit { size, .. } => Some(size),
             };
             if let Some(size) = size {
                 if Self::mouse_hovers(
@@ -201,13 +209,16 @@ impl<'a> GUIRenderer<'a> {
                             }
                         }
                         if item_id.1 != 1 {
-                            let text_size = self.text_renderer.get_size(20., &item_id.1.to_string());
+                            let text_size =
+                                self.text_renderer.get_size(20., &item_id.1.to_string());
                             self.text_renderer.render(
                                 &mut vertices,
                                 element.anchor,
                                 Vec2 {
-                                    x: element.position.x as f32 + (size.x / 2.) - (text_size.x / 2.),
-                                    y: element.position.y as f32 - (size.y / 2.) + (text_size.y / 2.),
+                                    x: element.position.x as f32 + (size.x / 2.)
+                                        - (text_size.x / 2.),
+                                    y: element.position.y as f32 - (size.y / 2.)
+                                        + (text_size.y / 2.),
                                 },
                                 20.,
                                 &item_id.1.to_string(),
@@ -222,7 +233,7 @@ impl<'a> GUIRenderer<'a> {
                                 self.gui_scale,
                                 mouse,
                                 element.position.z as f32 + 0.2,
-                                true
+                                true,
                             );
                         }
                     }
@@ -248,20 +259,32 @@ impl<'a> GUIRenderer<'a> {
                         self.gui_scale,
                         mouse,
                         element.position.z as f32,
-                        true
+                        true,
                     );
                 }
 
                 GUIComponent::LineEdit { text, size } => {
-                    Self::add_rect_vertices(&mut vertices, element.anchor, Vec2 {
-                        x: element.position.x as f32,
-                        y: element.position.y as f32,
-                    }, *size, TexCoords::ZERO, Color{
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 255,
-                    }, aspect_ratio, self.gui_scale, mouse, element.position.z as f32 - 0.5, None);
+                    Self::add_rect_vertices(
+                        &mut vertices,
+                        element.anchor,
+                        Vec2 {
+                            x: element.position.x as f32,
+                            y: element.position.y as f32,
+                        },
+                        *size,
+                        TexCoords::ZERO,
+                        Color {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 255,
+                        },
+                        aspect_ratio,
+                        self.gui_scale,
+                        mouse,
+                        element.position.z as f32 - 0.5,
+                        None,
+                    );
                     self.text_renderer.render(
                         &mut vertices,
                         element.anchor,
@@ -282,7 +305,7 @@ impl<'a> GUIRenderer<'a> {
                         self.gui_scale,
                         mouse,
                         element.position.z as f32,
-                        true
+                        true,
                     );
                 }
             }
@@ -309,7 +332,7 @@ impl<'a> GUIRenderer<'a> {
                             self.gui_scale,
                             mouse,
                             100.,
-                            true
+                            true,
                         );
                     }
                 }
@@ -431,7 +454,7 @@ pub struct TextRenderer<'a> {
     pub font: rusttype::Font<'a>,
 }
 impl<'a> TextRenderer<'a> {
-    pub fn get_size(&self, size: f32, text: &str) -> Vec2{
+    pub fn get_size(&self, size: f32, text: &str) -> Vec2 {
         let layout = self
             .font
             .layout(text, Scale::uniform(size), rusttype::Point { x: 0., y: 0. });
@@ -451,9 +474,9 @@ impl<'a> TextRenderer<'a> {
             })
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap_or(0.);
-        Vec2{
+        Vec2 {
             x: width,
-            y: height
+            y: height,
         }
     }
     pub fn render(
@@ -469,7 +492,7 @@ impl<'a> TextRenderer<'a> {
         gui_scale: f32,
         mouse: Vec2,
         depth: f32,
-        background: bool
+        background: bool,
     ) {
         let layout = self
             .font

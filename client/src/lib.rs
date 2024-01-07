@@ -146,15 +146,80 @@ pub async fn run() {
                         *state == ElementState::Pressed,
                         false,
                     ));
-                    virtual_keycode.
+                    if let Some(selected) = gui.selected.clone() {
+                        if let Some(text_edit) = gui.edit_element_text(selected.as_str()) {
+                            let text = match virtual_keycode {
+                                VirtualKeyCode::Key1 | VirtualKeyCode::Numpad1 => "1",
+                                VirtualKeyCode::Key2 | VirtualKeyCode::Numpad2 => "2",
+                                VirtualKeyCode::Key3 | VirtualKeyCode::Numpad3 => "3",
+                                VirtualKeyCode::Key4 | VirtualKeyCode::Numpad4 => "4",
+                                VirtualKeyCode::Key5 | VirtualKeyCode::Numpad5 => "5",
+                                VirtualKeyCode::Key6 | VirtualKeyCode::Numpad6 => "6",
+                                VirtualKeyCode::Key7 | VirtualKeyCode::Numpad7 => "7",
+                                VirtualKeyCode::Key8 | VirtualKeyCode::Numpad8 => "8",
+                                VirtualKeyCode::Key9 | VirtualKeyCode::Numpad9 => "9",
+                                VirtualKeyCode::Key0 | VirtualKeyCode::Numpad0 => "0",
+                                VirtualKeyCode::A => "a",
+                                VirtualKeyCode::B => "b",
+                                VirtualKeyCode::C => "c",
+                                VirtualKeyCode::D => "d",
+                                VirtualKeyCode::E => "e",
+                                VirtualKeyCode::F => "f",
+                                VirtualKeyCode::G => "g",
+                                VirtualKeyCode::H => "h",
+                                VirtualKeyCode::I => "i",
+                                VirtualKeyCode::J => "j",
+                                VirtualKeyCode::K => "k",
+                                VirtualKeyCode::L => "l",
+                                VirtualKeyCode::M => "m",
+                                VirtualKeyCode::N => "n",
+                                VirtualKeyCode::O => "o",
+                                VirtualKeyCode::P => "p",
+                                VirtualKeyCode::Q => "q",
+                                VirtualKeyCode::R => "r",
+                                VirtualKeyCode::S => "s",
+                                VirtualKeyCode::T => "t",
+                                VirtualKeyCode::U => "u",
+                                VirtualKeyCode::V => "v",
+                                VirtualKeyCode::W => "w",
+                                VirtualKeyCode::X => "x",
+                                VirtualKeyCode::Y => "y",
+                                VirtualKeyCode::Z => "z",
+                                VirtualKeyCode::NumpadAdd => "+",
+                                VirtualKeyCode::NumpadDivide => "/",
+                                VirtualKeyCode::NumpadComma => ",",
+                                VirtualKeyCode::NumpadEquals => "=",
+                                VirtualKeyCode::NumpadMultiply => "*",
+                                VirtualKeyCode::NumpadSubtract => "-",
+                                _ => "",
+                            };
+                            if text.len() > 0 {
+                                let text = if mods.contains(ModifiersState::SHIFT) {
+                                    text.to_uppercase()
+                                } else {
+                                    text.to_string()
+                                };
+                                text_edit.push_str(text.as_str());
+                            }
+                            match virtual_keycode {
+                                VirtualKeyCode::Back => {
+                                    text_edit.pop();
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if !gui.is_cursor_locked() {
                     if *state == ElementState::Pressed {
-                        match gui.get_selected(render_state.mouse, render_state.size()).map(|element| element.0.to_string())
-                        {
-                            Some(id) => connection.send_message(&NetworkMessageC2S::GuiClick(
+                        let selected = gui
+                            .get_selected(render_state.mouse, render_state.size())
+                            .map(|element| element.0.to_string());
+                        gui.selected = selected.clone();
+                        if let Some(id) = selected {
+                            connection.send_message(&NetworkMessageC2S::GuiClick(
                                 id,
                                 match button {
                                     MouseButton::Left => {
@@ -173,8 +238,7 @@ pub async fn run() {
                                     }
                                 },
                                 keys.contains(&VirtualKeyCode::LShift),
-                            )),
-                            None => {}
+                            ));
                         }
                     }
                 } else {
