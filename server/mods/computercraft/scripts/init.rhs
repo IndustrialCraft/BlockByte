@@ -1,0 +1,7 @@
+register_event("bb:post_player_join", ||{
+    this.player.user_data.greet = |a,lol|{
+        this.aaa;
+        print("ahoj" + lol);
+    };
+    this.player.user_data.greet("aa");
+});

@@ -923,14 +923,12 @@ impl ScriptingObject for UserDataWrapper {
             |user_data: &mut UserDataWrapper, id: &str| {
                 user_data
                     .get_user_data()
-                    .get_data_point_ref(&Identifier::parse(id).unwrap())
+                    .get_data_point_ref(id)
                     .cloned()
                     .unwrap_or(Dynamic::UNIT)
             },
             |user_data: &mut UserDataWrapper, id: &str, value: Dynamic| {
-                user_data
-                    .get_user_data()
-                    .put_data_point(&Identifier::parse(id).unwrap(), value);
+                user_data.get_user_data().put_data_point(id, value);
             },
         );
         {
@@ -939,14 +937,13 @@ impl ScriptingObject for UserDataWrapper {
                 "modify",
                 move |user_data: &mut UserDataWrapper, id: &str, callback: FnPtr| {
                     let mut user_data = user_data.get_user_data();
-                    let id = Identifier::parse(id).unwrap();
-                    let mut data = user_data.take_data_point(&id).unwrap_or(Dynamic::UNIT);
+                    let mut data = user_data.take_data_point(id).unwrap_or(Dynamic::UNIT);
                     let return_value = ScriptCallback::new(callback).call_function(
                         &server.upgrade().unwrap().engine,
                         Some(&mut data),
                         (),
                     );
-                    user_data.put_data_point(&id, data);
+                    user_data.put_data_point(id, data);
                     return_value
                 },
             );

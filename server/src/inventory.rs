@@ -136,7 +136,7 @@ impl Inventory {
             client_properties: Mutex::new(UserData::new()),
         }
     }
-    pub fn set_client_property(&self, id: &Identifier, value: Dynamic, server: &Server) {
+    pub fn set_client_property(&self, id: &str, value: Dynamic, server: &Server) {
         let previous = self
             .client_properties
             .lock()
@@ -885,7 +885,7 @@ impl ScriptingObject for InventoryWrapper {
                 "set_client_property",
                 move |inventory: &mut InventoryWrapper, id: &str, value: Dynamic| {
                     inventory.get_inventory().set_client_property(
-                        &Identifier::parse(id).unwrap(),
+                        id,
                         value,
                         &server.upgrade().unwrap(),
                     );

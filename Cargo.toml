@@ -4,7 +4,8 @@ members = [
     "client",
     "server",
     "common",
-    "model_exporter"
+    "model_exporter",
+    "bbscript"
 ]
 [profile.release]
 debug = true

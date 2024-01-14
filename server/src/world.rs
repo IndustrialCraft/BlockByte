@@ -948,7 +948,7 @@ impl Eq for ChunkViewer {}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct UserData {
-    data: HashMap<Identifier, Dynamic>,
+    data: HashMap<String, Dynamic>,
 }
 impl UserData {
     pub fn new() -> Self {
@@ -956,20 +956,20 @@ impl UserData {
             data: HashMap::new(),
         }
     }
-    pub fn put_data_point(&mut self, id: &Identifier, data: Dynamic) {
+    pub fn put_data_point(&mut self, id: &str, data: Dynamic) {
         if data.is_unit() {
             self.data.remove(id);
         } else {
-            self.data.insert(id.clone(), data);
+            self.data.insert(id.to_string(), data);
         }
     }
-    pub fn take_data_point(&mut self, id: &Identifier) -> Option<Dynamic> {
+    pub fn take_data_point(&mut self, id: &str) -> Option<Dynamic> {
         self.data.remove(id)
     }
-    pub fn get_data_point_ref(&mut self, id: &Identifier) -> Option<&mut Dynamic> {
+    pub fn get_data_point_ref(&mut self, id: &str) -> Option<&mut Dynamic> {
         self.data.get_mut(id)
     }
-    pub fn data_points(&self) -> std::collections::hash_map::Iter<Identifier, Dynamic> {
+    pub fn data_points(&self) -> std::collections::hash_map::Iter<String, Dynamic> {
         self.data.iter()
     }
 }

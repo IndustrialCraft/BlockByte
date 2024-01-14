@@ -1,0 +1,6 @@
+{
+    "id": "computercraft",
+    "name": "ComputerCraft",
+    "description": "Adds logic and computation to BlockByte",
+    "authors": ["mmm1245"]
+}
