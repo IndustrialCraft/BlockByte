@@ -117,7 +117,6 @@ impl Function {
         match expression {
             Expression::StringLiteral { literal } => Ok(Variant::String(literal.clone())),
             Expression::IntLiteral { literal } => Ok(Variant::Int(*literal)),
-            Expression::UIntLiteral { literal } => Ok(Variant::UInt(*literal)),
             Expression::FloatLiteral { literal } => Ok(Variant::Float(*literal)),
             Expression::ScopedVariable { name } => stack
                 .get_variable_mut(name.as_ref())

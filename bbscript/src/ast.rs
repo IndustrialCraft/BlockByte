@@ -1,9 +1,15 @@
 use immutable_string::ImmutableString;
-use nom::character::complete::{alpha0, alphanumeric0};
+use nom::character::complete::{alpha0, alpha1, alphanumeric0, alphanumeric1, digit0, digit1};
 use nom::error::ParseError;
-use nom::multi::many0;
+use nom::multi::{many0, separated_list0};
 use nom::{AsChar, IResult, InputTakeAtPosition, Parser};
-use std::error::Error;
+use nom::branch::alt;
+use nom::bytes::complete::tag;
+use nom::combinator::value;
+use nom::Err::Error;
+use nom::sequence::tuple;
+use nom_locate::LocatedSpan;
+use nom_recursive::{recursive_parser, RecursiveInfo};
 
 pub struct StatementBlock {
     pub statements: Vec<Statement>,
@@ -23,15 +29,13 @@ pub enum Statement {
         unsatisfied: StatementBlock,
     },
 }
+#[derive(Debug)]
 pub enum Expression {
     StringLiteral {
         literal: ImmutableString,
     },
     IntLiteral {
         literal: i64,
-    },
-    UIntLiteral {
-        literal: u64,
     },
     FloatLiteral {
         literal: f64,
@@ -53,19 +57,45 @@ pub enum Expression {
         not_equals: bool,
     },
 }
-pub fn identifier<T, E: ParseError<T>>(input: T) -> IResult<T, T, E>
-where
-    T: InputTakeAtPosition,
-    <T as InputTakeAtPosition>::Item: AsChar,
-{
-    input.split_at_position_complete(|item| {
-        let item = item.as_char();
-        !(item.is_alphanum() | (item == ':'))
-    })
+type Span<'a> = LocatedSpan<&'a str, RecursiveInfo>;
+
+fn string_literal(input: Span) -> IResult<Span, Expression>{
+    let (remaining,parsed) = tuple((tag("\""),alphanumeric0,tag("\"")))(input)?;
+    Ok((remaining,Expression::StringLiteral {literal: parsed.1.to_string().into()}))
 }
-/*fn identifier<I: InputTakeAtPosition, E: ParseError<I>>() -> impl FnMut(I) -> IResult<I, I, E>
-where
-    <I as InputTakeAtPosition>::Item: AsChar,
-{
-    |input| alphanumeric0(input)
-}*/
+fn int_literal(input: Span) -> IResult<Span, Expression>{
+    let (remaining,parsed) = digit1(input)?;
+    Ok((remaining,Expression::IntLiteral {literal: parsed.parse().unwrap()}))
+}
+fn float_literal(input: Span) -> IResult<Span, Expression>{
+    let (remaining,parsed) = tuple((digit1,tag("."),digit0))(input)?;
+    Ok((remaining,Expression::FloatLiteral {literal: format!("{}.{}", parsed.0, parsed.2).parse().unwrap()}))
+}
+fn call_expression(input: Span) -> IResult<Span, Expression>{
+    let (remaining, parsed) = tuple((expression,tag("("),separated_list0(tag(","),expression),tag(")")))(input)?;
+    Ok((remaining,Expression::Call {expression: Box::new(parsed.0), parameters: parsed.2}))
+}
+fn member_access(input: Span) -> IResult<Span, Expression>{
+    let (remaining,parsed) = tuple((expression,tag("."),alphanumeric1))(input)?;
+    Ok((remaining, Expression::MemberAccess {expression: Box::new(parsed.0), name: parsed.2.to_string().into()}))
+}
+fn scoped_variable(input: Span) -> IResult<Span, Expression>{
+    let (remaining, parsed) = tuple((alpha1,alphanumeric0))(input)?;
+    Ok((remaining, Expression::ScopedVariable {name: format!("{}{}", parsed.0, parsed.1).into()}))
+}
+fn compare_equals(input: Span) -> IResult<Span, Expression>{
+    let (remaining,parsed) = tuple((expression,alt((value(false,tag("==")),value(true,tag("!=")))),expression))(input)?;
+    Ok((remaining, Expression::CompareEquals {first: Box::new(parsed.0), second: Box::new(parsed.2), not_equals: parsed.1}))
+}
+#[recursive_parser]
+pub fn expression(s: Span) -> IResult<Span, Expression> {
+    alt((
+        string_literal,
+        float_literal,
+        int_literal,
+        call_expression,
+        member_access,
+        compare_equals,
+        scoped_variable,
+        ))(s)
+}

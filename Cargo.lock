@@ -245,6 +245,8 @@ version = "0.1.0"
 dependencies = [
  "immutable_string",
  "nom",
+ "nom-recursive",
+ "nom_locate",
 ]
 
 [[package]]
@@ -2031,6 +2033,37 @@ checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
 dependencies = [
  "memchr",
  "minimal-lexical",
+]
+
+[[package]]
+name = "nom-recursive"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63607196a460ae848e09fa10b62f20fda85328328b514b2dd97a2d700299ec63"
+dependencies = [
+ "nom-recursive-macros",
+ "nom_locate",
+]
+
+[[package]]
+name = "nom-recursive-macros"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c8621cd2fdc6201fb09c94264cef707fd20c392eaf5f1caaa26b01b8d9851888"
+dependencies = [
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "nom_locate"
+version = "4.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e3c83c053b0713da60c5b8de47fe8e494fe3ece5267b2f23090a07a053ba8f3"
+dependencies = [
+ "bytecount",
+ "memchr",
+ "nom",
 ]
 
 [[package]]
