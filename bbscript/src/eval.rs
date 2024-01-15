@@ -3,6 +3,7 @@ use crate::variant::{FunctionType, Variant};
 use immutable_string::ImmutableString;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub enum ScriptError {
     MismatchedParameters,
@@ -10,6 +11,7 @@ pub enum ScriptError {
     ConditionNotBool,
     MemberNotFound,
     NonFunctionCalled,
+    RuntimeError(String),
 }
 pub type ScriptResult = Result<Variant, ScriptError>;
 
@@ -40,9 +42,9 @@ impl ScopeStack {
 }
 
 pub struct Function {
-    name: ImmutableString,
-    body: StatementBlock,
-    parameter_names: Vec<ImmutableString>,
+    pub name: ImmutableString,
+    pub body: StatementBlock,
+    pub parameter_names: Vec<ImmutableString>,
 }
 impl Function {
     pub fn run(
@@ -156,6 +158,26 @@ impl Function {
                     == Function::eval_expression(stack, second, environment)?)
                     ^ not_equals,
             )),
+            Expression::Operator {
+                first,
+                second,
+                operator,
+            } => {
+                let first = Function::eval_expression(stack, first, environment)?;
+                let second = Function::eval_expression(stack, second, environment)?;
+                let operator_call = environment
+                    .access_member(&first, &format!("operator{operator}").into())
+                    .ok_or(ScriptError::MemberNotFound)?;
+                match operator_call {
+                    Variant::Function(this, function) => match function {
+                        FunctionType::ScriptFunction(function) => {
+                            function.run(*this, vec![second], environment)
+                        }
+                        FunctionType::RustFunction(function) => function(*this, vec![second]),
+                    },
+                    _ => return Err(ScriptError::NonFunctionCalled),
+                }
+            }
         }
     }
 }
@@ -175,13 +197,13 @@ impl ExecutionEnvironment {
             .get(&value.get_type())?
             .access_member(value, name)
     }
-    pub fn register_member<F: 'static, N: Into<ImmutableString>>(
+    pub fn register_member<T: 'static, N: Into<ImmutableString>>(
         &mut self,
         name: N,
-        function: Box<dyn Fn(&F) -> Option<Variant>>,
+        function: Box<dyn Fn(&T) -> Option<Variant>>,
     ) {
         self.types
-            .entry(TypeId::of::<F>())
+            .entry(TypeId::of::<T>())
             .or_insert(TypeInfo::new())
             .members
             .insert(
@@ -189,24 +211,45 @@ impl ExecutionEnvironment {
                 Box::new(move |this| function(this.get_ref().downcast_ref().unwrap())),
             );
     }
-    pub fn register_function<F: 'static, N: Into<ImmutableString>>(
+    pub fn register_function<T: 'static, F, N: Into<ImmutableString>>(
         &mut self,
         name: N,
-        value: FunctionType,
-    ) {
+        function: F,
+    ) where
+        F: Fn(&T, Vec<Variant>) -> ScriptResult + 'static,
+    {
+        let function = Arc::new(move |this: Variant, parameters| {
+            function(this.get_ref().downcast_ref().unwrap(), parameters)
+        });
         self.types
-            .entry(TypeId::of::<F>())
+            .entry(TypeId::of::<T>())
             .or_insert(TypeInfo::new())
             .members
             .insert(
                 name.into(),
                 Box::new(move |this| {
-                    Some(Variant::Function(Box::new(this.clone()), value.clone()))
+                    Some(Variant::Function(
+                        Box::new(this.clone()),
+                        FunctionType::RustFunction(function.clone()),
+                    ))
                 }),
             );
     }
-    pub fn register_global(&mut self, name: ImmutableString, value: Variant) {
-        self.globals.insert(name, value);
+    pub fn register_global<F, N: Into<ImmutableString>>(&mut self, name: N, value: Variant) {
+        self.globals.insert(name.into(), value);
+    }
+    pub fn register_global_function<F, N: Into<ImmutableString>>(&mut self, name: N, function: F)
+    where
+        F: Fn(Vec<Variant>) -> ScriptResult + 'static,
+    {
+        let function = Arc::new(move |_: Variant, parameters| function(parameters));
+        self.globals.insert(
+            name.into(),
+            Variant::Function(
+                Box::new(Variant::Null),
+                FunctionType::RustFunction(function.clone()),
+            ),
+        );
     }
 }
 pub struct TypeInfo {

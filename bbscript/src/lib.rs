@@ -4,13 +4,53 @@ mod variant;
 
 #[cfg(test)]
 mod tests {
-    use nom_locate::LocatedSpan;
-    use nom_recursive::RecursiveInfo;
     use crate::ast;
+    use crate::ast::{Expression, Statement, StatementBlock};
+    use crate::eval::{ExecutionEnvironment, Function, ScriptError};
+    use crate::variant::Variant;
+    use nom_locate::LocatedSpan;
+    use std::cell::RefCell;
 
     #[test]
     fn test() {
-        let parsed = ast::expression(LocatedSpan::new_extra("ahoj.add(6)", RecursiveInfo::new())).unwrap().1;
-        println!("{:?}", parsed);
+        let mut environment = ExecutionEnvironment::new();
+        environment
+            .register_global_function("do_something", |params| Ok((Variant::String("aaa".into()))));
+        environment.register_global_function("print", |params| {
+            let output = params
+                .into_iter()
+                .map(|param| match param {
+                    Variant::String(string) => Ok(string.to_string()),
+                    _ => Err(()),
+                })
+                .collect::<Result<String, ()>>();
+            match output {
+                Ok(str) => {
+                    println!("{str}");
+                    Ok(Variant::Null)
+                }
+                Err(_) => Err(ScriptError::RuntimeError("cannot print non string".into())),
+            }
+        });
+        Function {
+            name: "aaa".into(),
+            body: StatementBlock {
+                statements: vec![Statement::Eval {
+                    expression: Expression::Call {
+                        expression: Box::new(Expression::ScopedVariable {
+                            name: "print".into(),
+                        }),
+                        parameters: vec![Expression::Call {
+                            expression: Box::new(Expression::ScopedVariable {
+                                name: "do_something".into(),
+                            }),
+                            parameters: vec![],
+                        }],
+                    },
+                }],
+            },
+            parameter_names: vec![],
+        }
+        .run(Variant::Null, vec![], &environment);
     }
 }
