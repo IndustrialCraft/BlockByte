@@ -1,5 +1,5 @@
 use crate::ast::{Expression, Statement, StatementBlock};
-use crate::variant::{FunctionType, Variant};
+use crate::variant::{FunctionType, Sf64, Variant};
 use immutable_string::ImmutableString;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -129,7 +129,9 @@ impl Function {
                 Ok(Variant::Primitive(Box::new(literal.clone())))
             }
             Expression::IntLiteral { literal } => Ok(Variant::Primitive(Box::new(*literal))),
-            Expression::FloatLiteral { literal } => panic!(), /*Ok(Variant::Primitive(Box::new(*literal)))*/
+            Expression::FloatLiteral { literal } => {
+                Ok(Variant::Primitive(Box::new(Sf64(*literal))))
+            }
             Expression::ScopedVariable { name } => stack
                 .get_variable_mut(name.as_ref())
                 .cloned()

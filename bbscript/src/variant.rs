@@ -3,6 +3,7 @@ use dyn_clone::DynClone;
 use dyn_eq::DynEq;
 use immutable_string::ImmutableString;
 use std::any::{Any, TypeId};
+use std::cmp::Ordering;
 use std::sync::Arc;
 
 pub trait Primitive: Any + DynClone + DynEq {}
@@ -69,3 +70,13 @@ impl Variant {
 impl Primitive for i64 {}
 impl Primitive for bool {}
 impl Primitive for ImmutableString {}
+
+#[derive(Clone)]
+pub struct Sf64(pub f64);
+impl PartialEq for Sf64 {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl Eq for Sf64 {}
+impl Primitive for Sf64 {}
