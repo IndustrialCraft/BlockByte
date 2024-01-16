@@ -98,14 +98,22 @@ impl Function {
                     condition,
                     satisfied,
                     unsatisfied,
-                } => match Function::eval_expression(stack, condition, environment)? {
-                    Variant::Bool(result) => Function::execute_block(
+                } => {
+                    let expression = Function::eval_expression(stack, condition, environment)?;
+                    let reference = expression.get_ref();
+                    if reference.type_id() != TypeId::of::<bool>() {
+                        return Err(ScriptError::ConditionNotBool);
+                    }
+                    Function::execute_block(
                         stack,
-                        if result { satisfied } else { unsatisfied },
+                        if *reference.downcast_ref::<bool>().unwrap() {
+                            satisfied
+                        } else {
+                            unsatisfied
+                        },
                         environment,
-                    )?,
-                    _ => return Err(ScriptError::ConditionNotBool),
-                },
+                    )?
+                }
             };
         }
         stack.pop();
@@ -117,9 +125,11 @@ impl Function {
         environment: &ExecutionEnvironment,
     ) -> ScriptResult {
         match expression {
-            Expression::StringLiteral { literal } => Ok(Variant::String(literal.clone())),
-            Expression::IntLiteral { literal } => Ok(Variant::Int(*literal)),
-            Expression::FloatLiteral { literal } => Ok(Variant::Float(*literal)),
+            Expression::StringLiteral { literal } => {
+                Ok(Variant::Primitive(Box::new(literal.clone())))
+            }
+            Expression::IntLiteral { literal } => Ok(Variant::Primitive(Box::new(*literal))),
+            Expression::FloatLiteral { literal } => panic!(), /*Ok(Variant::Primitive(Box::new(*literal)))*/
             Expression::ScopedVariable { name } => stack
                 .get_variable_mut(name.as_ref())
                 .cloned()
@@ -153,11 +163,11 @@ impl Function {
                 first,
                 second,
                 not_equals,
-            } => Ok(Variant::Bool(
+            } => Ok(Variant::Primitive(Box::new(
                 (Function::eval_expression(stack, first, environment)?
                     == Function::eval_expression(stack, second, environment)?)
                     ^ not_equals,
-            )),
+            ))),
             Expression::Operator {
                 first,
                 second,
@@ -194,7 +204,7 @@ impl ExecutionEnvironment {
     }
     fn access_member(&self, value: &Variant, name: &ImmutableString) -> Option<Variant> {
         self.types
-            .get(&value.get_type())?
+            .get(&value.get_ref().type_id())?
             .access_member(value, name)
     }
     pub fn register_member<T: 'static, N: Into<ImmutableString>>(
