@@ -2,13 +2,15 @@ mod ast;
 mod eval;
 mod variant;
 
+use lalrpop_util::lalrpop_mod;
+lalrpop_mod!(pub syntax);
+
 #[cfg(test)]
 mod tests {
     use crate::ast;
     use crate::ast::{Expression, Statement, StatementBlock};
     use crate::eval::{ExecutionEnvironment, Function, ScriptError};
     use crate::variant::Variant;
-    use nom_locate::LocatedSpan;
     use std::cell::RefCell;
 
     #[test]
@@ -52,5 +54,12 @@ mod tests {
             parameter_names: vec![],
         }
         .run(Variant::Null, vec![], &environment);
+
+        println!(
+            "{:?}",
+            crate::syntax::ExpressionParser::new()
+                .parse("ahoj.ako().sa.mas")
+                .unwrap()
+        );
     }
 }

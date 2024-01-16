@@ -1,0 +1,30 @@
+use std::str::FromStr;
+use crate::ast::Expression;
+use immutable_string::ImmutableString;
+
+grammar;
+
+Comma<T>: Vec<T> = { // (1)
+    <mut v:(<T> ",")*> <e:T?> => match e { // (2)
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
+
+pub Expression: Expression = {
+    <n:Number> => Expression::IntLiteral{literal:n},
+    <s:String> => Expression::StringLiteral{literal:s},
+    "(" <e:Expression> ")" => e,
+    <e:Expression> "." <id:Identifier> => Expression::MemberAccess{expression:Box::new(e),name:id},
+    <id:Identifier> => Expression::ScopedVariable{name:id},
+    <e:Expression> "(" <arg:Comma<Expression>> ")" => Expression::Call{expression:Box::new(e), parameters:arg},
+//    <e1:Expression> <op:Operator> <e2:Expression> => Expression::Operator{first:Box::new(e1),second:Box::new(e2),operator:op},
+};
+
+Number: i64 = <s:r"[0-9]+"> => i64::from_str(s).unwrap();
+Identifier: ImmutableString = <s:r"[a-zA-Z][a-zA-Z0-9]*"> => s.into();
+String: ImmutableString = <s:r"'[a-zA-Z0-9]+'"> => s.into();
+//Operator: ImmutableString = <s:r"\\+-\\*/"> => s.into();
