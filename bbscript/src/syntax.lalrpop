@@ -1,5 +1,7 @@
 use std::str::FromStr;
 use crate::ast::Expression;
+use crate::ast::Statement;
+use crate::ast::StatementBlock;
 use immutable_string::ImmutableString;
 
 grammar;
@@ -22,6 +24,14 @@ pub Expression: Expression = {
     <id:Identifier> => Expression::ScopedVariable{name:id},
     <e:Expression> "(" <arg:Comma<Expression>> ")" => Expression::Call{expression:Box::new(e), parameters:arg},
 //    <e1:Expression> <op:Operator> <e2:Expression> => Expression::Operator{first:Box::new(e1),second:Box::new(e2),operator:op},
+};
+
+pub Statement: Statement = {
+    <l:"let"?> <id:Identifier> "=" <e:Expression> ";" => Statement::Assign{is_let: l.is_some(), name: id, value: e},
+};
+
+pub StatementBlock: StatementBlock = {
+    <s:(<Statement>)*> => StatementBlock{statements:s},
 };
 
 Number: i64 = <s:r"[0-9]+"> => i64::from_str(s).unwrap();

@@ -1,9 +1,10 @@
 use immutable_string::ImmutableString;
-use std::cell::RefCell;
 
+#[derive(Debug)]
 pub struct StatementBlock {
     pub statements: Vec<Statement>,
 }
+#[derive(Debug)]
 pub enum Statement {
     Assign {
         is_let: bool,
@@ -40,11 +41,6 @@ pub enum Expression {
     },
     ScopedVariable {
         name: ImmutableString,
-    },
-    CompareEquals {
-        first: Box<Expression>,
-        second: Box<Expression>,
-        not_equals: bool,
     },
     Operator {
         first: Box<Expression>,

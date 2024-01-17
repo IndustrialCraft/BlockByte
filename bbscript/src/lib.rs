@@ -73,8 +73,8 @@ mod tests {
 
         println!(
             "{:?}",
-            crate::syntax::ExpressionParser::new()
-                .parse("ahoj.ako().sa.mas")
+            crate::syntax::StatementParser::new()
+                .parse("ahoj = 6;")
                 .unwrap()
         );
     }

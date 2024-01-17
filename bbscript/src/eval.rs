@@ -1,5 +1,5 @@
 use crate::ast::{Expression, Statement, StatementBlock};
-use crate::variant::{FunctionType, Sf64, Variant};
+use crate::variant::{FunctionType, Variant};
 use immutable_string::ImmutableString;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -12,6 +12,7 @@ pub enum ScriptError {
     MemberNotFound,
     NonFunctionCalled,
     RuntimeError(String),
+    TypeError,
 }
 pub type ScriptResult = Result<Variant, ScriptError>;
 
@@ -101,12 +102,12 @@ impl Function {
                 } => {
                     let expression = Function::eval_expression(stack, condition, environment)?;
                     let reference = expression.get_ref();
-                    if reference.type_id() != TypeId::of::<bool>() {
-                        return Err(ScriptError::ConditionNotBool);
-                    }
                     Function::execute_block(
                         stack,
-                        if *reference.downcast_ref::<bool>().unwrap() {
+                        if *reference
+                            .downcast_ref::<bool>()
+                            .ok_or(ScriptError::ConditionNotBool)?
+                        {
                             satisfied
                         } else {
                             unsatisfied
@@ -129,9 +130,7 @@ impl Function {
                 Ok(Variant::Primitive(Box::new(literal.clone())))
             }
             Expression::IntLiteral { literal } => Ok(Variant::Primitive(Box::new(*literal))),
-            Expression::FloatLiteral { literal } => {
-                Ok(Variant::Primitive(Box::new(Sf64(*literal))))
-            }
+            Expression::FloatLiteral { literal } => Ok(Variant::Primitive(Box::new(*literal))),
             Expression::ScopedVariable { name } => stack
                 .get_variable_mut(name.as_ref())
                 .cloned()
@@ -161,15 +160,6 @@ impl Function {
                     .access_member(&value, name)
                     .ok_or(ScriptError::MemberNotFound)
             }
-            Expression::CompareEquals {
-                first,
-                second,
-                not_equals,
-            } => Ok(Variant::Primitive(Box::new(
-                (Function::eval_expression(stack, first, environment)?
-                    == Function::eval_expression(stack, second, environment)?)
-                    ^ not_equals,
-            ))),
             Expression::Operator {
                 first,
                 second,
