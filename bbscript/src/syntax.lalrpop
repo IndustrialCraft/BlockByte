@@ -1,13 +1,12 @@
 use std::str::FromStr;
-use crate::ast::Expression;
-use crate::ast::Statement;
-use crate::ast::StatementBlock;
+use crate::ast::{Expression, Statement, StatementBlock};
+use crate::eval::Function;
 use immutable_string::ImmutableString;
 
 grammar;
 
-Comma<T>: Vec<T> = { // (1)
-    <mut v:(<T> ",")*> <e:T?> => match e { // (2)
+Comma<T>: Vec<T> = {
+    <mut v:(<T> ",")*> <e:T?> => match e {
         None => v,
         Some(e) => {
             v.push(e);
@@ -18,8 +17,6 @@ Comma<T>: Vec<T> = { // (1)
 
 pub Expression: Expression = {
     #[precedence(level="0")]
-//    <n:Number> "." <n2:Number> => Expression::FloatLiteral{literal:format!("{n}.{n2}").parse::<f64>().unwrap()},
-//    <n:Number> <n2:("." Number)?> => Expression::IntLiteral{literal:n},
     <n:Number> => n,
     <s:String> => Expression::StringLiteral{literal:s},
     "(" <e:Expression> ")" => e,
@@ -47,4 +44,10 @@ Operator: ImmutableString = {
     "-" => "-".into(),
     "*" => "*".into(),
     "/" => "/".into(),
-}
+};
+Function: Function = {
+    "fn" <n:Identifier> "(" <args:Comma<Identifier>> ")" <b:StatementBlock> => Function{name:n, body: b, parameter_names: args},
+};
+pub SourceFile: Vec<Function> = {
+    <s:Function*> => s
+};
