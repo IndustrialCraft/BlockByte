@@ -74,7 +74,7 @@ mod tests {
         println!(
             "{:?}",
             crate::syntax::StatementParser::new()
-                .parse("ahoj = 6;")
+                .parse("ahoj = 6.0-'ahoj';")
                 .unwrap()
         );
     }

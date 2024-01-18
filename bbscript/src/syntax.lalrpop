@@ -17,13 +17,18 @@ Comma<T>: Vec<T> = { // (1)
 };
 
 pub Expression: Expression = {
-    <n:Number> => Expression::IntLiteral{literal:n},
+    #[precedence(level="0")]
+//    <n:Number> "." <n2:Number> => Expression::FloatLiteral{literal:format!("{n}.{n2}").parse::<f64>().unwrap()},
+//    <n:Number> <n2:("." Number)?> => Expression::IntLiteral{literal:n},
+    <n:Number> => n,
     <s:String> => Expression::StringLiteral{literal:s},
     "(" <e:Expression> ")" => e,
     <e:Expression> "." <id:Identifier> => Expression::MemberAccess{expression:Box::new(e),name:id},
     <id:Identifier> => Expression::ScopedVariable{name:id},
     <e:Expression> "(" <arg:Comma<Expression>> ")" => Expression::Call{expression:Box::new(e), parameters:arg},
-//    <e1:Expression> <op:Operator> <e2:Expression> => Expression::Operator{first:Box::new(e1),second:Box::new(e2),operator:op},
+    #[precedence(level="1")]
+    #[assoc(side="left")]
+    <e1:Expression> <op:Operator> <e2:Expression> => Expression::Operator{first:Box::new(e1),second:Box::new(e2),operator:op},
 };
 
 pub Statement: Statement = {
@@ -34,7 +39,12 @@ pub StatementBlock: StatementBlock = {
     <s:(<Statement>)*> => StatementBlock{statements:s},
 };
 
-Number: i64 = <s:r"[0-9]+"> => i64::from_str(s).unwrap();
+Number: Expression = <n:r"[0-9]+"> <n2:r"\.[0-9]*"?> => if n2.is_none() {Expression::IntLiteral{literal:i64::from_str(n).unwrap()}} else {Expression::FloatLiteral{literal:f64::from_str(format!("{n}{}", n2.unwrap()).as_str()).unwrap()}};
 Identifier: ImmutableString = <s:r"[a-zA-Z][a-zA-Z0-9]*"> => s.into();
 String: ImmutableString = <s:r"'[a-zA-Z0-9]+'"> => s.into();
-//Operator: ImmutableString = <s:r"\\+-\\*/"> => s.into();
+Operator: ImmutableString = {
+    "+" => "+".into(),
+    "-" => "-".into(),
+    "*" => "*".into(),
+    "/" => "/".into(),
+}
