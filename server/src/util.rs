@@ -2,7 +2,6 @@ use crate::mods::ScriptingObject;
 use crate::registry::BlockStateRef;
 use crate::Server;
 use block_byte_common::{BlockPosition, Face, Position};
-use rhai::{Dynamic, Engine};
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
 use std::sync::Weak;

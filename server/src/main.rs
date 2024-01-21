@@ -32,26 +32,22 @@ use std::{
 };
 
 use crate::inventory::GUILayout;
-use crate::mods::{
-    ClientModItemModel, EventManager, IdentifierTag, ModClientBlockData, ScriptingObject,
-};
+use crate::mods::{ClientModItemModel, IdentifierTag, ScriptingObject};
 use crate::registry::RecipeManager;
 use crate::world::PlayerData;
-use block_byte_common::content::{
-    ClientEntityData, ClientItemData, ClientItemModel, ClientTexture,
-};
+use bbscript::eval::ExecutionEnvironment;
+use block_byte_common::content::{ClientEntityData, ClientItemData, ClientItemModel};
 use block_byte_common::Position;
 use crossbeam_channel::Receiver;
 use fxhash::FxHashMap;
 use inventory::LootTable;
 use json::object;
-use mods::{ModManager, ScriptCallback};
+use mods::ModManager;
 use net::PlayerConnection;
 use parking_lot::Mutex;
 use registry::{
     Block, BlockRegistry, EntityRegistry, EntityType, Item, ItemModelMapping, ItemRegistry,
 };
-use rhai::{Dynamic, Engine};
 use splines::Spline;
 use threadpool::ThreadPool;
 use util::{Identifier, Location};
@@ -124,7 +120,7 @@ pub struct Server {
     structures: HashMap<Identifier, Arc<Structure>>,
     recipes: RecipeManager,
     events: EventManager,
-    engine: Engine,
+    script_environment: ExecutionEnvironment,
     save_directory: PathBuf,
     settings: ServerSettings,
     loot_tables: HashMap<Identifier, Arc<LootTable>>,
@@ -337,13 +333,13 @@ impl Server {
             structures,
             recipes: RecipeManager::new(recipes),
             events: loaded_mods.6,
-            engine: {
-                let mut engine = Engine::new();
+            script_environment: {
+                let mut script_environtment = ExecutionEnvironment::new();
                 for (module_id, module) in loaded_mods.9 {
                     engine.register_static_module(module_id, module);
                 }
                 ModManager::runtime_engine_load(&mut engine, this.clone());
-                engine
+                script_environtment
             },
             settings: {
                 let path = {

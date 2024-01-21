@@ -14,17 +14,15 @@ use block_byte_common::content::{
 use block_byte_common::{BlockPosition, Face, HorizontalFace};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use rhai::{Dynamic, Engine, Map};
 use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
 
 use crate::inventory::Recipe;
-use crate::mods::{ModClientBlockData, ScriptingObject};
+use crate::mods::ScriptingObject;
 use crate::util::BlockLocation;
 use crate::world::PlayerData;
 use crate::{
     inventory::ItemStack,
-    mods::{ClientContentData, ScriptCallback},
     util::{ChunkBlockLocation, Identifier},
     world::{BlockData, Chunk, WorldBlock},
     Server,

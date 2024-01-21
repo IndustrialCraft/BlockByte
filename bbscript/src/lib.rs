@@ -1,7 +1,8 @@
 #![feature(trait_upcasting)]
-mod ast;
-mod eval;
-mod variant;
+
+pub mod ast;
+pub mod eval;
+pub mod variant;
 
 use crate::eval::Function;
 use lalrpop_util::lalrpop_mod;

@@ -1,9 +1,6 @@
 use crate::eval::{Function, ScriptError, ScriptResult};
 use dyn_clone::DynClone;
-use dyn_eq::DynEq;
-use immutable_string::ImmutableString;
-use std::any::{Any, TypeId};
-use std::cmp::Ordering;
+use std::any::Any;
 use std::sync::Arc;
 
 pub trait Primitive: Any + DynClone + Send + Sync {
@@ -49,6 +46,12 @@ impl PartialEq for FunctionType {
     }
 }*/
 impl Variant {
+    pub fn new_primitive<T: Primitive>(value: T) -> Variant {
+        Variant::Primitive(Box::new(value))
+    }
+    pub fn new_shared<T: 'static>(value: Arc<T>) -> Variant {
+        Variant::Shared(value)
+    }
     pub fn get_ref(&self) -> &dyn Any {
         match self {
             Variant::Shared(value) => value.as_ref(),
@@ -62,14 +65,14 @@ impl<T: Any + Clone + Send + Sync> Primitive for T {
         self
     }
 }
-pub fn convert_variant_list_1<A: 'static>(args: &[Variant]) -> Result<(&A,), ScriptError> {
+pub fn convert_variant_list_1<A: 'static>(args: &[Variant]) -> Result<&A, ScriptError> {
     if args.len() != 1 {
         return Err(ScriptError::TypeError);
     }
-    Ok((args[0]
+    Ok(args[0]
         .get_ref()
         .downcast_ref()
-        .ok_or(ScriptError::TypeError)?,))
+        .ok_or(ScriptError::TypeError)?)
 }
 pub fn convert_variant_list_2<A: 'static, B: 'static>(
     args: &[Variant],

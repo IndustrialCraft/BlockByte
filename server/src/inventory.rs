@@ -4,21 +4,23 @@ use std::{
     sync::{Arc, Weak},
 };
 
+use bbscript::eval::{ExecutionEnvironment, ScriptError, SharedFunction};
+use bbscript::variant::Variant;
 use block_byte_common::gui::{
     GUIComponent, GUIComponentEdit, GUIElement, GUIElementEdit, PositionAnchor,
 };
 use block_byte_common::messages::{ClientModelTarget, MouseButton, NetworkMessageS2C};
 use block_byte_common::{Color, Position, Vec2};
 use fxhash::FxHashMap;
+use immutable_string::ImmutableString;
 use json::{object, JsonValue};
 use parking_lot::{Mutex, MutexGuard};
 use rand::{thread_rng, Rng};
-use rhai::{Dynamic, Engine};
 use serde::{Deserialize, Serialize};
 use splines::Spline;
 use uuid::Uuid;
 
-use crate::mods::{ScriptCallback, ScriptingObject, UserDataWrapper};
+use crate::mods::{ScriptingObject, UserDataWrapper};
 use crate::registry::ToolType;
 use crate::world::{PlayerData, UserData};
 use crate::{
@@ -68,36 +70,40 @@ impl ItemStack {
     }
 }
 impl ScriptingObject for ItemStack {
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
-        engine.register_fn("get_id", |item: &mut ItemStack| {
-            item.item_type.id.to_string()
+    fn engine_register(environment: &mut ExecutionEnvironment, server: &Weak<Server>) {
+        environment.register_method("get_id", |item: &ItemStack, _| {
+            Ok(Variant::new_primitive(ImmutableString::new(
+                item.item_type.id.to_string(),
+            )))
         });
         {
             let server = server.clone();
-            engine.register_fn("ItemStack", move |item: &str, count: i64| {
-                ItemStack::new(
+            environment.register_function("ItemStack", |args| {
+                let (item, count): (&ImmutableString, &i64) =
+                    bbscript::variant::convert_variant_list_2(&args[..])?;
+                Ok(Variant::new_primitive(ItemStack::new(
                     server
                         .upgrade()
                         .unwrap()
                         .item_registry
                         .item_by_identifier(&Identifier::parse(item).unwrap())
                         .unwrap(),
-                    count as u32,
-                )
+                    *count as u32,
+                )))
             });
         }
-        engine.register_get_set(
-            "count",
-            |item: &mut ItemStack| item.item_count as i64,
-            |item: &mut ItemStack, count: i64| {
-                item.item_count = count.max(0).min(item.item_type.stack_size as i64) as u32;
-            },
-        );
-        engine.register_fn("get_stack_size", |item: &mut ItemStack| {
-            item.item_type.stack_size as i64
+        environment.register_member("count", |item: &ItemStack| {
+            Some(Variant::new_primitive(item.item_count as i64))
         });
-        engine.register_fn("with_count", |item: &mut ItemStack, new_count: i64| {
-            ItemStack::new(item.get_type(), new_count as u32)
+        environment.register_method("item_stack_size", |item: &ItemStack, _| {
+            Ok(Variant::new_primitive(item.item_type.stack_size as i64))
+        });
+        environment.register_method("with_count", |item: &ItemStack, args| {
+            let (new_count,): (&i64,) = bbscript::variant::convert_variant_list_1(&args[..])?;
+            Ok(Variant::new_primitive(ItemStack::new(
+                item.get_type(),
+                *new_count as u32,
+            )))
         });
     }
 }
@@ -136,15 +142,15 @@ impl Inventory {
             client_properties: Mutex::new(UserData::new()),
         }
     }
-    pub fn set_client_property(&self, id: &str, value: Dynamic, server: &Server) {
+    pub fn set_client_property(&self, id: &str, value: Variant, server: &Server) {
         let previous = self
             .client_properties
             .lock()
             .take_data_point(id)
-            .unwrap_or(Dynamic::UNIT);
+            .unwrap_or(Variant::Null);
         for viewer in self.viewers.lock().iter() {
             let _ = viewer.1.client_property_listener.call_function(
-                &server.engine,
+                &server.script_environment,
                 None,
                 (
                     ModGuiViewer {
@@ -276,7 +282,7 @@ impl Inventory {
         }
         for property in self.client_properties.lock().data_points() {
             let _ = viewer.client_property_listener.call_function(
-                &viewer.viewer.server.engine,
+                &viewer.viewer.server.script_environment,
                 None,
                 (
                     ModGuiViewer {
@@ -285,7 +291,7 @@ impl Inventory {
                     },
                     property.0.to_string(),
                     property.1.clone(),
-                    Dynamic::UNIT,
+                    Variant::Null,
                 ),
             );
         }
@@ -370,7 +376,7 @@ impl Inventory {
             };
             match slot {
                 Some(slot) => viewer.on_click.call_function(
-                    &player.server.engine,
+                    &player.server.script_environment,
                     None,
                     (
                         player.ptr(),
@@ -381,7 +387,7 @@ impl Inventory {
                     ),
                 ),
                 None => viewer.on_click.call_function(
-                    &player.server.engine,
+                    &player.server.script_environment,
                     None,
                     (
                         player.ptr(),
@@ -439,7 +445,7 @@ impl Inventory {
             };
             match slot {
                 Some(slot) => viewer.on_scroll.call_function(
-                    &player.server.engine,
+                    &player.server.script_environment,
                     None,
                     (
                         player.ptr(),
@@ -451,7 +457,7 @@ impl Inventory {
                     ),
                 ),
                 None => viewer.on_scroll.call_function(
-                    &player.server.engine,
+                    &player.server.script_environment,
                     None,
                     (
                         player.ptr(),
@@ -566,37 +572,36 @@ impl OwnedInventoryView {
     }
 }
 impl ScriptingObject for OwnedInventoryView {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
-        engine.register_type_with_name::<OwnedInventoryView>("InventoryView");
-        engine.register_fn("get_item", |view: &mut OwnedInventoryView, index: i64| {
-            view.view()
-                .get_item(index as u32)
+    fn engine_register(environment: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+        environment.register_method("get_item", |this: &OwnedInventoryView, args| {
+            let index: &i64 = bbscript::variant::convert_variant_list_1(&args[..])?;
+            Ok(this
+                .view()
+                .get_item(*index as u32)
                 .unwrap()
-                .map(|item| Dynamic::from(item))
-                .unwrap_or(Dynamic::UNIT)
+                .map(|item| Variant::new_primitive(item))
+                .unwrap_or(Variant::Null))
         });
-        engine.register_fn(
-            "set_item",
-            |view: &mut OwnedInventoryView, index: i64, item: Dynamic| {
-                let item = if item.is_unit() {
-                    None
-                } else {
-                    Some(item.try_cast::<ItemStack>().unwrap())
-                };
-                view.view().set_item(index as u32, item).unwrap();
-            },
-        );
-        engine.register_fn("get_inventory", |view: &mut OwnedInventoryView| {
-            view.inventory.clone()
+        environment.register_method("set_item", |this: &OwnedInventoryView, args| {
+            let index = args[0]
+                .get_ref()
+                .downcast_ref()
+                .ok_or(ScriptError::TypeError)?;
+            let item = args[1].get_ref().downcast_ref().cloned();
+            this.view().set_item(*index as u32, item);
+            Ok(Variant::Null)
+        });
+        environment.register_method("get_inventory", |this: &OwnedInventoryView, _| {
+            Ok(Variant::new_primitive(this.inventory.clone()))
         });
     }
 }
 pub struct GuiInventoryData {
     pub slot_range: Range<u32>,
-    pub client_property_listener: ScriptCallback,
+    pub client_property_listener: SharedFunction,
     pub layout: Arc<GUILayout>,
-    pub on_click: ScriptCallback,
-    pub on_scroll: ScriptCallback,
+    pub on_click: SharedFunction,
+    pub on_scroll: SharedFunction,
 }
 impl GuiInventoryData {
     pub fn into_viewer(self, viewer: Arc<PlayerData>) -> GuiInventoryViewer {
@@ -687,10 +692,10 @@ pub struct GuiInventoryViewer {
     pub slot_range: Range<u32>,
     pub viewer: Arc<PlayerData>,
     pub id: Uuid,
-    pub client_property_listener: ScriptCallback,
+    pub client_property_listener: SharedFunction,
     pub layout: Arc<GUILayout>,
-    pub on_click: ScriptCallback,
-    pub on_scroll: ScriptCallback,
+    pub on_click: SharedFunction,
+    pub on_scroll: SharedFunction,
 }
 impl GuiInventoryViewer {
     pub fn view<'a>(&self, inventory: &'a Inventory) -> InventoryView<'a> {
@@ -855,11 +860,12 @@ impl InventoryWrapper {
     }
 }
 impl ScriptingObject for InventoryWrapper {
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
-        engine.register_type_with_name::<InventoryWrapper>("Inventory");
-        engine.register_fn("create_inventory", |size: i64| {
-            //todo: verify size
-            InventoryWrapper::Own(Inventory::new_owned(size as u32, None))
+    fn engine_register(environment: &mut ExecutionEnvironment, server: &Weak<Server>) {
+        environment.register_function("create_inventory", |args| {
+            let size: &i64 = bbscript::variant::convert_variant_list_1(&args[..])?;
+            Ok(Variant::new_primitive(InventoryWrapper::Own(
+                Inventory::new_owned(*size as u32, None),
+            )))
         });
         engine.register_fn(
             "view",

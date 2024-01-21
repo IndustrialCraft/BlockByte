@@ -28,7 +28,6 @@ use json::{object, JsonValue};
 use parking_lot::Mutex;
 use pathfinding::prelude::astar;
 use rand::{thread_rng, Rng};
-use rhai::{Array, Dynamic, Engine, FnPtr};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -36,7 +35,7 @@ use crate::inventory::{
     GUILayout, GuiInventoryData, GuiInventoryViewer, InventorySaveData, InventoryView,
     LootTableGenerationParameters, ModGuiViewer,
 };
-use crate::mods::{ScriptCallback, ScriptingObject, UserDataWrapper};
+use crate::mods::{ScriptingObject, UserDataWrapper};
 use crate::registry::{Block, BlockState};
 use crate::util::BlockLocation;
 use crate::{

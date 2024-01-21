@@ -1,7 +1,7 @@
 use crate::ast::{Expression, Statement, StatementBlock};
 use crate::variant::{FunctionType, Variant};
 use immutable_string::ImmutableString;
-use std::any::{Any, TypeId};
+use std::any::TypeId;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -41,6 +41,7 @@ impl ScopeStack {
         self.stack.last_mut().unwrap().insert(name, value);
     }
 }
+pub type SharedFunction = Arc<Function>;
 
 pub struct Function {
     pub name: ImmutableString,
@@ -199,11 +200,16 @@ impl ExecutionEnvironment {
             .get(&value.get_ref().type_id())?
             .access_member(value, name)
     }
-    pub fn register_member<T: 'static, N: Into<ImmutableString>>(
+    pub fn register_member<
+        T: 'static,
+        N: Into<ImmutableString>,
+        F: Fn(&T) -> Option<Variant> + 'static,
+    >(
         &mut self,
         name: N,
-        function: Box<dyn Fn(&T) -> Option<Variant>>,
+        function: F,
     ) {
+        let function = Box::new(function);
         self.types
             .entry(TypeId::of::<T>())
             .or_insert(TypeInfo::new())
@@ -213,11 +219,8 @@ impl ExecutionEnvironment {
                 Box::new(move |this| function(this.get_ref().downcast_ref().unwrap())),
             );
     }
-    pub fn register_function<T: 'static, F, N: Into<ImmutableString>>(
-        &mut self,
-        name: N,
-        function: F,
-    ) where
+    pub fn register_method<T: 'static, F, N: Into<ImmutableString>>(&mut self, name: N, function: F)
+    where
         F: Fn(&T, Vec<Variant>) -> ScriptResult + 'static,
     {
         let function = Arc::new(move |this: Variant, parameters| {
@@ -240,7 +243,7 @@ impl ExecutionEnvironment {
     pub fn register_global<F, N: Into<ImmutableString>>(&mut self, name: N, value: Variant) {
         self.globals.insert(name.into(), value);
     }
-    pub fn register_global_function<F, N: Into<ImmutableString>>(&mut self, name: N, function: F)
+    pub fn register_function<F, N: Into<ImmutableString>>(&mut self, name: N, function: F)
     where
         F: Fn(Vec<Variant>) -> ScriptResult + 'static,
     {
