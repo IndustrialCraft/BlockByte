@@ -14,6 +14,7 @@ pub enum Variant {
     Null,
     Shared(Arc<dyn Any>),
     Primitive(Box<dyn Primitive>),
+    Vector(Vec<Variant>),
     Function(Box<Variant>, FunctionType),
 }
 #[derive(Clone)]
@@ -56,6 +57,7 @@ impl Variant {
         match self {
             Variant::Shared(value) => value.as_ref(),
             Variant::Primitive(value) => value.as_ref(),
+            Variant::Vector(value) => value.as_ref(),
             Variant::Null | Variant::Function(_, _) => &(),
         }
     }

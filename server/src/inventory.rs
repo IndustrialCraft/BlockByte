@@ -72,7 +72,7 @@ impl ItemStack {
 impl ScriptingObject for ItemStack {
     fn engine_register(environment: &mut ExecutionEnvironment, server: &Weak<Server>) {
         environment.register_method("get_id", |item: &ItemStack, _| {
-            Ok(Variant::new_primitive(ImmutableString::new(
+            Ok(Variant::new_primitive(ImmutableString::from(
                 item.item_type.id.to_string(),
             )))
         });
@@ -99,7 +99,7 @@ impl ScriptingObject for ItemStack {
             Ok(Variant::new_primitive(item.item_type.stack_size as i64))
         });
         environment.register_method("with_count", |item: &ItemStack, args| {
-            let (new_count,): (&i64,) = bbscript::variant::convert_variant_list_1(&args[..])?;
+            let new_count: &i64 = bbscript::variant::convert_variant_list_1(&args[..])?;
             Ok(Variant::new_primitive(ItemStack::new(
                 item.get_type(),
                 *new_count as u32,
@@ -622,70 +622,63 @@ pub struct ModGuiViewer {
     pub id: Uuid,
 }
 impl ScriptingObject for ModGuiViewer {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
-        engine.register_type_with_name::<ModGuiViewer>("GUIViewer");
-        engine.register_fn(
-            "set_text",
-            |viewer: &mut ModGuiViewer, element_id: &str, text: &str| {
-                viewer
-                    .viewer
-                    .send_message(&NetworkMessageS2C::GuiEditElement(
-                        format!("{}_{}", viewer.id.to_string(), element_id),
-                        GUIElementEdit {
-                            component_type: GUIComponentEdit::TextComponent {
-                                text: Some(text.to_string()),
-                                font_size: None,
+    fn engine_register(environment: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+        environment.register_method("set_text", |this: &ModGuiViewer, args| {
+            let (element_id, text): (&ImmutableString, &ImmutableString) =
+                bbscript::variant::convert_variant_list_2(&args[..])?;
+            this.viewer.send_message(&NetworkMessageS2C::GuiEditElement(
+                format!("{}_{}", this.id.to_string(), element_id),
+                GUIElementEdit {
+                    component_type: GUIComponentEdit::TextComponent {
+                        text: Some(text.to_string()),
+                        font_size: None,
+                    },
+                    ..Default::default()
+                },
+            ));
+            Ok(Variant::Null)
+        });
+        environment.register_method("set_text", |this: &ModGuiViewer, args| {
+            let (element_id, u1, v1, u2, v2): (&ImmutableString, &f64, &f64, &f64, &f64) =
+                bbscript::variant::convert_variant_list_5(&args[..])?;
+            this.viewer.send_message(&NetworkMessageS2C::GuiEditElement(
+                format!("{}_{}", this.id.to_string(), element_id),
+                GUIElementEdit {
+                    component_type: GUIComponentEdit::ImageComponent {
+                        slice: Some(Some((
+                            Vec2 {
+                                x: *u1 as f32,
+                                y: *v1 as f32,
                             },
-                            ..Default::default()
-                        },
-                    ));
-            },
-        );
-        engine.register_fn(
-            "set_slice",
-            |viewer: &mut ModGuiViewer, element_id: &str, u1: f64, v1: f64, u2: f64, v2: f64| {
-                viewer
-                    .viewer
-                    .send_message(&NetworkMessageS2C::GuiEditElement(
-                        format!("{}_{}", viewer.id.to_string(), element_id),
-                        GUIElementEdit {
-                            component_type: GUIComponentEdit::ImageComponent {
-                                slice: Some(Some((
-                                    Vec2 {
-                                        x: u1 as f32,
-                                        y: v1 as f32,
-                                    },
-                                    Vec2 {
-                                        x: u2 as f32,
-                                        y: v2 as f32,
-                                    },
-                                ))),
-                                size: None,
-                                texture: None,
+                            Vec2 {
+                                x: *u2 as f32,
+                                y: *v2 as f32,
                             },
-                            ..Default::default()
-                        },
-                    ));
-            },
-        );
-        engine.register_fn(
-            "clear_slice",
-            |viewer: &mut ModGuiViewer, element_id: &str| {
-                viewer
-                    .viewer
-                    .send_message(&NetworkMessageS2C::GuiEditElement(
-                        format!("{}_{}", viewer.id.to_string(), element_id),
-                        GUIElementEdit {
-                            component_type: GUIComponentEdit::ImageComponent {
-                                slice: Some(None),
-                                size: None,
-                                texture: None,
-                            },
-                            ..Default::default()
-                        },
-                    ));
-            },
-        );
+                        ))),
+                        size: None,
+                        texture: None,
+                    },
+                    ..Default::default()
+                },
+            ));
+            Ok(Variant::Null)
+        });
+        environment.register_method("set_text", |this: &ModGuiViewer, args| {
+            let element_id: &ImmutableString =
+                bbscript::variant::convert_variant_list_1(&args[..])?;
+            this.viewer.send_message(&NetworkMessageS2C::GuiEditElement(
+                format!("{}_{}", this.id.to_string(), element_id),
+                GUIElementEdit {
+                    component_type: GUIComponentEdit::ImageComponent {
+                        slice: Some(None),
+                        size: None,
+                        texture: None,
+                    },
+                    ..Default::default()
+                },
+            ));
+            Ok(Variant::Null)
+        });
     }
 }
 pub struct GuiInventoryViewer {
@@ -990,19 +983,19 @@ impl Recipe {
     }
 }
 impl ScriptingObject for Recipe {
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
-        engine.register_type_with_name::<Arc<Recipe>>("Recipe");
+    fn engine_register(environment: &mut ExecutionEnvironment, server: &Weak<Server>) {
         {
             let server = server.clone();
-            engine.register_fn("Recipe", move |id: &str| {
+            environment.register_function("Recipe", move |args| {
+                let id: &ImmutableString = bbscript::variant::convert_variant_list_1(&args[..])?;
                 match server
                     .upgrade()
                     .unwrap()
                     .recipes
                     .by_id(&Identifier::parse(id).unwrap())
                 {
-                    Some(recipe) => Dynamic::from(recipe),
-                    None => Dynamic::UNIT,
+                    Some(recipe) => Ok(Variant::new_shared(recipe)),
+                    None => Err(ScriptError::RuntimeError("recipe not found".to_string())),
                 }
             });
         }
