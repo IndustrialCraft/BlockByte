@@ -32,9 +32,7 @@ use std::{
 };
 
 use crate::inventory::GUILayout;
-use crate::mods::{
-    ClientModItemModel, EventManager, IdentifierTag, ModClientBlockData, ScriptingObject,
-};
+use crate::mods::{EventManager, IdentifierTag, ScriptingObject};
 use crate::registry::RecipeManager;
 use crate::world::PlayerData;
 use block_byte_common::content::{

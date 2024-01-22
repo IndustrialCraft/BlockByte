@@ -14,21 +14,38 @@ use block_byte_common::content::{
 use block_byte_common::{BlockPosition, Face, HorizontalFace};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use rhai::{Dynamic, Engine, Map};
+use rhai::{Dynamic, Engine, FnPtr, Map};
 use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
 
 use crate::inventory::Recipe;
-use crate::mods::{ModClientBlockData, ScriptingObject};
+use crate::mods::ScriptingObject;
 use crate::util::BlockLocation;
 use crate::world::PlayerData;
 use crate::{
     inventory::ItemStack,
-    mods::{ClientContentData, ScriptCallback},
+    mods::ScriptCallback,
     util::{ChunkBlockLocation, Identifier},
     world::{BlockData, Chunk, WorldBlock},
     Server,
 };
+
+pub struct StaticData {
+    pub data: HashMap<String, Dynamic>,
+}
+impl StaticData {
+    pub fn get(&self, id: &str) -> Option<&Dynamic> {
+        self.data.get(id)
+    }
+    pub fn get_function(&self, id: &str) -> ScriptCallback {
+        ScriptCallback {
+            function: self
+                .data
+                .get(id)
+                .and_then(|function| function.clone().try_cast::<FnPtr>()),
+        }
+    }
+}
 
 pub struct BlockRegistry {
     blocks: HashMap<Identifier, Arc<Block>, BuildHasherDefault<XxHash64>>,
@@ -56,12 +73,9 @@ impl BlockRegistry {
                         },
                         properties: BlockStatePropertyStorage::new(),
                         networks: HashMap::new(),
-                        on_tick: ScriptCallback::empty(),
-                        on_right_click: ScriptCallback::empty(),
-                        on_left_click: ScriptCallback::empty(),
-                        on_neighbor_update: ScriptCallback::empty(),
-                        on_place: ScriptCallback::empty(),
-                        on_destroy: ScriptCallback::empty(),
+                        static_data: StaticData {
+                            data: HashMap::new(),
+                        },
                     })
                 },
                 |_, _| ModClientBlockData {
@@ -276,12 +290,7 @@ pub struct Block {
     pub item_model_mapping: ItemModelMapping,
     pub properties: BlockStatePropertyStorage,
     pub networks: HashMap<Identifier, ScriptCallback>,
-    pub on_tick: ScriptCallback,
-    pub on_right_click: ScriptCallback,
-    pub on_left_click: ScriptCallback,
-    pub on_neighbor_update: ScriptCallback,
-    pub on_place: ScriptCallback,
-    pub on_destroy: ScriptCallback,
+    pub static_data: StaticData,
 }
 
 impl ScriptingObject for Block {
@@ -504,11 +513,15 @@ impl BlockState {
         }
     }
     pub fn on_block_update(&self, location: ChunkBlockLocation) {
-        let _ = self.parent.on_neighbor_update.call_function(
-            &location.chunk.world.server.engine,
-            Some(&mut Dynamic::from(Into::<BlockLocation>::into(&location))),
-            (),
-        );
+        let _ = self
+            .parent
+            .static_data
+            .get_function("on_neighbor_update")
+            .call_function(
+                &location.chunk.world.server.engine,
+                Some(&mut Dynamic::from(Into::<BlockLocation>::into(&location))),
+                (),
+            );
     }
     pub fn with_property(&self, property: &str, value: Dynamic) -> Result<BlockStateRef, ()> {
         self.parent
