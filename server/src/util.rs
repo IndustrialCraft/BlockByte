@@ -1,8 +1,9 @@
 use crate::mods::ScriptingObject;
 use crate::registry::BlockStateRef;
 use crate::Server;
+use anyhow::{anyhow, Error};
 use block_byte_common::{BlockPosition, Face, Position};
-use rhai::{Dynamic, Engine};
+use rhai::{Dynamic, Engine, ImmutableString};
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
 use std::sync::Weak;
@@ -12,35 +13,37 @@ use crate::world::{BlockData, Chunk, World, WorldBlock};
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Serialize, Deserialize)]
 pub struct Identifier {
-    pub namespace: String,
-    pub key: String,
+    content: ImmutableString,
+    split: usize,
 }
 impl Identifier {
-    pub fn new<N: Into<String>, K: Into<String>>(namespace: N, key: K) -> Self {
+    pub fn new<N: Into<ImmutableString>, K: Into<ImmutableString>>(namespace: N, key: K) -> Self {
+        let namespace = namespace.into();
         Identifier {
-            namespace: namespace.into(),
-            key: key.into(),
+            split: namespace.len(),
+            content: namespace + ":" + key.into(),
         }
     }
-    pub fn parse(value: &str) -> Result<Self, ()> {
-        let mut split = value.split(":");
-        let namespace = split.next().ok_or(())?;
-        let key = split.next().ok_or(())?;
-        if split.next().is_some() {
-            return Err(());
-        }
-        Ok(Identifier::new(namespace, key))
+    pub fn parse<V: Into<ImmutableString>>(value: V) -> anyhow::Result<Self> {
+        let value = value.into();
+        value
+            .find(".")
+            .map(|id| Identifier {
+                content: value,
+                split: id,
+            })
+            .ok_or(anyhow!("missing ':' splitter"))
     }
-    pub fn get_namespace(&self) -> &String {
-        &self.namespace
+    pub fn get_namespace(&self) -> &str {
+        &self.content[0..self.split]
     }
-    pub fn get_key(&self) -> &String {
-        &self.key
+    pub fn get_key(&self) -> &str {
+        &self.content[self.split + 1..self.content.len()]
     }
 }
 impl Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.namespace, self.key)
+        write!(f, "{}", self.content)
     }
 }
 impl ScriptingObject for Identifier {

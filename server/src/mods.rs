@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use block_byte_common::content::{
     ClientBlockCubeRenderData, ClientBlockData, ClientBlockDynamicData,
     ClientBlockFoliageRenderData, ClientBlockRenderDataType, ClientBlockStaticRenderData,
@@ -17,6 +17,7 @@ use rhai::{
 };
 use splines::{Interpolation, Spline};
 use std::collections::HashSet;
+use std::fs::FileType;
 use std::ops::RangeInclusive;
 use std::{
     cell::OnceCell,
@@ -44,6 +45,11 @@ use crate::{
     world::{Entity, Structure},
     Server,
 };
+
+pub enum ContentType {
+    Json(JsonValue),
+    Binary(Vec<u8>),
+}
 
 struct Mod {
     path: PathBuf,
@@ -114,21 +120,73 @@ impl Mod {
         }
         modules
     }
-    pub fn read_resource(&self, id: Arc<Identifier>) -> Result<Vec<u8>> {
-        if id.get_namespace() == &self.namespace {
+    pub fn load_content<F: Fn(&str, Identifier) -> Option<JsonValue>>(
+        &self,
+        resource_type: &str,
+        json_base_provider: F,
+    ) -> HashMap<Identifier, ContentType> {
+        let mut content = HashMap::new();
+        let path = {
+            let mut path = self.path.clone();
+            path.push(resource_type);
+            path
+        };
+        for file in WalkDir::new(&path) {
+            if let Ok(file) = file {
+                if file.file_type().is_file() {
+                    content.insert(
+                        Identifier::new(
+                            &self.namespace,
+                            pathdiff::diff_paths(file.path(), &path)
+                                .unwrap()
+                                .to_str()
+                                .unwrap()
+                                .split_once(".")
+                                .unwrap()
+                                .0,
+                        ),
+                        if file.file_name().to_str().unwrap().ends_with(".json") {
+                            ContentType::Json(Self::recursively_load_json(
+                                resource_type,
+                                json::parse(fs::read_to_string(file.path()).unwrap().as_str())
+                                    .unwrap(),
+                                &json_base_provider,
+                            ))
+                        } else {
+                            ContentType::Binary(fs::read(file.path()).unwrap())
+                        },
+                    );
+                }
+            }
+        }
+        content
+    }
+    fn recursively_load_json<F: Fn(&str, Identifier) -> Option<JsonValue>>(
+        resource_type: &str,
+        json: JsonValue,
+        json_base_provider: &F,
+    ) -> JsonValue {
+        if let Some(base) = json["base"].as_str() {
+            let base_json = Self::recursively_load_json(
+                resource_type,
+                json_base_provider(resource_type, Identifier::parse(base).unwrap()).unwrap(),
+                json_base_provider,
+            );
+            patch_up_json(base_json, json)
+        } else {
+            json
+        }
+    }
+    /*fn read_json_resource(resource_type: &str, id: Identifier) -> Result<JsonValue> {
             let mut full_path = self.path.clone();
+            full_path.push(resource_type);
             for path_part in id.get_key().split("/") {
                 full_path.push(path_part);
             }
-            fs::read(full_path).with_context(|| format!("resource {} not found", id))
-        } else {
-            bail!(
-                "identifier {} doesn't have same namespace as mod {} it was requested from",
-                id,
-                self.namespace
-            );
-        }
-    }
+            fs::read_to_string(full_path)
+                .with_context(|| format!("resource {} not found", id))
+                .and_then(|data| json::parse(&data).map_err(|_| anyhow!("malformed json")))
+    }*/
 }
 
 pub struct ModManager {
@@ -140,9 +198,8 @@ impl ModManager {
         path: &Path,
     ) -> (
         Self,
-        EventManager,
         Vec<(String, Box<EvalAltResult>)>,
-        Arc<RwLock<Engine>>,
+        Engine,
         Vec<(String, Arc<Module>)>,
     ) {
         let mut errors = Vec::new();
@@ -990,5 +1047,53 @@ impl ModImage {
             )
             .unwrap();
         buffer
+    }
+}
+fn patch_up_json(mut base: JsonValue, patch: JsonValue) -> JsonValue {
+    match (base, patch) {
+        (JsonValue::Object(mut base), JsonValue::Object(patch)) => {
+            for (name, property) in patch.iter() {
+                base.insert(
+                    name,
+                    if let Some(base) = base.get(name).cloned() {
+                        patch_up_json(base, property.clone())
+                    } else {
+                        property.clone()
+                    },
+                );
+            }
+            JsonValue::Object(base)
+        }
+        (_base, patch) => patch,
+    }
+}
+fn json_to_dynamic(json: JsonValue, engine: &Engine) -> Dynamic {
+    use std::str::FromStr;
+    if let Some(string) = json.as_str() {
+        return if string.starts_with("!") {
+            engine.eval(&string[1..]).unwrap()
+        } else {
+            Dynamic::from_str(string).unwrap()
+        };
+    }
+    match json {
+        JsonValue::Null => Dynamic::UNIT,
+        JsonValue::Number(number) => Dynamic::from_float(number.into()),
+        JsonValue::Boolean(bool) => Dynamic::from_bool(bool),
+        JsonValue::Object(object) => {
+            let mut output = rhai::Map::new();
+            for (name, property) in object.iter() {
+                output.insert(name.into(), json_to_dynamic(property.clone(), engine));
+            }
+            Dynamic::from_map(output)
+        }
+        JsonValue::Array(array) => {
+            let mut output = rhai::Array::new();
+            for property in array.into_iter() {
+                output.push(json_to_dynamic(property, engine));
+            }
+            Dynamic::from_array(output)
+        }
+        _ => unreachable!(),
     }
 }
