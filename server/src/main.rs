@@ -133,11 +133,11 @@ pub struct Server {
 
 impl Server {
     fn new(port: u16, save_directory: PathBuf) -> Arc<Server> {
-        let mut loaded_mods = ModManager::load_mods(Path::new("mods"));
-        for error in &loaded_mods.7 {
+        let (mod_manager, errors, mut engine) = ModManager::load_mods(Path::new("mods"));
+        for error in &errors {
             println!("script error at {}: {}", error.0, error.1.to_string());
         }
-        if loaded_mods.7.len() > 0 {
+        if errors.len() > 0 {
             println!("server stopped because of mod errors");
             process::exit(0);
         }
@@ -164,12 +164,7 @@ impl Server {
                             },
                             properties: block_data.properties.clone(),
                             networks: block_data.networks.clone(),
-                            on_tick: block_data.on_tick.clone(),
-                            on_right_click: block_data.on_right_click.clone(),
-                            on_left_click: block_data.on_left_click.clone(),
-                            on_neighbor_update: block_data.on_neighbor_update.clone(),
-                            on_place: block_data.on_place.clone(),
-                            on_destroy: block_data.on_destroy.clone(),
+                            static_data: block_data.static_data.clone(),
                         })
                     },
                     |state, block| {
@@ -336,10 +331,6 @@ impl Server {
             recipes: RecipeManager::new(recipes),
             events: loaded_mods.6,
             engine: {
-                let mut engine = Engine::new();
-                for (module_id, module) in loaded_mods.9 {
-                    engine.register_static_module(module_id, module);
-                }
                 ModManager::runtime_engine_load(&mut engine, this.clone());
                 engine
             },

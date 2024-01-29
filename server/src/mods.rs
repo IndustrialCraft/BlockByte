@@ -177,16 +177,16 @@ impl Mod {
             json
         }
     }
-    /*fn read_json_resource(resource_type: &str, id: Identifier) -> Result<JsonValue> {
-            let mut full_path = self.path.clone();
-            full_path.push(resource_type);
-            for path_part in id.get_key().split("/") {
-                full_path.push(path_part);
-            }
-            fs::read_to_string(full_path)
-                .with_context(|| format!("resource {} not found", id))
-                .and_then(|data| json::parse(&data).map_err(|_| anyhow!("malformed json")))
-    }*/
+    fn read_json_resource(&self, resource_type: &str, id: &str) -> Result<JsonValue> {
+        let mut full_path = self.path.clone();
+        full_path.push(resource_type);
+        for path_part in id.split("/") {
+            full_path.push(path_part);
+        }
+        fs::read_to_string(full_path)
+            .with_context(|| format!("resource {} not found", id))
+            .and_then(|data| json::parse(&data).map_err(|_| anyhow!("malformed json")))
+    }
 }
 
 pub struct ModManager {
@@ -194,14 +194,7 @@ pub struct ModManager {
 }
 
 impl ModManager {
-    pub fn load_mods(
-        path: &Path,
-    ) -> (
-        Self,
-        Vec<(String, Box<EvalAltResult>)>,
-        Engine,
-        Vec<(String, Arc<Module>)>,
-    ) {
+    pub fn load_mods(path: &Path) -> (Self, Vec<(String, Box<EvalAltResult>)>, Engine) {
         let mut errors = Vec::new();
         let mut mods = HashMap::new();
         for mod_path in std::fs::read_dir(path).unwrap() {
@@ -217,21 +210,11 @@ impl ModManager {
                 println!("loading mod '{}' failed", name);
             }
         }
-        let current_mod_path = Arc::new(Mutex::new(PathBuf::new()));
 
         let mut modules = Vec::new();
-
         let mut engine = Engine::new();
-        for loaded_mod in &mods {
-            {
-                let mut path = current_mod_path.lock();
-                path.clear();
-                path.push(loaded_mod.1.path.clone());
-            }
-            let script_modules =
-                loaded_mod
-                    .1
-                    .load_scripts(loaded_mod.0.as_str(), &engine, &mut errors);
+        for (mod_id, loaded_mod) in &mods {
+            let script_modules = loaded_mod.load_scripts(mod_id.as_str(), &engine, &mut errors);
             for (module_id, module) in script_modules {
                 let module = Arc::new(module);
                 engine.register_static_module(module_id.as_str(), module.clone());
@@ -239,7 +222,27 @@ impl ModManager {
             }
         }
 
-        (ModManager { mods }, errors, engine, modules)
+        (ModManager { mods }, errors, engine)
+    }
+    pub fn load_resource_type<F: Fn(Identifier, ContentType)>(&self, resource_type: &str, f: F) {
+        for (mod_id, loaded_mod) in &self.mods {
+            for (id, content) in
+                loaded_mod.load_content(resource_type, Self::create_json_base_provider(&self.mods))
+            {
+                f(id, content);
+            }
+        }
+    }
+    fn create_json_base_provider<'a>(
+        mods: &'a HashMap<String, Mod>,
+    ) -> impl Fn(&str, Identifier) -> Option<JsonValue> + 'a {
+        move |resource_type, identifier| {
+            mods.get(identifier.get_namespace()).and_then(|mod_data| {
+                mod_data
+                    .read_json_resource(resource_type, identifier.get_key())
+                    .ok()
+            })
+        }
     }
     pub fn load_structures(
         &self,
