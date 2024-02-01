@@ -1,50 +1,46 @@
-use anyhow::{anyhow, bail, Context, Result};
-use block_byte_common::content::{
-    ClientBlockCubeRenderData, ClientBlockData, ClientBlockDynamicData,
-    ClientBlockFoliageRenderData, ClientBlockRenderDataType, ClientBlockStaticRenderData,
-    ClientEntityData, ClientTexture, Transformation,
-};
+use anyhow::{anyhow, Context, Result};
+use block_byte_common::content::Transformation;
 use block_byte_common::messages::MovementType;
 use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, KeyboardKey, Position, Vec3};
 use image::io::Reader;
 use image::{ImageOutputFormat, Rgba, RgbaImage};
 use json::JsonValue;
-use parking_lot::{Mutex, MutexGuard, RwLock};
+use parking_lot::MutexGuard;
 use rhai::plugin::*;
 use rhai::{
     exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, GlobalRuntimeState, Scope, StaticVec,
     AST,
 };
-use splines::{Interpolation, Spline};
+use splines::Spline;
 use std::collections::HashSet;
-use std::fs::FileType;
-use std::ops::RangeInclusive;
 use std::{
     cell::OnceCell,
     collections::HashMap,
     fs,
-    hash::BuildHasherDefault,
     path::{Path, PathBuf},
     sync::{Arc, Weak},
 };
-use twox_hash::XxHash64;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::inventory::{GUILayout, InventoryWrapper, ItemStack, ModGuiViewer, OwnedInventoryView};
-use crate::registry::{
-    Block, BlockState, BlockStateProperty, BlockStatePropertyStorage, BlockStateRef,
-    InteractionResult,
-};
+use crate::registry::{Block, BlockState, BlockStateRef, InteractionResult};
 use crate::util::BlockLocation;
 use crate::world::{BlockNetwork, PlayerData, UserData, World, WorldBlock};
 use crate::{
     inventory::{LootTable, Recipe},
-    registry::{BlockRegistry, ItemRegistry, ToolData, ToolType},
+    registry::{BlockRegistry, ItemRegistry},
     util::{Identifier, Location},
     world::{Entity, Structure},
     Server,
 };
+
+#[derive(Clone)]
+pub struct ClientContentData {
+    pub images: HashMap<Identifier, Vec<u8>>,
+    pub sounds: HashMap<Identifier, Vec<u8>>,
+    pub models: HashMap<Identifier, Vec<u8>>,
+}
 
 pub enum ContentType {
     Json(JsonValue),
@@ -225,7 +221,7 @@ impl ModManager {
         (ModManager { mods }, errors, engine)
     }
     pub fn load_resource_type<F: Fn(Identifier, ContentType)>(&self, resource_type: &str, f: F) {
-        for (mod_id, loaded_mod) in &self.mods {
+        for (_, loaded_mod) in &self.mods {
             for (id, content) in
                 loaded_mod.load_content(resource_type, Self::create_json_base_provider(&self.mods))
             {
@@ -923,23 +919,6 @@ mod InteractionResultModule {
 
 #[export_module]
 #[allow(non_snake_case)]
-mod ToolTypeModule {
-    use crate::registry::ToolType;
-
-    #[allow(non_upper_case_globals)]
-    pub const Axe: ToolType = ToolType::Axe;
-    #[allow(non_upper_case_globals)]
-    pub const Shovel: ToolType = ToolType::Shovel;
-    #[allow(non_upper_case_globals)]
-    pub const Pickaxe: ToolType = ToolType::Pickaxe;
-    #[allow(non_upper_case_globals)]
-    pub const Wrench: ToolType = ToolType::Wrench;
-    #[allow(non_upper_case_globals)]
-    pub const Knife: ToolType = ToolType::Knife;
-}
-
-#[export_module]
-#[allow(non_snake_case)]
 mod KeyboardKeyModule {
     use block_byte_common::KeyboardKey;
 
@@ -1070,7 +1049,7 @@ fn patch_up_json(mut base: JsonValue, patch: JsonValue) -> JsonValue {
         (_base, patch) => patch,
     }
 }
-fn json_to_dynamic(json: JsonValue, engine: &Engine) -> Dynamic {
+pub fn json_to_dynamic(json: JsonValue, engine: &Engine) -> Dynamic {
     use std::str::FromStr;
     if let Some(string) = json.as_str() {
         return if string.starts_with("!") {

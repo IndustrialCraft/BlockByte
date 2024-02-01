@@ -20,7 +20,6 @@ mod world;
 mod worldgen;
 
 use std::{
-    cell::RefCell,
     collections::HashMap,
     fs,
     net::TcpListener,
@@ -32,18 +31,18 @@ use std::{
 };
 
 use crate::inventory::GUILayout;
-use crate::mods::{EventManager, IdentifierTag, ScriptingObject};
-use crate::registry::RecipeManager;
+use crate::mods::{ClientContentData, ContentType, EventManager, IdentifierTag, ScriptingObject};
+use crate::registry::{BlockStateProperty, BlockStatePropertyStorage, RecipeManager, StaticData};
 use crate::world::PlayerData;
 use block_byte_common::content::{
-    ClientEntityData, ClientItemData, ClientItemModel, ClientTexture,
+    ClientBlockData, ClientEntityData, ClientItemData, ClientTexture,
 };
 use block_byte_common::Position;
 use crossbeam_channel::Receiver;
 use fxhash::FxHashMap;
 use inventory::LootTable;
-use json::object;
-use mods::{ModManager, ScriptCallback};
+use json::{object, JsonValue};
+use mods::ModManager;
 use net::PlayerConnection;
 use parking_lot::Mutex;
 use registry::{
@@ -141,101 +140,146 @@ impl Server {
             println!("server stopped because of mod errors");
             process::exit(0);
         }
-        let block_registry = RefCell::new(BlockRegistry::new());
-        let item_registry = RefCell::new(ItemRegistry::new());
-        let entity_registry = RefCell::new(EntityRegistry::new());
-        for (id, block_data) in &loaded_mods.1 {
-            block_registry
-                .borrow_mut()
-                .register(
-                    id.clone(),
-                    |default_state, id| {
-                        Arc::new(Block {
-                            id,
-                            default_state,
-                            data_container: block_data.data_container,
-                            item_model_mapping: {
-                                let mut mapping = ItemModelMapping {
-                                    mapping: HashMap::new(),
-                                };
-                                //todo: register in scripts
-                                //mapping.mapping.insert(0, 0);
-                                mapping
-                            },
-                            properties: block_data.properties.clone(),
-                            networks: block_data.networks.clone(),
-                            static_data: block_data.static_data.clone(),
-                        })
-                    },
-                    |state, block| {
-                        block_data
-                            .client
-                            .call_function(
-                                &loaded_mods.8.read(),
-                                None,
-                                (block.properties.dump_properties(state),),
-                            )
-                            .cast::<ModClientBlockData>()
-                    },
-                )
-                .unwrap();
-        }
-        for (id, item_data) in loaded_mods.2 {
-            item_registry
-                .borrow_mut()
-                .register(id.clone(), |client_id| {
-                    Arc::new(Item {
-                        client_data: ClientItemData {
-                            name: item_data.client.name.unwrap_or(id.to_string()),
-                            model: match item_data.client.model {
-                                ClientModItemModel::Texture(texture) => {
-                                    ClientItemModel::Texture(texture)
-                                }
-                                ClientModItemModel::Block(block) => ClientItemModel::Block(
-                                    block_registry
-                                        .borrow()
-                                        .block_by_identifier(
-                                            &Identifier::parse(block.as_str()).unwrap(),
+        let mut block_registry = BlockRegistry::new();
+        let mut item_registry = ItemRegistry::new();
+        let mut entity_registry = EntityRegistry::new();
+        mod_manager.load_resource_type("blocks", |id, content| match content {
+            ContentType::Json(mut json) => {
+                let properties = {
+                    let mut properties = BlockStatePropertyStorage::new();
+                    match json.remove("properties") {
+                        JsonValue::Object(json_properties) => {
+                            for (name, property) in json_properties.iter() {
+                                let property = if let Some(string) = property.as_str() {
+                                    if let Some((start, end)) = string.split_once("..=") {
+                                        BlockStateProperty::Number(
+                                            start.parse::<i32>().unwrap()
+                                                ..=end.parse::<i32>().unwrap(),
                                         )
-                                        .unwrap()
-                                        .default_state,
-                                ),
+                                    } else {
+                                        match string {
+                                            "bool" => BlockStateProperty::Bool,
+                                            "Face" => BlockStateProperty::Face,
+                                            "HorizontalFace" => BlockStateProperty::HorizontalFace,
+                                            _ => panic!(),
+                                        }
+                                    }
+                                } else {
+                                    if property.is_array() {
+                                        BlockStateProperty::String(
+                                            property
+                                                .members()
+                                                .map(|element| {
+                                                    element.as_str().unwrap().to_string()
+                                                })
+                                                .collect(),
+                                        )
+                                    } else {
+                                        panic!()
+                                    }
+                                };
+                                properties.register_property(name.to_string(), property);
+                            }
+                        }
+                        JsonValue::Null => {}
+                        _ => panic!(),
+                    }
+                    properties
+                };
+                let client_block_data: ClientBlockData =
+                    serde_json::from_str(json.remove("client").to_string().as_str()).unwrap();
+                let static_data = StaticData {
+                    data: {
+                        mods::json_to_dynamic(json, &engine)
+                            .try_cast::<rhai::Map>()
+                            .unwrap()
+                            .into_iter()
+                            .map(|(name, value)| (name.to_string(), value))
+                            .collect()
+                    },
+                };
+                block_registry
+                    .register(
+                        id,
+                        |default_state, id| {
+                            Arc::new(Block {
+                                id,
+                                default_state,
+                                data_container: None,
+                                item_model_mapping: ItemModelMapping {
+                                    mapping: HashMap::new(),
+                                },
+                                properties,
+                                networks: HashMap::new(),
+                                static_data,
+                            })
+                        },
+                        |id, block| client_block_data.clone(),
+                    )
+                    .unwrap();
+            }
+            ContentType::Binary(_) => unimplemented!(),
+        });
+        mod_manager.load_resource_type("items", |id, content| match content {
+            ContentType::Json(mut json) => {
+                let stack_size = json.remove("stackSize").as_u32().unwrap_or(1);
+                let client_data: ClientItemData =
+                    serde_json::from_str(json.remove("client").to_string().as_str()).unwrap();
+                let static_data = StaticData {
+                    data: {
+                        mods::json_to_dynamic(json, &engine)
+                            .try_cast::<rhai::Map>()
+                            .unwrap()
+                            .into_iter()
+                            .map(|(name, value)| (name.to_string(), value))
+                            .collect()
+                    },
+                };
+                item_registry
+                    .register(id.clone(), move |client_id| {
+                        Arc::new(Item {
+                            id,
+                            client_data,
+                            client_id,
+                            stack_size,
+                            static_data,
+                        })
+                    })
+                    .unwrap();
+            }
+            ContentType::Binary(_) => unimplemented!(),
+        });
+        mod_manager.load_resource_type("entities", |id, content| match content {
+            ContentType::Json(mut json) => {
+                let client_data: ClientEntityData =
+                    serde_json::from_str(json.remove("client").to_string().as_str()).unwrap();
+                let static_data = StaticData {
+                    data: {
+                        mods::json_to_dynamic(json, &engine)
+                            .try_cast::<rhai::Map>()
+                            .unwrap()
+                            .into_iter()
+                            .map(|(name, value)| (name.to_string(), value))
+                            .collect()
+                    },
+                };
+                entity_registry
+                    .register(id.clone(), move |client_id| {
+                        Arc::new(EntityType {
+                            id,
+                            client_id,
+                            client_data,
+                            item_model_mapping: ItemModelMapping {
+                                mapping: HashMap::new(),
                             },
-                        },
-                        id,
-                        client_id,
-                        place_block: item_data.place.map(|place| {
-                            block_registry.borrow().state_from_string(&place).unwrap()
-                        }),
-                        on_right_click: item_data
-                            .on_right_click
-                            .map(|right_click| ScriptCallback::new(right_click)),
-                        stack_size: item_data.stack_size,
-                        tool_data: item_data.tool,
+                            static_data,
+                        })
                     })
-                })
-                .unwrap();
-        }
-        for (id, entity_data) in loaded_mods.3 {
-            entity_registry
-                .borrow_mut()
-                .register(id.clone(), |client_id| {
-                    Arc::new(EntityType {
-                        id,
-                        client_id,
-                        client_data: entity_data.client,
-                        ticker: Mutex::new(
-                            entity_data.ticker.map(|ticker| ScriptCallback::new(ticker)),
-                        ),
-                        item_model_mapping: ItemModelMapping {
-                            mapping: HashMap::new(),
-                        },
-                    })
-                })
-                .unwrap();
-        }
+                    .unwrap();
+            }
+            ContentType::Binary(_) => unimplemented!(),
+        });
         entity_registry
-            .borrow_mut()
             .register(Identifier::new("bb", "item"), |client_id| {
                 Arc::new(EntityType {
                     id: Identifier::new("bb", "item"),
@@ -251,7 +295,6 @@ impl Server {
                         items: vec!["main".to_string()],
                         viewmodel: None,
                     },
-                    ticker: Mutex::new(None),
                     item_model_mapping: ItemModelMapping {
                         mapping: {
                             let mut mapping = HashMap::new();
@@ -259,19 +302,45 @@ impl Server {
                             mapping
                         },
                     },
+                    static_data: StaticData {
+                        data: HashMap::new(),
+                    },
                 })
             })
             .unwrap();
-        loaded_mods.4.models.insert(
+        let mut client_content_data = ClientContentData {
+            images: HashMap::new(),
+            sounds: HashMap::new(),
+            models: HashMap::new(),
+        };
+        mod_manager.load_resource_type("images", |id, content| match content {
+            ContentType::Json(_) => todo!(),
+            ContentType::Binary(data) => {
+                client_content_data.images.insert(id, data);
+            }
+        });
+        mod_manager.load_resource_type("sounds", |id, content| match content {
+            ContentType::Json(_) => todo!(),
+            ContentType::Binary(data) => {
+                client_content_data.sounds.insert(id, data);
+            }
+        });
+        mod_manager.load_resource_type("models", |id, content| match content {
+            ContentType::Json(_) => todo!(),
+            ContentType::Binary(data) => {
+                client_content_data.models.insert(id, data);
+            }
+        });
+        client_content_data.models.insert(
             Identifier::new("bb", "item"),
             include_bytes!("assets/item_model.bbm").to_vec(),
         );
         let client_content = {
             let client_content = registry::ClientContentGenerator::generate_zip(
-                &block_registry.borrow(),
-                &item_registry.borrow(),
-                &entity_registry.borrow(),
-                loaded_mods.4,
+                &block_registry,
+                &item_registry,
+                &entity_registry,
+                client_content_data,
             );
             let hash = sha256::digest(client_content.as_slice());
             (client_content, hash)
@@ -281,19 +350,18 @@ impl Server {
             content.push("content.zip");
             fs::write(content, &client_content.0).unwrap();
         }
-        let structures = loaded_mods.0.load_structures(&block_registry.borrow());
-        let recipes = loaded_mods.0.load_recipes(&item_registry.borrow());
-        let loottables = loaded_mods.0.load_loot_tables(&item_registry.borrow());
-        let gui_layouts = loaded_mods.0.load_gui_layouts();
-        let tags = loaded_mods.0.load_tags();
-        let block_registry = block_registry.into_inner();
+        let structures = mod_manager.load_structures(&block_registry);
+        let recipes = mod_manager.load_recipes(&item_registry);
+        let loottables = mod_manager.load_loot_tables(&item_registry);
+        let gui_layouts = mod_manager.load_gui_layouts();
+        let tags = mod_manager.load_tags();
         Arc::new_cyclic(|this| Server {
             this: this.clone(),
             new_players: Mutex::new(Server::create_listener_thread(this.clone(), port)),
             worlds: Mutex::new(FxHashMap::default()),
-            item_registry: item_registry.into_inner(),
-            entity_registry: entity_registry.into_inner(),
-            mods: Mutex::new(loaded_mods.0),
+            item_registry,
+            entity_registry,
+            mods: Mutex::new(mod_manager),
             client_content,
             thread_pool: ThreadPool::new(4),
             world_generator_template: (loaded_mods

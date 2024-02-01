@@ -19,7 +19,6 @@ use splines::Spline;
 use uuid::Uuid;
 
 use crate::mods::{ScriptCallback, ScriptingObject, UserDataWrapper};
-use crate::registry::ToolType;
 use crate::world::{PlayerData, UserData};
 use crate::{
     registry::{InteractionResult, Item, ItemRegistry},
@@ -1051,9 +1050,7 @@ pub struct LootTable {
     tables: Vec<(Arc<Item>, Spline<f64, f64>, Conditions)>,
 }
 #[derive(Default)]
-pub struct Conditions {
-    tool_type: Option<ToolType>,
-}
+pub struct Conditions {}
 pub struct LootTableGenerationParameters<'a> {
     pub item: Option<&'a ItemStack>,
 }

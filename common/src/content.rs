@@ -29,33 +29,26 @@ pub struct ClientBlockDynamicData {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum ClientBlockRenderDataType {
     Air,
-    Cube(ClientBlockCubeRenderData),
-    Static(ClientBlockStaticRenderData),
-    Foliage(ClientBlockFoliageRenderData),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ClientBlockCubeRenderData {
-    pub front: ClientTexture,
-    pub back: ClientTexture,
-    pub right: ClientTexture,
-    pub left: ClientTexture,
-    pub up: ClientTexture,
-    pub down: ClientTexture,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ClientBlockStaticRenderData {
-    pub models: Vec<(String, ClientTexture, Transformation)>,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ClientBlockFoliageRenderData {
-    pub texture_1: ClientTexture,
-    pub texture_2: ClientTexture,
-    pub texture_3: ClientTexture,
-    pub texture_4: ClientTexture,
+    Cube {
+        front: ClientTexture,
+        back: ClientTexture,
+        right: ClientTexture,
+        left: ClientTexture,
+        up: ClientTexture,
+        down: ClientTexture,
+    },
+    Static {
+        models: Vec<(String, ClientTexture, Transformation)>,
+    },
+    Foliage {
+        texture_1: ClientTexture,
+        texture_2: ClientTexture,
+        texture_3: ClientTexture,
+        texture_4: ClientTexture,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -65,8 +58,9 @@ pub struct ClientItemData {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum ClientItemModel {
-    Texture(String),//todo: support animated textures
+    Texture(String), //todo: support animated textures
     Block(u32),
 }
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -120,7 +114,7 @@ pub struct ModelMeshElement {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModelMeshElementFace {
-    pub vertices: Vec<(u16, f32, f32)>
+    pub vertices: Vec<(u16, f32, f32)>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModelCubeElement {
@@ -230,7 +224,8 @@ pub struct ModelData {
     pub animations: Vec<(String, f32)>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum ClientTexture {
-    Static{id:String},
-    Animated{id:String,time:u8,stages:u8}
+    Static { id: String },
+    Animated { id: String, time: u8, stages: u8 },
 }

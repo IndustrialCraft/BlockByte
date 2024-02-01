@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use std::ops::RangeInclusive;
 use std::str::FromStr;
 use std::sync::Weak;
@@ -13,13 +14,12 @@ use block_byte_common::content::{
 };
 use block_byte_common::{BlockPosition, Face, HorizontalFace};
 use once_cell::sync::Lazy;
-use parking_lot::Mutex;
 use rhai::{Dynamic, Engine, FnPtr, Map};
 use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
 
 use crate::inventory::Recipe;
-use crate::mods::ScriptingObject;
+use crate::mods::{ClientContentData, ScriptingObject};
 use crate::util::BlockLocation;
 use crate::world::PlayerData;
 use crate::{
@@ -78,16 +78,14 @@ impl BlockRegistry {
                         },
                     })
                 },
-                |_, _| ModClientBlockData {
-                    client: ClientBlockData {
-                        block_type: ClientBlockRenderDataType::Air,
-                        dynamic: None,
-                        fluid: false,
-                        render_data: 0,
-                        transparent: false,
-                        selectable: false,
-                        no_collide: true,
-                    },
+                |_, _| ClientBlockData {
+                    block_type: ClientBlockRenderDataType::Air,
+                    dynamic: None,
+                    fluid: false,
+                    render_data: 0,
+                    transparent: false,
+                    selectable: false,
+                    no_collide: true,
                 },
             )
             .expect("couldn't register air");
@@ -101,7 +99,7 @@ impl BlockRegistry {
     ) -> Result<u32, ()>
     where
         F: FnOnce(u32, Identifier) -> Arc<Block>,
-        T: Fn(u32, &Block) -> ModClientBlockData,
+        T: Fn(u32, &Block) -> ClientBlockData,
     {
         if self.blocks.get(&id).is_some() {
             return Err(());
@@ -114,8 +112,8 @@ impl BlockRegistry {
             block_states.push(BlockState {
                 parent: block.clone(),
                 state_id: i,
-                collidable: !(client_data.client.no_collide | client_data.client.fluid),
-                client_data: client_data.client,
+                collidable: !(client_data.no_collide | client_data.fluid),
+                client_data,
             });
         }
         self.blocks.insert(id, block);
@@ -135,18 +133,18 @@ impl BlockRegistry {
     pub fn state_by_ref(&self, block_state_ref: BlockStateRef) -> &BlockState {
         self.states.get(block_state_ref.state_id as usize).unwrap()
     }
-    pub fn state_from_string(&self, state: &str) -> Result<BlockStateRef, ()> {
+    pub fn state_from_string(&self, state: &str) -> anyhow::Result<BlockStateRef> {
         let (block, props) = if state.contains('{') {
-            let split = state.split_once('{').ok_or(())?;
+            let split = state.split_once('{').unwrap();
             (
                 self.block_by_identifier(&Identifier::parse(split.0)?)
-                    .ok_or(())?,
+                    .ok_or(anyhow!("block not found"))?,
                 Some(&split.1[0..split.1.len() - 1]),
             )
         } else {
             (
                 self.block_by_identifier(&Identifier::parse(state)?)
-                    .ok_or(())?,
+                    .ok_or(anyhow!("block not found"))?,
                 None,
             )
         };
@@ -645,10 +643,8 @@ pub struct Item {
     pub id: Identifier,
     pub client_data: ClientItemData,
     pub client_id: u32,
-    pub place_block: Option<BlockStateRef>,
-    pub on_right_click: Option<ScriptCallback>,
     pub stack_size: u32,
-    pub tool_data: Option<ToolData>,
+    pub static_data: StaticData,
 }
 
 impl Item {
@@ -768,8 +764,8 @@ pub struct EntityType {
     pub id: Identifier,
     pub client_id: u32,
     pub client_data: ClientEntityData,
-    pub ticker: Mutex<Option<ScriptCallback>>,
     pub item_model_mapping: ItemModelMapping,
+    pub static_data: StaticData,
 }
 
 pub struct ClientContentGenerator {}
@@ -877,42 +873,3 @@ impl RecipeManager {
 }
 static EMPTY_RECIPE_LIST: Lazy<&'static mut Vec<Arc<Recipe>>> =
     Lazy::new(|| Box::leak(Box::new(Vec::new())));
-
-#[derive(Clone)]
-pub struct ToolData {
-    pub durability: u32,
-    pub speed: f32,
-    pub hardness: f32,
-    pub type_bitmap: u8,
-}
-
-impl ToolData {
-    pub fn new(durability: u32, speed: f32, hardness: f32, types: Vec<ToolType>) -> Self {
-        let mut type_bitmap = 0;
-        for tool_type in types {
-            type_bitmap |= tool_type as u8;
-        }
-        Self {
-            durability,
-            speed,
-            hardness,
-            type_bitmap,
-        }
-    }
-    pub fn add_type(&mut self, tool_type: ToolType) {
-        self.type_bitmap |= tool_type as u8;
-    }
-    pub fn breaks_type(&self, tool_type: ToolType) -> bool {
-        (tool_type as u8) & self.type_bitmap > 0
-    }
-}
-
-#[repr(u8)]
-#[derive(Clone, Debug, Copy)]
-pub enum ToolType {
-    Axe = 1,
-    Shovel = 2,
-    Pickaxe = 4,
-    Wrench = 8,
-    Knife = 16,
-}

@@ -1,7 +1,7 @@
 use crate::mods::ScriptingObject;
 use crate::registry::BlockStateRef;
 use crate::Server;
-use anyhow::{anyhow, Error};
+use anyhow::anyhow;
 use block_byte_common::{BlockPosition, Face, Position};
 use rhai::{Dynamic, Engine, ImmutableString};
 use serde::{Deserialize, Serialize};

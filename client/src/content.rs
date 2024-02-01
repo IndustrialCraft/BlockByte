@@ -3,7 +3,10 @@ use crate::model::Model;
 use crate::texture::{pack_textures, TextureAtlas};
 use ambisonic::rodio::Source;
 use ambisonic::{Ambisonic, AmbisonicBuilder, StereoConfig};
-use block_byte_common::content::{ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData, ClientItemModel, ClientTexture, ModelData, Transformation};
+use block_byte_common::content::{
+    ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData,
+    ClientItemModel, ClientTexture, ModelData, Transformation,
+};
 use block_byte_common::{Face, Position, TexCoords, Vec2};
 use image::RgbaImage;
 use std::collections::HashMap;
@@ -119,20 +122,24 @@ impl BlockRegistry {
         self.blocks.push(BlockData {
             block_type: match block_data.block_type {
                 ClientBlockRenderDataType::Air => BlockRenderDataType::Air,
-                ClientBlockRenderDataType::Cube(cube) => {
-                    BlockRenderDataType::Cube(BlockCubeRenderData {
-                        front: Texture::from_common(cube.front, texture_atlas),
-                        back: Texture::from_common(cube.back, texture_atlas),
-                        left: Texture::from_common(cube.left, texture_atlas),
-                        right: Texture::from_common(cube.right, texture_atlas),
-                        up: Texture::from_common(cube.up, texture_atlas),
-                        down: Texture::from_common(cube.down, texture_atlas),
-                    })
-                }
-                ClientBlockRenderDataType::Static(static_data) => {
+                ClientBlockRenderDataType::Cube {
+                    front,
+                    back,
+                    right,
+                    left,
+                    up,
+                    down,
+                } => BlockRenderDataType::Cube(BlockCubeRenderData {
+                    front: Texture::from_common(front, texture_atlas),
+                    back: Texture::from_common(back, texture_atlas),
+                    left: Texture::from_common(left, texture_atlas),
+                    right: Texture::from_common(right, texture_atlas),
+                    up: Texture::from_common(up, texture_atlas),
+                    down: Texture::from_common(down, texture_atlas),
+                }),
+                ClientBlockRenderDataType::Static { models } => {
                     BlockRenderDataType::Static(BlockStaticRenderData {
-                        models: static_data
-                            .models
+                        models: models
                             .into_iter()
                             .map(|static_data| {
                                 (
@@ -152,14 +159,17 @@ impl BlockRegistry {
                     })
                 }
 
-                ClientBlockRenderDataType::Foliage(foliage) => {
-                    BlockRenderDataType::Foliage(BlockFoliageRenderData {
-                        texture_1: Texture::from_common(foliage.texture_1, texture_atlas),
-                        texture_2: Texture::from_common(foliage.texture_2, texture_atlas),
-                        texture_3: Texture::from_common(foliage.texture_3, texture_atlas),
-                        texture_4: Texture::from_common(foliage.texture_4, texture_atlas),
-                    })
-                }
+                ClientBlockRenderDataType::Foliage {
+                    texture_1,
+                    texture_2,
+                    texture_3,
+                    texture_4,
+                } => BlockRenderDataType::Foliage(BlockFoliageRenderData {
+                    texture_1: Texture::from_common(texture_1, texture_atlas),
+                    texture_2: Texture::from_common(texture_2, texture_atlas),
+                    texture_3: Texture::from_common(texture_3, texture_atlas),
+                    texture_4: Texture::from_common(texture_4, texture_atlas),
+                }),
             },
             dynamic: block_data.dynamic.map(|dynamic| {
                 Model::new(
@@ -388,15 +398,21 @@ pub struct EntityData {
     pub viewmodel: Option<Model>,
 }
 #[derive(Copy, Clone)]
-pub enum Texture{
-    Static{coords:TexCoords},
-    Animated{coords:TexCoords,time:u8,stages:u8}
+pub enum Texture {
+    Static {
+        coords: TexCoords,
+    },
+    Animated {
+        coords: TexCoords,
+        time: u8,
+        stages: u8,
+    },
 }
-impl Texture{
-    pub fn get_first_coords(&self) -> TexCoords{
-        match self{
+impl Texture {
+    pub fn get_first_coords(&self) -> TexCoords {
+        match self {
             Texture::Static { coords } => *coords,
-            Texture::Animated { coords, .. } => TexCoords{
+            Texture::Animated { coords, .. } => TexCoords {
                 u1: coords.u1,
                 v1: coords.v1,
                 u2: coords.u1 + self.get_shift(),
@@ -404,18 +420,22 @@ impl Texture{
             },
         }
     }
-    pub fn get_shift(&self) -> f32{
-        match self{
+    pub fn get_shift(&self) -> f32 {
+        match self {
             Texture::Static { .. } => 0.,
-            Texture::Animated { coords, stages, .. } => {
-                (coords.u2-coords.u1)/(*stages as f32)
-            }
+            Texture::Animated { coords, stages, .. } => (coords.u2 - coords.u1) / (*stages as f32),
         }
     }
-    pub fn from_common(texture: ClientTexture, atlas: &TextureAtlas) -> Self{
-        match texture{
-            ClientTexture::Static { id } => Texture::Static {coords: atlas.get(id.as_str())},
-            ClientTexture::Animated { id, time, stages } => Texture::Animated {coords: atlas.get(id.as_str()), time, stages}
+    pub fn from_common(texture: ClientTexture, atlas: &TextureAtlas) -> Self {
+        match texture {
+            ClientTexture::Static { id } => Texture::Static {
+                coords: atlas.get(id.as_str()),
+            },
+            ClientTexture::Animated { id, time, stages } => Texture::Animated {
+                coords: atlas.get(id.as_str()),
+                time,
+                stages,
+            },
         }
     }
 }
