@@ -15,11 +15,11 @@ use parking_lot::{Mutex, MutexGuard};
 use rand::{thread_rng, Rng};
 use rhai::{Dynamic, Engine};
 use serde::{Deserialize, Serialize};
-use splines::Spline;
 use uuid::Uuid;
 
 use crate::mods::{ScriptCallback, ScriptingObject, UserDataWrapper};
 use crate::world::{PlayerData, UserData};
+use crate::worldgen::Spline;
 use crate::{
     registry::{InteractionResult, Item, ItemRegistry},
     util::Identifier,
@@ -1047,7 +1047,7 @@ impl ScriptingObject for Recipe {
 }
 
 pub struct LootTable {
-    tables: Vec<(Arc<Item>, Spline<f64, f64>, Conditions)>,
+    tables: Vec<(Arc<Item>, Spline, Conditions)>,
 }
 #[derive(Default)]
 pub struct Conditions {}
@@ -1060,20 +1060,7 @@ impl LootTable {
         for table in json["tables"].members() {
             let conditions = &table["conditions"];
             let conditions = if !conditions.is_null() {
-                let tool_type = &conditions["tool_type"];
-                Conditions {
-                    tool_type: match tool_type.as_str() {
-                        Some(tool_type) => match tool_type {
-                            "Axe" => Some(ToolType::Axe),
-                            "Pickaxe" => Some(ToolType::Pickaxe),
-                            "Knife" => Some(ToolType::Knife),
-                            "Wrench" => Some(ToolType::Wrench),
-                            "Shovel" => Some(ToolType::Shovel),
-                            _ => panic!("unknown tool type"),
-                        },
-                        None => None,
-                    },
-                }
+                Conditions {}
             } else {
                 Default::default()
             };
@@ -1082,7 +1069,7 @@ impl LootTable {
                     .item_by_identifier(&Identifier::parse(table["id"].as_str().unwrap()).unwrap())
                     .unwrap()
                     .clone(),
-                crate::mods::spline_from_json(&table["count"]),
+                Spline::from_json(&table["count"]),
                 conditions,
             ));
         }
@@ -1091,21 +1078,9 @@ impl LootTable {
     pub fn generate_items(&self, parameters: LootTableGenerationParameters) -> Vec<ItemStack> {
         let mut items = Vec::new();
         for table in &self.tables {
-            if match (
-                &table.2.tool_type,
-                &parameters
-                    .item
-                    .and_then(|item| item.item_type.tool_data.as_ref()),
-            ) {
-                (Some(tool_type), Some(tool)) => !tool.breaks_type(*tool_type),
-                (Some(_), None) => true,
-                _ => false,
-            } {
-                continue;
-            }
             let count = table
                 .1
-                .clamped_sample(thread_rng().gen_range((0.)..(1.)))
+                .sample(thread_rng().gen_range((0.)..(1.)))
                 .unwrap()
                 .round() as u32;
             if count > 0 {
@@ -1120,9 +1095,6 @@ pub struct GUILayout {
     elements: HashMap<String, GUIElement>,
 }
 impl GUILayout {
-    pub fn load(input: &str) -> GUILayout {
-        serde_json::from_str(input).unwrap()
-    }
     pub fn send_to_player(&self, player: &PlayerData, container_id: &str) {
         for element in &self.elements {
             player.send_message(&NetworkMessageS2C::GuiSetElement(

@@ -7,6 +7,7 @@
     const_trait_impl,
     trait_alias
 )]
+#![feature(let_chains)]
 
 extern crate core;
 
@@ -30,8 +31,10 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use crate::inventory::GUILayout;
-use crate::mods::{ClientContentData, ContentType, EventManager, IdentifierTag, ScriptingObject};
+use crate::inventory::{GUILayout, Recipe};
+use crate::mods::{
+    ClientContentData, ContentType, EventManager, IdentifierTag, ScriptCallback, ScriptingObject,
+};
 use crate::registry::{BlockStateProperty, BlockStatePropertyStorage, RecipeManager, StaticData};
 use crate::world::PlayerData;
 use block_byte_common::content::{
@@ -49,7 +52,6 @@ use registry::{
     Block, BlockRegistry, EntityRegistry, EntityType, Item, ItemModelMapping, ItemRegistry,
 };
 use rhai::{Dynamic, Engine};
-use splines::Spline;
 use threadpool::ThreadPool;
 use util::{Identifier, Location};
 use world::{Entity, Structure, World};
@@ -143,6 +145,13 @@ impl Server {
         let mut block_registry = BlockRegistry::new();
         let mut item_registry = ItemRegistry::new();
         let mut entity_registry = EntityRegistry::new();
+        let mut biomes = Vec::new();
+        let mut structures = HashMap::new();
+        let mut events = EventManager::new();
+        let mut recipes = HashMap::new();
+        let mut loot_tables = HashMap::new();
+        let mut gui_layouts = HashMap::new();
+        let mut tags = HashMap::new();
         mod_manager.load_resource_type("blocks", |id, content| match content {
             ContentType::Json(mut json) => {
                 let properties = {
@@ -214,7 +223,7 @@ impl Server {
                                 static_data,
                             })
                         },
-                        |id, block| client_block_data.clone(),
+                        |_id, _block| client_block_data.clone(), //todo: state function
                     )
                     .unwrap();
             }
@@ -308,6 +317,56 @@ impl Server {
                 })
             })
             .unwrap();
+        mod_manager.load_resource_type("structures", |id, content| match content {
+            ContentType::Json(json) => {
+                structures.insert(id, Arc::new(Structure::from_json(json, &block_registry)));
+            }
+            ContentType::Binary(_) => {}
+        });
+        mod_manager.load_resource_type("biomes", |id, content| match content {
+            ContentType::Json(json) => {
+                biomes.push(Biome::from_json(&json, &block_registry, &structures));
+            }
+            ContentType::Binary(_) => {}
+        });
+        mod_manager.load_resource_type("recipes", |id, content| match content {
+            ContentType::Json(json) => {
+                recipes.insert(
+                    id.clone(),
+                    Arc::new(Recipe::from_json(id, json, &item_registry)),
+                );
+            }
+            ContentType::Binary(_) => {}
+        });
+        mod_manager.load_resource_type("loot_tables", |id, content| match content {
+            ContentType::Json(json) => {
+                loot_tables.insert(id, Arc::new(LootTable::from_json(json, &item_registry)));
+            }
+            ContentType::Binary(_) => {}
+        });
+        mod_manager.load_resource_type("gui", |id, content| match content {
+            ContentType::Json(json) => {
+                gui_layouts.insert(
+                    id,
+                    Arc::new(serde_json::from_str(json.to_string().as_str()).unwrap()),
+                );
+            }
+            ContentType::Binary(_) => {}
+        });
+        mod_manager.load_resource_type("tags", |id, content| match content {
+            ContentType::Json(json) => {
+                tags.insert(id, IdentifierTag::load(json));
+            }
+            ContentType::Binary(_) => {}
+        });
+        mod_manager.load_resource_type("events", |_, content| match content {
+            ContentType::Json(json) => {
+                let event_id = Identifier::parse(json["type"].as_str().unwrap()).unwrap();
+                let event = json["event"].as_str().unwrap();
+                events.register(event_id, ScriptCallback::new(engine.eval(event).unwrap()));
+            }
+            ContentType::Binary(_) => {}
+        });
         let mut client_content_data = ClientContentData {
             images: HashMap::new(),
             sounds: HashMap::new(),
@@ -350,11 +409,6 @@ impl Server {
             content.push("content.zip");
             fs::write(content, &client_content.0).unwrap();
         }
-        let structures = mod_manager.load_structures(&block_registry);
-        let recipes = mod_manager.load_recipes(&item_registry);
-        let loottables = mod_manager.load_loot_tables(&item_registry);
-        let gui_layouts = mod_manager.load_gui_layouts();
-        let tags = mod_manager.load_tags();
         Arc::new_cyclic(|this| Server {
             this: this.clone(),
             new_players: Mutex::new(Server::create_listener_thread(this.clone(), port)),
@@ -364,40 +418,11 @@ impl Server {
             mods: Mutex::new(mod_manager),
             client_content,
             thread_pool: ThreadPool::new(4),
-            world_generator_template: (loaded_mods
-                .5
-                .iter()
-                .map(|biome_template| {
-                    Biome::new(
-                        &block_registry,
-                        biome_template.top_block.as_str(),
-                        biome_template.middle_block.as_str(),
-                        biome_template.bottom_block.as_str(),
-                        biome_template.water_block.as_str(),
-                        Spline::from_vec(biome_template.spline_land.clone()),
-                        Spline::from_vec(biome_template.spline_height.clone()),
-                        Spline::from_vec(biome_template.spline_temperature.clone()),
-                        Spline::from_vec(biome_template.spline_moisture.clone()),
-                        biome_template
-                            .structures
-                            .iter()
-                            .map(|(chance, id)| {
-                                (
-                                    *chance,
-                                    structures
-                                        .get(id)
-                                        .expect(format!("structure {} not found", id).as_str())
-                                        .clone(),
-                                )
-                            })
-                            .collect(),
-                    )
-                })
-                .collect(),),
+            world_generator_template: (biomes,),
             block_registry,
             structures,
             recipes: RecipeManager::new(recipes),
-            events: loaded_mods.6,
+            events,
             engine: {
                 ModManager::runtime_engine_load(&mut engine, this.clone());
                 engine
@@ -415,7 +440,7 @@ impl Server {
                 }
             },
             save_directory,
-            loot_tables: loottables,
+            loot_tables,
             players: Mutex::new(Vec::new()),
             gui_layouts,
             tags,

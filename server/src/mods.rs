@@ -11,7 +11,6 @@ use rhai::{
     exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, GlobalRuntimeState, Scope, StaticVec,
     AST,
 };
-use splines::Spline;
 use std::collections::HashSet;
 use std::{
     cell::OnceCell,
@@ -23,13 +22,12 @@ use std::{
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-use crate::inventory::{GUILayout, InventoryWrapper, ItemStack, ModGuiViewer, OwnedInventoryView};
+use crate::inventory::{InventoryWrapper, ItemStack, ModGuiViewer, OwnedInventoryView};
 use crate::registry::{Block, BlockState, BlockStateRef, InteractionResult};
 use crate::util::BlockLocation;
 use crate::world::{BlockNetwork, PlayerData, UserData, World, WorldBlock};
 use crate::{
-    inventory::{LootTable, Recipe},
-    registry::{BlockRegistry, ItemRegistry},
+    inventory::Recipe,
     util::{Identifier, Location},
     world::{Entity, Structure},
     Server,
@@ -220,7 +218,11 @@ impl ModManager {
 
         (ModManager { mods }, errors, engine)
     }
-    pub fn load_resource_type<F: Fn(Identifier, ContentType)>(&self, resource_type: &str, f: F) {
+    pub fn load_resource_type<F: FnMut(Identifier, ContentType)>(
+        &self,
+        resource_type: &str,
+        mut f: F,
+    ) {
         for (_, loaded_mod) in &self.mods {
             for (id, content) in
                 loaded_mod.load_content(resource_type, Self::create_json_base_provider(&self.mods))
@@ -239,153 +241,6 @@ impl ModManager {
                     .ok()
             })
         }
-    }
-    pub fn load_structures(
-        &self,
-        block_registry: &BlockRegistry,
-    ) -> HashMap<Identifier, Arc<Structure>> {
-        let mut structures = HashMap::new();
-        for loaded_mod in &self.mods {
-            let mut path = loaded_mod.1.path.clone();
-            path.push("structures");
-            for structure_path in WalkDir::new(&path)
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .filter(|entry| entry.metadata().unwrap().is_file())
-            {
-                let path_diff = pathdiff::diff_paths(structure_path.path(), &path).unwrap();
-                let id = path_diff
-                    .as_os_str()
-                    .to_str()
-                    .unwrap()
-                    .split_once(".")
-                    .unwrap()
-                    .0;
-                let id = Identifier::new(loaded_mod.1.namespace.clone(), id);
-                let json = json::parse(fs::read_to_string(structure_path.path()).unwrap().as_str())
-                    .unwrap();
-                structures.insert(
-                    id.clone(),
-                    Arc::new(Structure::from_json(json, block_registry)),
-                );
-            }
-        }
-        structures
-    }
-    pub fn load_loot_tables(
-        &self,
-        item_registry: &ItemRegistry,
-    ) -> HashMap<Identifier, Arc<LootTable>> {
-        let mut loot_tables = HashMap::new();
-        for loaded_mod in &self.mods {
-            let mut path = loaded_mod.1.path.clone();
-            path.push("loot_tables");
-            for loot_table_path in WalkDir::new(&path)
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .filter(|entry| entry.metadata().unwrap().is_file())
-            {
-                let path_diff = pathdiff::diff_paths(loot_table_path.path(), &path).unwrap();
-                let id = path_diff
-                    .as_os_str()
-                    .to_str()
-                    .unwrap()
-                    .split_once(".")
-                    .unwrap()
-                    .0;
-                let id = Identifier::new(loaded_mod.1.namespace.clone(), id);
-                let json =
-                    json::parse(fs::read_to_string(loot_table_path.path()).unwrap().as_str())
-                        .unwrap();
-                loot_tables.insert(
-                    id.clone(),
-                    Arc::new(LootTable::from_json(json, item_registry)),
-                );
-            }
-        }
-        loot_tables
-    }
-    pub fn load_recipes(&self, item_registry: &ItemRegistry) -> HashMap<Identifier, Arc<Recipe>> {
-        let mut recipes = HashMap::new();
-        for loaded_mod in &self.mods {
-            let mut path = loaded_mod.1.path.clone();
-            path.push("recipes");
-            for recipe_path in WalkDir::new(&path)
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .filter(|entry| entry.metadata().unwrap().is_file())
-            {
-                let path_diff = pathdiff::diff_paths(recipe_path.path(), &path).unwrap();
-                let id = path_diff
-                    .as_os_str()
-                    .to_str()
-                    .unwrap()
-                    .split_once(".")
-                    .unwrap()
-                    .0;
-                let id = Identifier::new(loaded_mod.1.namespace.clone(), id);
-                let json =
-                    json::parse(fs::read_to_string(recipe_path.path()).unwrap().as_str()).unwrap();
-                recipes.insert(
-                    id.clone(),
-                    Arc::new(Recipe::from_json(id, json, item_registry)),
-                );
-            }
-        }
-        recipes
-    }
-    pub fn load_gui_layouts(&self) -> HashMap<Identifier, Arc<GUILayout>> {
-        let mut layouts = HashMap::new();
-        for loaded_mod in &self.mods {
-            let mut path = loaded_mod.1.path.clone();
-            path.push("gui");
-            for layout_path in WalkDir::new(&path)
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .filter(|entry| entry.metadata().unwrap().is_file())
-            {
-                let path_diff = pathdiff::diff_paths(layout_path.path(), &path).unwrap();
-                let id = path_diff
-                    .as_os_str()
-                    .to_str()
-                    .unwrap()
-                    .split_once(".")
-                    .unwrap()
-                    .0;
-                let id = Identifier::new(loaded_mod.1.namespace.clone(), id);
-                let json = fs::read_to_string(layout_path.path()).unwrap();
-                layouts.insert(id.clone(), Arc::new(GUILayout::load(json.as_str())));
-            }
-        }
-        layouts
-    }
-    pub fn load_tags(&self) -> HashMap<Identifier, Arc<IdentifierTag>> {
-        let mut tags = HashMap::new();
-        for loaded_mod in &self.mods {
-            let mut path = loaded_mod.1.path.clone();
-            path.push("tags");
-            for tag_path in WalkDir::new(&path)
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .filter(|entry| entry.metadata().unwrap().is_file())
-            {
-                let path_diff = pathdiff::diff_paths(tag_path.path(), &path).unwrap();
-                let id = path_diff
-                    .as_os_str()
-                    .to_str()
-                    .unwrap()
-                    .split_once(".")
-                    .unwrap()
-                    .0;
-                let id = Identifier::new(loaded_mod.1.namespace.clone(), id);
-                let json = fs::read_to_string(tag_path.path()).unwrap();
-                tags.insert(
-                    id.clone(),
-                    IdentifierTag::load(json::parse(json.as_str()).unwrap()),
-                );
-            }
-        }
-        tags
     }
     pub fn runtime_engine_load(engine: &mut Engine, server: Weak<Server>) {
         {
@@ -930,29 +785,6 @@ mod KeyboardKeyModule {
     pub const Escape: KeyboardKey = KeyboardKey::Escape;
 }
 
-pub fn spline_from_json(json: &JsonValue) -> Spline<f64, f64> {
-    if json.is_number() {
-        Spline::from_vec(vec![splines::Key {
-            t: 0.,
-            value: json.as_u32().unwrap() as f64,
-            interpolation: splines::Interpolation::Linear,
-        }])
-    } else {
-        Spline::from_vec(
-            json.entries()
-                .map(|(key, value)| {
-                    let key: f64 = key.parse().unwrap();
-                    let value = value.as_u32().unwrap() as f64;
-                    splines::Key {
-                        t: key,
-                        value,
-                        interpolation: splines::Interpolation::Linear,
-                    }
-                })
-                .collect(),
-        )
-    }
-}
 #[derive(Clone)]
 pub struct ModImage {
     image: RgbaImage,
@@ -1031,7 +863,7 @@ impl ModImage {
         buffer
     }
 }
-fn patch_up_json(mut base: JsonValue, patch: JsonValue) -> JsonValue {
+fn patch_up_json(base: JsonValue, patch: JsonValue) -> JsonValue {
     match (base, patch) {
         (JsonValue::Object(mut base), JsonValue::Object(patch)) => {
             for (name, property) in patch.iter() {

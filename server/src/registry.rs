@@ -21,7 +21,7 @@ use zip::{write::FileOptions, DateTime, ZipWriter};
 use crate::inventory::Recipe;
 use crate::mods::{ClientContentData, ScriptingObject};
 use crate::util::BlockLocation;
-use crate::world::PlayerData;
+use crate::world::{Entity, PlayerData};
 use crate::{
     inventory::ItemStack,
     mods::ScriptCallback,
@@ -655,69 +655,44 @@ impl Item {
         block_position: BlockPosition,
         block_face: Face,
     ) -> InteractionResult {
-        if let Some(place) = &self.place_block {
-            let block_position = block_position.offset_by_face(block_face);
-            let world = player.get_entity().get_location().chunk.world.clone();
-            let creative = true; //todo
-            world.replace_block(
-                block_position,
-                |block| match block {
-                    BlockData::Simple(0) => {
-                        if !world.collides_entity_with_block(block_position) {
-                            if !creative {
-                                item.add_count(-1);
-                            }
-                            Some(*place)
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                },
-                true,
-                Some(player),
-            );
-            //let target_chunk = world.get_chunk(block_position.to_chunk_pos()).unwrap();
-            /*target_chunk.announce_to_viewers(NetworkMessageS2C::BlockItem(
-                block_position,
-                0,
-                Some(
-                    world
-                        .server
-                        .item_registry
-                        .item_by_identifier(&Identifier::new("core", "log_block"))
-                        .unwrap()
-                        .client_id,
-                ),
-            ));*/
-            return InteractionResult::Consumed;
-        }
-        if let Some(right_click) = &self.on_right_click {
-            //todo: supply itemstack parameter
-            let _ = right_click.call_function(
+        let mut new_item = Dynamic::from(item.clone());
+        let result = self
+            .static_data
+            .get_function("on_right_click_block")
+            .call_function(
                 &player.server.clone().engine,
-                None,
-                (player, block_position),
-            );
-            return InteractionResult::Consumed;
-        }
-        InteractionResult::Ignored
+                Some(&mut new_item),
+                (player, block_position, block_face),
+            )
+            .try_cast::<InteractionResult>()
+            .unwrap_or(InteractionResult::Ignored);
+        *item = new_item.cast();
+        result
     }
     pub fn on_right_click(
         &self,
-        _item: &mut ItemStack,
+        item: &mut ItemStack,
         player: Arc<PlayerData>,
+        entity: Option<Arc<Entity>>,
     ) -> InteractionResult {
-        if let Some(right_click) = &self.on_right_click {
-            //todo: supply itemstack parameter
-            let _ = right_click.call_function(
+        let mut new_item = Dynamic::from(item.clone());
+        let result = self
+            .static_data
+            .get_function("on_right_click")
+            .call_function(
                 &player.server.clone().engine,
-                None,
-                (player, Dynamic::UNIT),
-            );
-            return InteractionResult::Consumed;
-        }
-        InteractionResult::Ignored
+                Some(&mut new_item),
+                (
+                    player,
+                    entity
+                        .map(|entity| Dynamic::from(entity))
+                        .unwrap_or(Dynamic::UNIT),
+                ),
+            )
+            .try_cast::<InteractionResult>()
+            .unwrap_or(InteractionResult::Ignored);
+        *item = new_item.cast();
+        result
     }
 }
 

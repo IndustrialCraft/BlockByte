@@ -537,12 +537,7 @@ impl Chunk {
                     let block = block_palette.get(block_id as usize).unwrap();
                     let offset = (x as u8, y as u8, z as u8);
                     let block_state_ref = match block.0 {
-                        Some(block_id) => {
-                            if !block_id.on_tick.is_empty() {
-                                self.ticking_blocks.lock().insert(offset);
-                            }
-                            block_id.get_state_ref(block.1)
-                        }
+                        Some(block_id) => block_id.get_state_ref(block.1),
                         None => BlockStateRef::AIR,
                     };
                     let block_data = block_state_ref.create_block_data(
@@ -634,17 +629,18 @@ impl Chunk {
                 );
             }
         }
-        let previous_ticking = !previous_block.on_tick.is_empty();
         let player = player
             .map(|player| Dynamic::from(player))
             .unwrap_or(Dynamic::UNIT);
-        let _ = previous_block.on_destroy.call_function(
-            &self.world.server.engine,
-            Some(&mut Dynamic::from(block_location.clone())),
-            (player.clone(),),
-        );
+        let _ = previous_block
+            .static_data
+            .get_function("on_destroy")
+            .call_function(
+                &self.world.server.engine,
+                Some(&mut Dynamic::from(block_location.clone())),
+                (player.clone(),),
+            );
         let new_block = &self.world.server.block_registry.state_by_ref(block).parent;
-        let new_ticking = !new_block.on_tick.is_empty();
         let block = block.create_block_data(&self.this.upgrade().unwrap(), block_position);
         if self.loading_stage.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
             self.announce_to_viewers(&NetworkMessageS2C::SetBlock(
@@ -653,25 +649,20 @@ impl Chunk {
             ));
         }
         let offset = (offset_x, offset_y, offset_z);
-        match (previous_ticking, new_ticking) {
-            (true, false) => {
-                self.ticking_blocks.lock().remove(&offset);
-            }
-            (false, true) => {
-                self.ticking_blocks.lock().insert(offset);
-            }
-            _ => {}
-        }
+        self.ticking_blocks.lock().remove(&offset);
         let new_block_data = match &block {
             BlockData::Simple(_) => None,
             BlockData::Data(data) => Some(data.clone()),
         };
         self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize] = block;
-        let _ = new_block.on_place.call_function(
-            &self.world.server.engine,
-            Some(&mut Dynamic::from(block_location)),
-            (player,),
-        );
+        let _ = new_block
+            .static_data
+            .get_function("on_player")
+            .call_function(
+                &self.world.server.engine,
+                Some(&mut Dynamic::from(block_location)),
+                (player,),
+            );
         if let Some(new_block_data) = new_block_data {
             new_block_data.on_place();
             new_block_data.update_to_clients();
@@ -795,7 +786,7 @@ impl Chunk {
                     entity.tick();
                 }
                 for block in blocks {
-                    let _ = block.0.on_tick.call_function(
+                    let _ = block.0.static_data.get_function("on_tick").call_function(
                         &chunk.world.server.engine,
                         Some(&mut Dynamic::from(block.1)),
                         (),
@@ -1588,10 +1579,12 @@ impl Entity {
         {
             *self.teleport.lock() = None;
         }
-        if let Some(ticker) = &*self.entity_type.ticker.lock() {
-            let _ =
-                ticker.call_function(&self.server.engine, None, (self.this.upgrade().unwrap(),));
-        }
+        let _ = self
+            .entity_type
+            .static_data
+            .get_function("on_tick")
+            .call_function(&self.server.engine, None, (self.this.upgrade().unwrap(),));
+
         if let Some(player) = self.get_player() {
             let messages = player.connection.lock().receive_messages();
             for message in messages {
@@ -1708,7 +1701,8 @@ impl Entity {
                             .block_registry
                             .state_by_ref(world.get_block_load(position).get_block_state())
                             .parent
-                            .on_left_click
+                            .static_data
+                            .get_function("on_left_click")
                             .call_function(
                                 &world.server.engine,
                                 Some(&mut Dynamic::from(BlockLocation {
@@ -1749,14 +1743,17 @@ impl Entity {
                                 .block_registry
                                 .state_by_ref(block.get_block_state())
                                 .parent;
-                            right_click_result = block.on_right_click.call_action(
-                                &self.server.engine,
-                                Some(&mut Dynamic::from(BlockLocation {
-                                    world: self.get_location().chunk.world.clone(),
-                                    position: block_position,
-                                })),
-                                (player.ptr(),),
-                            );
+                            right_click_result = block
+                                .static_data
+                                .get_function("on_right_click")
+                                .call_action(
+                                    &self.server.engine,
+                                    Some(&mut Dynamic::from(BlockLocation {
+                                        world: self.get_location().chunk.world.clone(),
+                                        position: block_position,
+                                    })),
+                                    (player.ptr(),),
+                                );
                         }
                         if right_click_result == InteractionResult::Consumed {
                             continue;
@@ -1784,8 +1781,11 @@ impl Entity {
                             .modify_item(hand_slot, |stack| {
                                 if let Some(stack) = stack {
                                     //todo: send shifting state
-                                    right_click_result =
-                                        stack.item_type.clone().on_right_click(stack, player.ptr());
+                                    right_click_result = stack.item_type.clone().on_right_click(
+                                        stack,
+                                        player.ptr(),
+                                        None,
+                                    );
                                 }
                             })
                             .unwrap();

@@ -1,14 +1,16 @@
+use crate::util::Identifier;
 use crate::{
     registry::{BlockRegistry, BlockStateRef},
     world::{BlockData, Chunk, Structure},
 };
 use array_init::array_init;
 use block_byte_common::BlockPosition;
+use json::JsonValue;
 use moka::sync::Cache;
 use noise::{Fbm, NoiseFn, OpenSimplex};
 use parking_lot::Mutex;
 use rand::{Rng, SeedableRng};
-use splines::{Key, Spline};
+use std::collections::HashMap;
 use std::sync::Arc;
 use thread_local::ThreadLocal;
 
@@ -38,13 +40,13 @@ impl WorldGenerator for FlatWorldGenerator {
 pub struct BasicWorldGenerator {
     seed: u64,
     land_noise: NoiseWithSize,
-    land_height_spline: Spline<f64, f64>,
-    land_small_terrain_spline: Spline<f64, f64>,
+    land_height_spline: Spline,
+    land_small_terrain_spline: Spline,
     small_terrain_noise: NoiseWithSize,
-    small_terrain_spline: Spline<f64, f64>,
+    small_terrain_spline: Spline,
     mountain_noise: NoiseWithSize,
-    mountain_spline: Spline<f64, f64>,
-    land_mountain_spline: Spline<f64, f64>,
+    mountain_spline: Spline,
+    land_mountain_spline: Spline,
     temperature_noise: NoiseWithSize,
     moisture_noise: NoiseWithSize,
     biomes: Vec<Biome>,
@@ -56,40 +58,40 @@ impl BasicWorldGenerator {
         Self {
             seed,
             land_noise: NoiseWithSize::new((seed * 4561561) as u32, 5000.),
-            land_height_spline: Spline::from_vec(vec![
-                Key::new(-1., -100., splines::Interpolation::Linear),
-                Key::new(-0.05, -30., splines::Interpolation::Linear),
-                Key::new(-0.005, -10., splines::Interpolation::Linear),
-                Key::new(0.005, 0., splines::Interpolation::Linear),
-                Key::new(1., 0., splines::Interpolation::Linear),
+            land_height_spline: Spline::new(vec![
+                SplinePoint::new(-1., -100.),
+                SplinePoint::new(-0.05, -30.),
+                SplinePoint::new(-0.005, -10.),
+                SplinePoint::new(0.005, 0.),
+                SplinePoint::new(1., 0.),
             ]),
-            land_small_terrain_spline: Spline::from_vec(vec![
-                Key::new(-1., 1., splines::Interpolation::Linear),
-                Key::new(-0.05, 1., splines::Interpolation::Linear),
-                Key::new(-0.005, 0., splines::Interpolation::Linear),
-                Key::new(0.005, 0., splines::Interpolation::Linear),
-                Key::new(0.05, 1., splines::Interpolation::Linear),
-                Key::new(1., 1., splines::Interpolation::Linear),
+            land_small_terrain_spline: Spline::new(vec![
+                SplinePoint::new(-1., 1.),
+                SplinePoint::new(-0.05, 1.),
+                SplinePoint::new(-0.005, 0.),
+                SplinePoint::new(0.005, 0.),
+                SplinePoint::new(0.05, 1.),
+                SplinePoint::new(1., 1.),
             ]),
             small_terrain_noise: NoiseWithSize::new((seed * 24245) as u32, 80.),
-            small_terrain_spline: Spline::from_vec(vec![
-                Key::new(-1., 0., splines::Interpolation::Linear),
-                Key::new(-0.2, 4., splines::Interpolation::Linear),
-                Key::new(1., 10., splines::Interpolation::Linear),
+            small_terrain_spline: Spline::new(vec![
+                SplinePoint::new(-1., 0.),
+                SplinePoint::new(-0.2, 4.),
+                SplinePoint::new(1., 10.),
             ]),
             mountain_noise: NoiseWithSize::new((seed * 38468) as u32, 600.),
-            mountain_spline: Spline::from_vec(vec![
-                Key::new(0.0, 0., splines::Interpolation::Linear),
-                Key::new(0.1, 25., splines::Interpolation::Linear),
-                Key::new(0.4, 25., splines::Interpolation::Linear),
-                Key::new(0.6, 100., splines::Interpolation::Linear),
-                Key::new(1., 300., splines::Interpolation::Linear),
+            mountain_spline: Spline::new(vec![
+                SplinePoint::new(0.0, 0.),
+                SplinePoint::new(0.1, 25.),
+                SplinePoint::new(0.4, 25.),
+                SplinePoint::new(0.6, 100.),
+                SplinePoint::new(1., 300.),
             ]),
-            land_mountain_spline: Spline::from_vec(vec![
-                Key::new(0.005, 0., splines::Interpolation::Linear),
-                Key::new(0.01, 0.3, splines::Interpolation::Linear),
-                Key::new(0.05, 1., splines::Interpolation::Linear),
-                Key::new(1., 1., splines::Interpolation::Linear),
+            land_mountain_spline: Spline::new(vec![
+                SplinePoint::new(0.005, 0.),
+                SplinePoint::new(0.01, 0.3),
+                SplinePoint::new(0.05, 1.),
+                SplinePoint::new(1., 1.),
             ]),
             temperature_noise: NoiseWithSize::new((seed * 15618236) as u32, 1000.),
             moisture_noise: NoiseWithSize::new((seed * 7489223) as u32, 1000.),
@@ -224,9 +226,9 @@ impl NoiseWithSize {
     pub fn get(&self, x: f64, z: f64) -> f64 {
         self.noise.get([x / self.size, z / self.size])
     }
-    pub fn get_splined(&self, x: f64, z: f64, spline: &Spline<f64, f64>) -> f64 {
+    pub fn get_splined(&self, x: f64, z: f64, spline: &Spline) -> f64 {
         spline
-            .clamped_sample(self.noise.get([x / self.size, z / self.size]))
+            .sample(self.noise.get([x / self.size, z / self.size]))
             .unwrap()
     }
 }
@@ -236,51 +238,140 @@ pub struct Biome {
     middle_block: BlockStateRef,
     bottom_block: BlockStateRef,
     water_block: BlockStateRef,
-    land_noise_spline: Spline<f64, f64>,
-    height_spline: Spline<f64, f64>,
-    temperature_noise_spline: Spline<f64, f64>,
-    moisture_noise_spline: Spline<f64, f64>,
-    structures: Vec<(f32, Arc<Structure>)>,
+    land_noise_spline: Spline,
+    height_spline: Spline,
+    temperature_noise_spline: Spline,
+    moisture_noise_spline: Spline,
+    structures: Vec<(f64, Arc<Structure>)>,
 }
 impl Biome {
-    pub fn new(
+    pub fn from_json(
+        json: &JsonValue,
         block_registry: &BlockRegistry,
-        top_block: &str,
-        middle_block: &str,
-        bottom_block: &str,
-        water_block: &str,
-        land_noise_spline: Spline<f64, f64>,
-        height_spline: Spline<f64, f64>,
-        temperature_noise_spline: Spline<f64, f64>,
-        moisture_noise_spline: Spline<f64, f64>,
-        structures: Vec<(f32, Arc<Structure>)>,
+        structures: &HashMap<Identifier, Arc<Structure>>,
     ) -> Self {
         Biome {
-            top_block: block_registry.state_from_string(top_block).unwrap(),
-            middle_block: block_registry.state_from_string(middle_block).unwrap(),
-            bottom_block: block_registry.state_from_string(bottom_block).unwrap(),
-            water_block: block_registry.state_from_string(water_block).unwrap(),
-            land_noise_spline,
-            height_spline,
-            temperature_noise_spline,
-            moisture_noise_spline,
-            structures,
+            top_block: block_registry
+                .state_from_string(json["top"].as_str().unwrap())
+                .unwrap(),
+            middle_block: block_registry
+                .state_from_string(json["middle"].as_str().unwrap())
+                .unwrap(),
+            bottom_block: block_registry
+                .state_from_string(json["bottom"].as_str().unwrap())
+                .unwrap(),
+            water_block: block_registry
+                .state_from_string(json["water"].as_str().unwrap())
+                .unwrap(),
+            land_noise_spline: Spline::from_json(&json["land"]),
+            height_spline: Spline::from_json(&json["height"]),
+            temperature_noise_spline: Spline::from_json(&json["temperature"]),
+            moisture_noise_spline: Spline::from_json(&json["moisture"]),
+            structures: json["structures"]
+                .members()
+                .map(|structure| {
+                    (
+                        structure["chance"].as_f64().unwrap(),
+                        structures
+                            .get(&Identifier::parse(structure["id"].as_str().unwrap()).unwrap())
+                            .unwrap()
+                            .clone(),
+                    )
+                })
+                .collect(),
         }
     }
-    pub fn get_structures(&self) -> &Vec<(f32, Arc<Structure>)> {
+    pub fn get_structures(&self) -> &Vec<(f64, Arc<Structure>)> {
         &self.structures
     }
     pub fn get_fitness(&self, land: f64, height: f64, temperature: f64, moisture: f64) -> f64 {
-        let fitness = self.land_noise_spline.clamped_sample(land).unwrap_or(1.)
-            * self.height_spline.clamped_sample(height).unwrap_or(1.)
+        let fitness = self.land_noise_spline.sample(land).unwrap_or(1.)
+            * self.height_spline.sample(height).unwrap_or(1.)
             * self
                 .temperature_noise_spline
-                .clamped_sample(temperature)
+                .sample(temperature)
                 .unwrap_or(1.)
-            * self
-                .moisture_noise_spline
-                .clamped_sample(moisture)
-                .unwrap_or(1.);
+            * self.moisture_noise_spline.sample(moisture).unwrap_or(1.);
         fitness
+    }
+}
+#[derive(Copy, Clone)]
+pub struct SplinePoint {
+    key: f64,
+    left: f64,
+    right: f64,
+}
+impl SplinePoint {
+    pub fn new(key: f64, value: f64) -> SplinePoint {
+        SplinePoint {
+            key,
+            left: value,
+            right: value,
+        }
+    }
+}
+#[derive(Clone)]
+pub struct Spline {
+    points: Vec<SplinePoint>,
+}
+impl Spline {
+    pub fn new(mut points: Vec<SplinePoint>) -> Self {
+        points.sort_by(|a, b| a.key.total_cmp(&b.key));
+        Spline { points }
+    }
+    pub fn from_json(json: &JsonValue) -> Self {
+        if json.is_null() {
+            return Spline {
+                points: vec![SplinePoint::new(0., 1.)],
+            };
+        }
+        if let Some(value) = json.as_f64() {
+            return Spline {
+                points: vec![SplinePoint::new(0., value)],
+            };
+        }
+        let mut points = Vec::new();
+        for point in json.members() {
+            let key = point["key"].as_f64().unwrap();
+            if let Some(value) = point["value"].as_f64() {
+                points.push(SplinePoint {
+                    key,
+                    left: value,
+                    right: value,
+                });
+            } else {
+                points.push(SplinePoint {
+                    key,
+                    left: point["left"].as_f64().unwrap(),
+                    right: point["right"].as_f64().unwrap(),
+                });
+            }
+        }
+        Spline::new(points)
+    }
+    pub fn sample(&self, key: f64) -> Option<f64> {
+        if self.points.len() == 0 {
+            return None;
+        }
+        let mut first = None;
+        let mut second = None;
+        for point in &self.points {
+            if point.key < key {
+                first = Some(point);
+            } else {
+                second = Some(point);
+                break;
+            }
+        }
+        if first.is_none() {
+            return Some(second.unwrap().left);
+        }
+        if second.is_none() {
+            return Some(first.unwrap().right);
+        }
+        let first = first.unwrap();
+        let second = second.unwrap();
+        let lerp_val = (key - first.key) / (second.key - first.key);
+        Some((first.right * (1. - lerp_val)) + (second.left * lerp_val))
     }
 }
