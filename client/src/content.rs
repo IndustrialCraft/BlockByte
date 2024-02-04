@@ -4,8 +4,8 @@ use crate::texture::{pack_textures, TextureAtlas};
 use ambisonic::rodio::Source;
 use ambisonic::{Ambisonic, AmbisonicBuilder, StereoConfig};
 use block_byte_common::content::{
-    ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData,
-    ClientItemModel, ClientTexture, ModelData, Transformation,
+    ClientAnimatedTexture, ClientBlockData, ClientBlockRenderDataType, ClientContent,
+    ClientEntityData, ClientItemData, ClientItemModel, ClientTexture, ModelData, Transformation,
 };
 use block_byte_common::{Face, Position, TexCoords, Vec2};
 use image::RgbaImage;
@@ -137,27 +137,27 @@ impl BlockRegistry {
                     up: Texture::from_common(up, texture_atlas),
                     down: Texture::from_common(down, texture_atlas),
                 }),
-                ClientBlockRenderDataType::Static { models } => {
-                    BlockRenderDataType::Static(BlockStaticRenderData {
-                        models: models
-                            .into_iter()
-                            .map(|static_data| {
-                                (
-                                    Model::new(
-                                        models
-                                            .get(static_data.0.as_str())
-                                            .unwrap_or(models.get("missing").unwrap())
-                                            .clone(),
-                                        Texture::from_common(static_data.1, texture_atlas),
-                                        Vec::new(),
-                                        Vec::new(),
-                                    ),
-                                    static_data.2,
-                                )
-                            })
-                            .collect(),
-                    })
-                }
+                ClientBlockRenderDataType::Static {
+                    models: static_models,
+                } => BlockRenderDataType::Static(BlockStaticRenderData {
+                    models: static_models
+                        .into_iter()
+                        .map(|static_data| {
+                            (
+                                Model::new(
+                                    models
+                                        .get(static_data.0.as_str())
+                                        .unwrap_or(models.get("missing").unwrap())
+                                        .clone(),
+                                    Texture::from_common(static_data.1, texture_atlas),
+                                    Vec::new(),
+                                    Vec::new(),
+                                ),
+                                static_data.2,
+                            )
+                        })
+                        .collect(),
+                }),
 
                 ClientBlockRenderDataType::Foliage {
                     texture_1,
@@ -428,14 +428,16 @@ impl Texture {
     }
     pub fn from_common(texture: ClientTexture, atlas: &TextureAtlas) -> Self {
         match texture {
-            ClientTexture::Static { id } => Texture::Static {
+            ClientTexture::String(id) => Texture::Static {
                 coords: atlas.get(id.as_str()),
             },
-            ClientTexture::Animated { id, time, stages } => Texture::Animated {
-                coords: atlas.get(id.as_str()),
-                time,
-                stages,
-            },
+            ClientTexture::Struct(ClientAnimatedTexture { id, time, stages }) => {
+                Texture::Animated {
+                    coords: atlas.get(id.as_str()),
+                    time,
+                    stages,
+                }
+            }
         }
     }
 }

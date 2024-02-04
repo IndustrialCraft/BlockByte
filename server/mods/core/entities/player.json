@@ -1,0 +1,12 @@
+{
+  "client": {
+    "model": "core:player",
+    "texture": "core:player",
+    "hitbox_w": 0.6,
+    "hitbox_h": 1.7,
+    "hitbox_d": 0.6,
+    "hitbox_h_shifting": 1.5,
+    "animations": [],
+    "items": ["main_hand"]
+  }
+}

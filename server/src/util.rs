@@ -27,7 +27,7 @@ impl Identifier {
     pub fn parse<V: Into<ImmutableString>>(value: V) -> anyhow::Result<Self> {
         let value = value.into();
         value
-            .find(".")
+            .find(":")
             .map(|id| Identifier {
                 content: value,
                 split: id,

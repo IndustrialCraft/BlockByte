@@ -1,17 +1,3 @@
-register_event("bb:post_player_join", ||{
-    this.player.open_overlay("core:health", "core:layout_health");
-    core::health::set_health(this.player, 100);
-});
-register_event("bb:command", ||{
-    if this.command[0] == "sethealth"{
-        let health = parse_int(this.command[1]);
-        core::health::set_health(this.player, health);
-    }
-    if this.command[0] == "damage"{
-        let damage = parse_int(this.command[1]);
-        core::health::set_health(this.player, core::health::get_health(this.player)-damage);
-    }
-});
 fn set_health(player, health){
     player.user_data["core:health"] = health;
     player.get_overlay("core:health").set_slice("health_fg", 0., 0., health/100., 1.);
@@ -19,5 +5,4 @@ fn set_health(player, health){
 fn get_health(player){
     return player.user_data["core:health"];
 }
-register_image("core:bar", "images/bar.png");
-register_image("core:health_bar", load_image("images/bar.png").color(create_color(255., 0., 0., 255.)));
+//register_image("core:health_bar", load_image("images/bar.png").color(create_color(255., 0., 0., 255.)));

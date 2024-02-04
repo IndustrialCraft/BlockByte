@@ -1,0 +1,18 @@
+{
+  "client": {
+    "block_type": {
+      "type": "Cube",
+      "front": "overworld:stone",
+      "back": "overworld:stone",
+      "left": "overworld:stone",
+      "right": "overworld:stone",
+      "up": "overworld:stone",
+      "down": "overworld:stone"
+    },
+    "fluid": false,
+    "render_data": 0,
+    "transparent": false,
+    "selectable": true,
+    "no_collide": false
+  }
+}

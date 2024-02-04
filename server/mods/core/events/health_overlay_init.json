@@ -1,0 +1,4 @@
+{
+  "type": "bb:post_player_join",
+  "event": "||{this.player.open_overlay(\"core:health\", \"core:layout_health\");\n    core::health::set_health(this.player, 100);}"
+}

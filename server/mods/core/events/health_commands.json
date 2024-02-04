@@ -1,0 +1,4 @@
+{
+  "type": "bb:command",
+  "event": "||{\n    if this.command[0] == \"sethealth\"{\n        let health = parse_int(this.command[1]);\n        core::health::set_health(this.player, health);\n    }\n    if this.command[0] == \"damage\"{\n        let damage = parse_int(this.command[1]);\n        core::health::set_health(this.player, core::health::get_health(this.player)-damage);\n    }\n}"
+}

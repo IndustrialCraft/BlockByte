@@ -295,7 +295,7 @@ impl Server {
                     client_id,
                     client_data: ClientEntityData {
                         model: "bb:item".to_string(),
-                        texture: ClientTexture::Static { id: "".to_string() },
+                        texture: ClientTexture::String("".to_string()),
                         hitbox_w: 0.5,
                         hitbox_h: 0.1,
                         hitbox_d: 0.5,
@@ -501,9 +501,8 @@ impl Server {
                 let mut event_data: rhai::Map = event_data.try_cast().unwrap();
                 let entity = event_data
                     .remove("entity")
-                    .unwrap()
-                    .try_cast::<Arc<Entity>>()
-                    .unwrap();
+                    .and_then(|entity| entity.try_cast::<Arc<Entity>>())
+                    .expect("player entity not specified");
 
                 let player = PlayerData::new(connection, self.ptr(), entity);
                 self.players.lock().push(player.clone());

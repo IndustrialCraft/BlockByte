@@ -1,5 +1,6 @@
 use crate::{Face, TexCoords, Vec2, Vec3};
 use serde::{Deserialize, Serialize};
+use serde_either::StringOrStruct;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -223,9 +224,11 @@ pub struct ModelData {
     pub root_bone: ModelBone,
     pub animations: Vec<(String, f32)>,
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ClientTexture {
-    Static { id: String },
-    Animated { id: String, time: u8, stages: u8 },
+pub struct ClientAnimatedTexture {
+    pub id: String,
+    pub time: u8,
+    pub stages: u8,
 }
+pub type ClientTexture = StringOrStruct<ClientAnimatedTexture>;
