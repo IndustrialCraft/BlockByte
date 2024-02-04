@@ -131,7 +131,7 @@ impl BlockLocation {
     }
 }
 impl ScriptingObject for BlockLocation {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
+    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
         engine.register_type_with_name::<BlockLocation>("BlockLocation");
         engine.register_fn(
             "BlockLocation",
@@ -196,6 +196,27 @@ impl ScriptingObject for BlockLocation {
                 world: location.world.clone(),
             },
         );
+        {
+            let server = server.clone();
+            engine.register_indexer_get(move |location: &mut BlockLocation, id: &str| {
+                println!("id: {id}");
+                location
+                    .world
+                    .get_block(&location.position)
+                    .and_then(|block| {
+                        server
+                            .upgrade()
+                            .unwrap()
+                            .block_registry
+                            .state_by_ref(block.get_block_state())
+                            .parent
+                            .static_data
+                            .get(id)
+                            .cloned()
+                    })
+                    .unwrap_or(Dynamic::UNIT)
+            });
+        }
     }
 }
 impl PartialEq for BlockLocation {

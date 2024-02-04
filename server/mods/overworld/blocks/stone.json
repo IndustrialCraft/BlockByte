@@ -14,5 +14,7 @@
     "transparent": false,
     "selectable": true,
     "no_collide": false
-  }
+  },
+  "on_left_click": "!|player|{this.ahoj;}",
+  "ahoj": "!||{print(\"lol\");}"
 }
