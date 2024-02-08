@@ -36,3 +36,5 @@ image = "0.24.7"
 thread_local = "1.1.7"
 moka = {version="0.12.1",features = ["sync"]}
 pathfinding = "4.3.2"
+
+bbscript = { path = "../bbscript" }

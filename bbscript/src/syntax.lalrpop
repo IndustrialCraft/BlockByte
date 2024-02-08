@@ -1,0 +1,59 @@
+use std::str::FromStr;
+use crate::ast::{Expression, Statement, StatementBlock};
+use crate::eval::Function;
+use immutable_string::ImmutableString;
+
+grammar;
+
+Comma<T>: Vec<T> = {
+    <mut v:(<T> ",")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
+
+pub Expression: Expression = {
+    #[precedence(level="0")]
+    <n:Number> => n,
+    <s:String> => Expression::StringLiteral{literal:s},
+    "(" <e:Expression> ")" => e,
+    <e:Expression> "." <id:Identifier> => Expression::MemberAccess{expression:Box::new(e),name:id},
+    <id:Identifier> => Expression::ScopedVariable{name:id},
+    <e:Expression> "(" <arg:Comma<Expression>> ")" => Expression::Call{expression:Box::new(e), parameters:arg},
+    #[precedence(level="1")]
+    #[assoc(side="left")]
+    <e1:Expression> <op:Operator> <e2:Expression> => Expression::Operator{first:Box::new(e1),second:Box::new(e2),operator:op},
+};
+
+pub Statement: Statement = {
+    <l:"let"?> <id:Identifier> "=" <e:Expression> ";" => Statement::Assign{is_let: l.is_some(), name: id, value: e},
+    "if" <c:Expression> <s:StatementBlock> <u:ElseStatementBlock?> => Statement::If{condition:c,satisfied:s,unsatisfied:u},
+    "for" <n:Identifier> "in" <e:Expression> <s:StatementBlock> => Statement::For{name:n,expression:e,body:s},
+};
+
+pub StatementBlock: StatementBlock = {
+    "{" <s:(<Statement>)*> "}" => StatementBlock{statements:s},
+};
+
+pub ElseStatementBlock: StatementBlock = {
+    "else" <s:StatementBlock> => s,
+}
+
+Number: Expression = <n:r"[0-9]+"> <n2:r"\.[0-9]*"?> => if n2.is_none() {Expression::IntLiteral{literal:i64::from_str(n).unwrap()}} else {Expression::FloatLiteral{literal:f64::from_str(format!("{n}{}", n2.unwrap()).as_str()).unwrap()}};
+Identifier: ImmutableString = <s:r"[a-zA-Z][a-zA-Z0-9]*"> => s.into();
+String: ImmutableString = <s:r"'[a-zA-Z0-9]+'"> => s.into();
+Operator: ImmutableString = {
+    "+" => "+".into(),
+    "-" => "-".into(),
+    "*" => "*".into(),
+    "/" => "/".into(),
+};
+Function: Function = {
+    "fn" <n:Identifier> "(" <args:Comma<Identifier>> ")" <b:StatementBlock> => Function{name:n, body: b, parameter_names: args},
+};
+pub SourceFile: Vec<Function> = {
+    <s:Function*> => s
+};

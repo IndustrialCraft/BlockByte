@@ -4,7 +4,7 @@ use crate::model::{ModelInstanceData, TransformationExt};
 use crate::render::{ChunkVertex, FaceVerticesExtension};
 use block_byte_common::messages::MovementType;
 use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position, Vec3, AABB};
-use cgmath::{point3, Deg, ElementWise, InnerSpace, Matrix4, Point3, Vector3};
+use cgmath::{point3, ElementWise, InnerSpace, Matrix4, Point3, Vector3};
 use log::warn;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
