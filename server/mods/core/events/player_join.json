@@ -1,4 +1,0 @@
-{
-  "type": "bb:player_join",
-  "event": "||{this.entity = Entity(\"core:player\", this.location);}"
-}

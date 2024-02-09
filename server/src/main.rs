@@ -360,12 +360,15 @@ impl Server {
             ContentType::Binary(_) => {}
         });
         mod_manager.load_resource_type("events", |_, content| match content {
-            ContentType::Json(json) => {
-                let event_id = Identifier::parse(json["type"].as_str().unwrap()).unwrap();
-                let event = json["event"].as_str().unwrap();
-                events.register(event_id, ScriptCallback::new(engine.eval(event).unwrap()));
+            ContentType::Json(_) => {}
+            ContentType::Binary(text) => {
+                let text = String::from_utf8(text).unwrap();
+                let (id, event) = text.split_once("\n").unwrap();
+                events.register(
+                    Identifier::parse(&id[1..]).unwrap(),
+                    ScriptCallback::new(engine.eval(event).unwrap()),
+                );
             }
-            ContentType::Binary(_) => {}
         });
         let mut client_content_data = ClientContentData {
             images: HashMap::new(),

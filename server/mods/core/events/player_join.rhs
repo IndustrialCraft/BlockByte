@@ -1,0 +1,4 @@
+#bb:player_join
+||{
+    this.entity = Entity("core:player", this.location);
+}
