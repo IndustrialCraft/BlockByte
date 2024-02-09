@@ -1,6 +1,7 @@
 use crate::ast::{Expression, Statement, StatementBlock};
-use crate::eval::ScriptError::{MismatchedParameters, VariableNotDefined};
-use crate::variant::{FromVariant, FunctionType, FunctionVariant, IntoVariant, Primitive, Variant};
+use crate::variant::{
+    Array, FromVariant, FunctionType, FunctionVariant, IntoVariant, Primitive, TypeName, Variant,
+};
 use immutable_string::ImmutableString;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -8,13 +9,13 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
 pub enum ScriptError {
-    MismatchedParameters,
+    MismatchedParameterCount,
+    MismatchedType { expected: TypeName, got: TypeName },
     VariableNotDefined,
     ConditionNotBool,
     MemberNotFound,
     NonFunctionCalled,
-    RuntimeError(String),
-    TypeError,
+    RuntimeError { error: String },
     NonVectorIterated,
 }
 pub type ScriptResult = Result<Variant, ScriptError>;
@@ -60,7 +61,7 @@ impl<'a> ScopeStack<'a> {
                 return if let Some(previous) = &self.previous {
                     previous.set_variable(name, value, false)
                 } else {
-                    Err(VariableNotDefined)
+                    Err(ScriptError::VariableNotDefined)
                 };
             }
         }
@@ -90,7 +91,7 @@ impl Function {
         }
         stack.set_variable("this".into(), this, true).unwrap();
         if parameters.len() != self.parameter_names.len() {
-            return Err(ScriptError::MismatchedParameters);
+            return Err(ScriptError::MismatchedParameterCount);
         }
         for (value, name) in parameters.into_iter().zip(self.parameter_names.iter()) {
             stack.set_variable(name.clone(), value, true).unwrap();
@@ -143,12 +144,14 @@ impl Function {
                 } => {
                     let expression = Function::eval_expression(&stack, expression, environment)?;
                     let stack = stack.push();
-                    for value in Vec::<Variant>::from_variant(&expression)
+                    for value in Array::from_variant(&expression)
                         .ok_or(ScriptError::NonVectorIterated)?
+                        .lock()
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>()
                     {
-                        stack
-                            .set_variable(name.clone(), value.clone(), true)
-                            .unwrap();
+                        stack.set_variable(name.clone(), value, true).unwrap();
                         Function::execute_block(&stack, body, environment)?;
                     }
                     Variant::NULL()
@@ -166,9 +169,9 @@ impl Function {
             Expression::StringLiteral { literal } => Ok(literal.clone().into_variant()),
             Expression::IntLiteral { literal } => Ok((*literal).into_variant()),
             Expression::FloatLiteral { literal } => Ok((*literal).into_variant()),
-            Expression::ScopedVariable { name } => {
-                stack.get_variable(name.as_ref()).ok_or(VariableNotDefined)
-            }
+            Expression::ScopedVariable { name } => stack
+                .get_variable(name.as_ref())
+                .ok_or(ScriptError::VariableNotDefined),
             Expression::Call {
                 expression,
                 parameters,
@@ -334,15 +337,15 @@ where
     fn into_function(self) -> Box<dyn Fn(Vec<Variant>) -> ScriptResult + Send + Sync> {
         Box::new(move |args| {
             if args.len() != 1 {
-                return Err(MismatchedParameters);
+                return Err(ScriptError::MismatchedParameterCount);
             }
-            self(A::from_variant(&args[0]).ok_or(MismatchedParameters)?)
+            self(A::from_variant_error(&args[0])?)
         })
     }
     fn into_method(self) -> Box<dyn Fn(&A, Vec<Variant>) -> ScriptResult + Send + Sync> {
         Box::new(move |this, args| {
             if args.len() != 0 {
-                return Err(MismatchedParameters);
+                return Err(ScriptError::MismatchedParameterCount);
             }
             self(this)
         })
@@ -357,20 +360,20 @@ where
     fn into_function(self) -> Box<dyn Fn(Vec<Variant>) -> ScriptResult + Send + Sync> {
         Box::new(move |args| {
             if args.len() != 2 {
-                return Err(MismatchedParameters);
+                return Err(ScriptError::MismatchedParameterCount);
             }
             self(
-                A::from_variant(&args[0]).ok_or(MismatchedParameters)?,
-                B::from_variant(&args[1]).ok_or(MismatchedParameters)?,
+                A::from_variant_error(&args[0])?,
+                B::from_variant_error(&args[1])?,
             )
         })
     }
     fn into_method(self) -> Box<dyn Fn(&A, Vec<Variant>) -> ScriptResult + Send + Sync> {
         Box::new(move |this, args| {
             if args.len() != 1 {
-                return Err(MismatchedParameters);
+                return Err(ScriptError::MismatchedParameterCount);
             }
-            self(this, B::from_variant(&args[0]).ok_or(MismatchedParameters)?)
+            self(this, B::from_variant_error(&args[0])?)
         })
     }
 }
@@ -384,24 +387,24 @@ where
     fn into_function(self) -> Box<dyn Fn(Vec<Variant>) -> ScriptResult + Send + Sync> {
         Box::new(move |args| {
             if args.len() != 3 {
-                return Err(MismatchedParameters);
+                return Err(ScriptError::MismatchedParameterCount);
             }
             self(
-                A::from_variant(&args[0]).ok_or(MismatchedParameters)?,
-                B::from_variant(&args[1]).ok_or(MismatchedParameters)?,
-                C::from_variant(&args[2]).ok_or(MismatchedParameters)?,
+                A::from_variant_error(&args[0])?,
+                B::from_variant_error(&args[1])?,
+                C::from_variant_error(&args[2])?,
             )
         })
     }
     fn into_method(self) -> Box<dyn Fn(&A, Vec<Variant>) -> ScriptResult + Send + Sync> {
         Box::new(move |this, args| {
             if args.len() != 2 {
-                return Err(MismatchedParameters);
+                return Err(ScriptError::MismatchedParameterCount);
             }
             self(
                 this,
-                B::from_variant(&args[0]).ok_or(MismatchedParameters)?,
-                C::from_variant(&args[1]).ok_or(MismatchedParameters)?,
+                B::from_variant_error(&args[0])?,
+                C::from_variant_error(&args[1])?,
             )
         })
     }

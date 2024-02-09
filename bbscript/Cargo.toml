@@ -9,7 +9,7 @@ edition = "2021"
 immutable_string = "0.1.1"
 lalrpop-util = {version="0.20.0",features = ["lexer","unicode"]}
 dyn-clone = "1.0.14"
-dyn-eq = "0.1.3"
+parking_lot = "0.12"
 
 [build-dependencies]
 lalrpop = "0.20.0"

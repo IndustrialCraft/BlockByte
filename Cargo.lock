@@ -254,10 +254,10 @@ name = "bbscript"
 version = "0.1.0"
 dependencies = [
  "dyn-clone",
- "dyn-eq",
  "immutable_string",
  "lalrpop",
  "lalrpop-util",
+ "parking_lot 0.12.1",
 ]
 
 [[package]]
@@ -1028,12 +1028,6 @@ name = "dyn-clone"
 version = "1.0.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "545b22097d44f8a9581187cdf93de7a71e4722bf51200cfaba810865b49a495d"
-
-[[package]]
-name = "dyn-eq"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c2d035d21af5cde1a6f5c7b444a5bf963520a9f142e5d06931178433d7d5388"
 
 [[package]]
 name = "either"

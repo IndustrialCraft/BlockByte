@@ -1,5 +1,5 @@
-use crate::eval::{ExecutionEnvironment, ScriptResult};
-use crate::variant::IntoVariant;
+use crate::eval::{ExecutionEnvironment, ScriptError};
+use crate::variant::{Array, IntoVariant, Variant};
 use immutable_string::ImmutableString;
 
 pub fn register_defaults(environment: &mut ExecutionEnvironment) {
@@ -67,4 +67,36 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
     register_comparison!(f64, true);
     register_comparison!(bool, false);
     register_comparison!(ImmutableString, false);
+
+    environment.register_method("get", |this: &Array, index: &i64| {
+        let this = this.lock();
+        this.get(*index as usize)
+            .cloned()
+            .ok_or(ScriptError::RuntimeError {
+                error: format!(
+                    "array index {} out of bounds, length: {}",
+                    *index,
+                    this.len()
+                ),
+            })
+    });
+    environment.register_method("set", |this: &Array, index: &i64, value: &Variant| {
+        let mut this = this.lock();
+        if *index > this.len() as i64 {
+            return Err(ScriptError::RuntimeError {
+                error: format!(
+                    "array index {} out of bounds, length: {}",
+                    *index,
+                    this.len()
+                ),
+            });
+        }
+        this.insert(*index as usize, value.clone());
+        Ok(Variant::NULL())
+    });
+    environment.register_method("push", |this: &Array, value: &Variant| {
+        let mut this = this.lock();
+        this.push(value.clone());
+        Ok(Variant::NULL())
+    });
 }
