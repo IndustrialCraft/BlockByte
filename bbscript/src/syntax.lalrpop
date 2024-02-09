@@ -50,6 +50,12 @@ Operator: ImmutableString = {
     "-" => "-".into(),
     "*" => "*".into(),
     "/" => "/".into(),
+    "==" => "==".into(),
+    "!=" => "!=".into(),
+    ">" => ">".into(),
+    "<" => "<".into(),
+    ">=" => ">=".into(),
+    "<=" => "<=".into(),
 };
 Function: Function = {
     "fn" <n:Identifier> "(" <args:Comma<Identifier>> ")" <b:StatementBlock> => Function{name:n, body: b, parameter_names: args},
