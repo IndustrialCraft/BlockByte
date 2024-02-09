@@ -152,6 +152,35 @@ impl Server {
         let mut loot_tables = HashMap::new();
         let mut gui_layouts = HashMap::new();
         let mut tags = HashMap::new();
+
+        let mut load_item_from_json = |id: Identifier, mut json: JsonValue| {
+            let client_data: ClientEntityData =
+                serde_json::from_str(json.remove("client").to_string().as_str()).unwrap();
+            let static_data = StaticData {
+                data: {
+                    mods::json_to_dynamic(json, &engine)
+                        .try_cast::<rhai::Map>()
+                        .unwrap()
+                        .into_iter()
+                        .map(|(name, value)| (name.to_string(), value))
+                        .collect()
+                },
+            };
+            entity_registry
+                .register(id.clone(), move |client_id| {
+                    Arc::new(EntityType {
+                        id,
+                        client_id,
+                        client_data,
+                        item_model_mapping: ItemModelMapping {
+                            mapping: HashMap::new(),
+                        },
+                        static_data,
+                    })
+                })
+                .unwrap();
+        };
+
         mod_manager.load_resource_type("blocks", |id, content| match content {
             ContentType::Json(mut json) => {
                 let properties = {
@@ -197,6 +226,12 @@ impl Server {
                 };
                 let client_block_data: ClientBlockData =
                     serde_json::from_str(json.remove("client").to_string().as_str()).unwrap();
+                {
+                    let item = json.remove("item");
+                    if !item.is_null() {
+                        load_item_from_json(id.clone(), item);
+                    }
+                }
                 let static_data = StaticData {
                     data: {
                         mods::json_to_dynamic(json, &engine)
@@ -231,7 +266,7 @@ impl Server {
         });
         mod_manager.load_resource_type("items", |id, content| match content {
             ContentType::Json(mut json) => {
-                let stack_size = json.remove("stackSize").as_u32().unwrap_or(1);
+                let stack_size = json.remove("stack_size").as_u32().unwrap_or(1);
                 let client_data: ClientItemData =
                     serde_json::from_str(json.remove("client").to_string().as_str()).unwrap();
                 let static_data = StaticData {
@@ -259,32 +294,8 @@ impl Server {
             ContentType::Binary(_) => unimplemented!(),
         });
         mod_manager.load_resource_type("entities", |id, content| match content {
-            ContentType::Json(mut json) => {
-                let client_data: ClientEntityData =
-                    serde_json::from_str(json.remove("client").to_string().as_str()).unwrap();
-                let static_data = StaticData {
-                    data: {
-                        mods::json_to_dynamic(json, &engine)
-                            .try_cast::<rhai::Map>()
-                            .unwrap()
-                            .into_iter()
-                            .map(|(name, value)| (name.to_string(), value))
-                            .collect()
-                    },
-                };
-                entity_registry
-                    .register(id.clone(), move |client_id| {
-                        Arc::new(EntityType {
-                            id,
-                            client_id,
-                            client_data,
-                            item_model_mapping: ItemModelMapping {
-                                mapping: HashMap::new(),
-                            },
-                            static_data,
-                        })
-                    })
-                    .unwrap();
+            ContentType::Json(json) => {
+                load_item_from_json(id, json);
             }
             ContentType::Binary(_) => unimplemented!(),
         });
