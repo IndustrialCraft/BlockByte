@@ -7,7 +7,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub struct TypeName(&'static str);
+pub struct TypeName(TypeId, &'static str);
+impl TypeName {
+    pub fn new<T: 'static>() -> TypeName {
+        TypeName(TypeId::of::<T>(), type_name::<T>())
+    }
+    pub fn resolve_name<'a>(&'a self, env: &'a ExecutionEnvironment) -> &str {
+        env.get_type_info(self.0)
+            .and_then(|info| info.custom_name.as_ref().map(|name| name.as_ref()))
+            .unwrap_or(self.1)
+    }
+}
 
 pub trait Primitive: Any + DynClone + Send + Sync {
     #[must_use]
@@ -22,7 +32,7 @@ impl<T: Any + Clone + Send + Sync> Primitive for T {
     }
 
     fn type_name(&self) -> TypeName {
-        TypeName(type_name::<T>())
+        TypeName::new::<T>()
     }
 }
 
@@ -72,7 +82,7 @@ impl<T: Primitive> FromVariant for T {
     }
     fn from_variant_error(variant: &Variant) -> Result<&Self, ScriptError> {
         Self::from_variant(variant).ok_or(ScriptError::MismatchedType {
-            expected: TypeName(type_name::<T>()),
+            expected: TypeName::new::<T>(),
             got: variant.type_name(),
         })
     }

@@ -289,16 +289,39 @@ impl ExecutionEnvironment {
             .into_variant(),
         );
     }
+    pub fn register_custom_name<T: Primitive>(&mut self, custom_name: ImmutableString) {
+        self.types
+            .entry(TypeId::of::<T>())
+            .or_insert(TypeInfo::new())
+            .custom_name = Some(custom_name);
+    }
+    pub fn register_default_accessor<
+        T: Primitive,
+        F: Fn(&Variant, ImmutableString) -> Option<Variant> + Send + Sync + 'static,
+    >(
+        &mut self,
+        function: F,
+    ) {
+        self.types
+            .entry(TypeId::of::<T>())
+            .or_insert(TypeInfo::new())
+            .default = Some(Box::new(function));
+    }
+    pub fn get_type_info(&self, type_id: TypeId) -> Option<&TypeInfo> {
+        self.types.get(&type_id)
+    }
 }
 pub struct TypeInfo {
     members: HashMap<ImmutableString, Box<dyn Fn(&Variant) -> Option<Variant>>>,
     default: Option<Box<dyn Fn(&Variant, ImmutableString) -> Option<Variant>>>,
+    pub custom_name: Option<ImmutableString>,
 }
 impl TypeInfo {
     pub fn new() -> Self {
         TypeInfo {
             members: HashMap::new(),
             default: None,
+            custom_name: None,
         }
     }
     pub fn access_member(&self, value: &Variant, name: &ImmutableString) -> Option<Variant> {
