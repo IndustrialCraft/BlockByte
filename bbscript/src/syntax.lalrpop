@@ -19,17 +19,18 @@ pub Expression: Expression = {
     #[precedence(level="0")]
     <n:Number> => n,
     <s:String> => Expression::StringLiteral{literal:s},
-    "(" <e:Expression> ")" => e,
     <e:Expression> "." <id:Identifier> => Expression::MemberAccess{expression:Box::new(e),name:id},
     <id:Identifier> => Expression::ScopedVariable{name:id},
     <e:Expression> "(" <arg:Comma<Expression>> ")" => Expression::Call{expression:Box::new(e), parameters:arg},
     #[precedence(level="1")]
     #[assoc(side="left")]
+    "(" <e:Expression> ")" => e,
     <e1:Expression> <op:Operator> <e2:Expression> => Expression::Operator{first:Box::new(e1),second:Box::new(e2),operator:op},
 };
 
 pub Statement: Statement = {
     <l:"let"?> <id:Identifier> "=" <e:Expression> ";" => Statement::Assign{is_let: l.is_some(), name: id, value: e},
+    <e:Expression> ";" => Statement::Eval{expression:e},
     "if" <c:Expression> <s:StatementBlock> <u:ElseStatementBlock?> => Statement::If{condition:c,satisfied:s,unsatisfied:u},
     "for" <n:Identifier> "in" <e:Expression> <s:StatementBlock> => Statement::For{name:n,expression:e,body:s},
 };

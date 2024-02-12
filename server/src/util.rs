@@ -2,16 +2,20 @@ use crate::mods::ScriptingObject;
 use crate::registry::BlockStateRef;
 use crate::Server;
 use anyhow::anyhow;
+use bbscript::eval::ExecutionEnvironment;
+use bbscript::variant::{IntoVariant, Variant};
 use block_byte_common::{BlockPosition, Face, Position};
-use rhai::{Dynamic, Engine, ImmutableString};
-use serde::{Deserialize, Serialize};
+use immutable_string::ImmutableString;
+use serde::de::Error;
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt::Formatter;
 use std::hash::{Hash, Hasher};
 use std::sync::Weak;
 use std::{fmt::Display, sync::Arc};
 
 use crate::world::{BlockData, Chunk, World, WorldBlock};
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Identifier {
     content: ImmutableString,
     split: usize,
@@ -21,7 +25,7 @@ impl Identifier {
         let namespace = namespace.into();
         Identifier {
             split: namespace.len(),
-            content: namespace + ":" + key.into(),
+            content: ImmutableString::from(namespace.to_string() + ":" + key.into().as_ref()),
         }
     }
     pub fn parse<V: Into<ImmutableString>>(value: V) -> anyhow::Result<Self> {
@@ -46,35 +50,51 @@ impl Display for Identifier {
         write!(f, "{}", self.content)
     }
 }
-impl ScriptingObject for Identifier {
-    fn engine_register(_engine: &mut Engine) {}
+impl Serialize for Identifier {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.content.as_ref())
+    }
 }
-
+impl<'de> Deserialize<'de> for Identifier {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_string(IdentifierVisitor)
+    }
+}
+struct IdentifierVisitor;
+impl<'de> serde::de::Visitor<'de> for IdentifierVisitor {
+    type Value = Identifier;
+    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+        formatter.write_str("string")
+    }
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        Identifier::parse(v.as_str()).map_err(|_| de::Error::custom("identifier parsing error"))
+    }
+}
 #[derive(Clone)]
 pub struct Location {
     pub position: Position,
     pub world: Arc<World>,
 }
 impl ScriptingObject for Location {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
-        engine.register_type_with_name::<Location>("Location");
-        engine.register_fn("Location", |position: Position, world: Arc<World>| {
-            Location { position, world }
+    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+        env.register_custom_name::<Location, _>("Location");
+        env.register_function("Location", |position: &Position, world: &Arc<World>| {
+            Ok(Location {
+                position: position.clone(),
+                world: world.clone(),
+            })
         });
-        engine.register_get_set(
-            "position",
-            |location: &mut Location| location.position,
-            |location: &mut Location, position: Position| {
-                location.position = position;
-            },
-        );
-        engine.register_get_set(
-            "world",
-            |location: &mut Location| location.world.clone(),
-            |location: &mut Location, world: Arc<World>| {
-                location.world = world;
-            },
-        );
+        env.register_member("position", |location: &Location| Some(location.position));
+        env.register_member("world", |location: &Location| Some(location.world.clone()));
     }
 }
 impl PartialEq for Location {
@@ -131,72 +151,66 @@ impl BlockLocation {
     }
 }
 impl ScriptingObject for BlockLocation {
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
-        engine.register_type_with_name::<BlockLocation>("BlockLocation");
-        engine.register_fn(
+    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+        env.register_custom_name::<BlockLocation, _>("BlockLocation");
+        env.register_function(
             "BlockLocation",
-            |position: BlockPosition, world: Arc<World>| BlockLocation { position, world },
-        );
-        engine.register_get_set(
-            "position",
-            |location: &mut BlockLocation| location.position,
-            |location: &mut BlockLocation, position: BlockPosition| {
-                location.position = position;
+            |position: &BlockPosition, world: &Arc<World>| {
+                Ok(BlockLocation {
+                    position: position.clone(),
+                    world: world.clone(),
+                })
             },
         );
-        engine.register_get_set(
-            "world",
-            |location: &mut BlockLocation| location.world.clone(),
-            |location: &mut BlockLocation, world: Arc<World>| {
-                location.world = world;
-            },
-        );
-        engine.register_fn(
+        env.register_member("position", |location: &BlockLocation| {
+            Some(location.position)
+        });
+        env.register_member("world", |location: &BlockLocation| {
+            Some(location.world.clone())
+        });
+        env.register_method(
             "set_block",
-            |location: &mut BlockLocation, block: BlockStateRef| {
+            |location: &BlockLocation, block: &BlockStateRef| {
                 location
                     .world
-                    .set_block(location.position, block, true, None);
+                    .set_block(location.position, *block, true, None);
+                Ok(())
             },
         );
-        engine.register_fn("get_block_load", |location: &mut BlockLocation| {
-            location
+        env.register_method("get_block_load", |location: &BlockLocation| {
+            Ok(location
                 .world
                 .get_block_load(location.position)
-                .get_block_state()
+                .get_block_state())
         });
-        engine.register_fn("get_block", |location: &mut BlockLocation| {
-            location
-                .world
-                .get_block(&location.position)
-                .map(|block| Dynamic::from(block.get_block_state()))
-                .unwrap_or(Dynamic::UNIT)
+        env.register_method("get_block", |location: &BlockLocation| {
+            Ok(Variant::from_option(
+                location.world.get_block(&location.position),
+            ))
         });
-        engine.register_fn(
-            "get_block_data_load",
-            |location: &mut BlockLocation| match location.world.get_block_load(location.position) {
-                BlockData::Simple(_) => Dynamic::UNIT,
-                BlockData::Data(data) => Dynamic::from(data),
-            },
-        );
-        engine.register_fn("get_block_data", |location: &mut BlockLocation| {
-            location
+        env.register_method("get_block_data_load", |location: &BlockLocation| {
+            Ok(match location.world.get_block_load(location.position) {
+                BlockData::Simple(_) => Variant::NULL(),
+                BlockData::Data(data) => data.into_variant(),
+            })
+        });
+        env.register_method("get_block_data", |location: &BlockLocation| {
+            Ok(location
                 .world
                 .get_block(&location.position)
                 .map(|block| match block {
-                    BlockData::Simple(_) => Dynamic::UNIT,
-                    BlockData::Data(data) => Dynamic::from(data),
+                    BlockData::Simple(_) => Variant::NULL(),
+                    BlockData::Data(data) => data.into_variant(),
                 })
-                .unwrap_or(Dynamic::UNIT)
+                .unwrap_or(Variant::NULL()))
         });
-        engine.register_fn(
-            "offset_by_face",
-            |location: &mut BlockLocation, face: Face| BlockLocation {
-                position: location.position.offset_by_face(face),
+        env.register_method("offset_by_face", |location: &BlockLocation, face: &Face| {
+            Ok(BlockLocation {
+                position: location.position.offset_by_face(*face),
                 world: location.world.clone(),
-            },
-        );
-        {
+            })
+        });
+        /*{
             let server = server.clone();
             engine.register_indexer_get(move |location: &mut BlockLocation, id: &str| {
                 println!("id: {id}");
@@ -216,7 +230,7 @@ impl ScriptingObject for BlockLocation {
                     })
                     .unwrap_or(Dynamic::UNIT)
             });
-        }
+        }*/
     }
 }
 impl PartialEq for BlockLocation {

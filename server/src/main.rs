@@ -37,12 +37,15 @@ use crate::mods::{
 };
 use crate::registry::{BlockStateProperty, BlockStatePropertyStorage, RecipeManager, StaticData};
 use crate::world::PlayerData;
+use bbscript::eval::ExecutionEnvironment;
+use bbscript::variant::{FromVariant, IntoVariant, Map, Variant};
 use block_byte_common::content::{
     ClientBlockData, ClientEntityData, ClientItemData, ClientTexture,
 };
 use block_byte_common::Position;
 use crossbeam_channel::Receiver;
 use fxhash::FxHashMap;
+use immutable_string::ImmutableString;
 use inventory::LootTable;
 use json::{object, JsonValue};
 use mods::ModManager;
@@ -51,7 +54,6 @@ use parking_lot::Mutex;
 use registry::{
     Block, BlockRegistry, EntityRegistry, EntityType, Item, ItemModelMapping, ItemRegistry,
 };
-use rhai::{Dynamic, Engine};
 use threadpool::ThreadPool;
 use util::{Identifier, Location};
 use world::{Entity, Structure, World};
@@ -123,7 +125,7 @@ pub struct Server {
     structures: HashMap<Identifier, Arc<Structure>>,
     recipes: RecipeManager,
     events: EventManager,
-    engine: Engine,
+    script_environment: ExecutionEnvironment,
     save_directory: PathBuf,
     settings: ServerSettings,
     loot_tables: HashMap<Identifier, Arc<LootTable>>,
@@ -136,7 +138,7 @@ impl Server {
     fn new(port: u16, save_directory: PathBuf) -> Arc<Server> {
         let (mod_manager, errors, mut engine) = ModManager::load_mods(Path::new("mods"));
         for error in &errors {
-            println!("script error at {}: {}", error.0, error.1.to_string());
+            println!("script error at {}: {:?}", error.0, error.1);
         }
         if errors.len() > 0 {
             println!("server stopped because of mod errors");
@@ -153,19 +155,21 @@ impl Server {
         let mut gui_layouts = HashMap::new();
         let mut tags = HashMap::new();
 
+        let static_data_from_json = |json: JsonValue| StaticData {
+            data: {
+                Map::from_variant(&mods::json_to_variant(json))
+                    .unwrap()
+                    .lock()
+                    .iter()
+                    .map(|(name, value)| (name.to_string(), value.clone()))
+                    .collect()
+            },
+        };
+
         let mut load_item_from_json = |id: Identifier, mut json: JsonValue| {
             let client_data: ClientEntityData =
                 serde_json::from_str(json.remove("client").to_string().as_str()).unwrap();
-            let static_data = StaticData {
-                data: {
-                    mods::json_to_dynamic(json, &engine)
-                        .try_cast::<rhai::Map>()
-                        .unwrap()
-                        .into_iter()
-                        .map(|(name, value)| (name.to_string(), value))
-                        .collect()
-                },
-            };
+            let static_data = static_data_from_json(json);
             entity_registry
                 .register(id.clone(), move |client_id| {
                     Arc::new(EntityType {
@@ -232,16 +236,7 @@ impl Server {
                         load_item_from_json(id.clone(), item);
                     }
                 }
-                let static_data = StaticData {
-                    data: {
-                        mods::json_to_dynamic(json, &engine)
-                            .try_cast::<rhai::Map>()
-                            .unwrap()
-                            .into_iter()
-                            .map(|(name, value)| (name.to_string(), value))
-                            .collect()
-                    },
-                };
+                let static_data = static_data_from_json(json);
                 block_registry
                     .register(
                         id,
@@ -269,16 +264,7 @@ impl Server {
                 let stack_size = json.remove("stack_size").as_u32().unwrap_or(1);
                 let client_data: ClientItemData =
                     serde_json::from_str(json.remove("client").to_string().as_str()).unwrap();
-                let static_data = StaticData {
-                    data: {
-                        mods::json_to_dynamic(json, &engine)
-                            .try_cast::<rhai::Map>()
-                            .unwrap()
-                            .into_iter()
-                            .map(|(name, value)| (name.to_string(), value))
-                            .collect()
-                    },
-                };
+                let static_data = static_data_from_json(json);
                 item_registry
                     .register(id.clone(), move |client_id| {
                         Arc::new(Item {
@@ -377,7 +363,9 @@ impl Server {
                 let (id, event) = text.split_once("\n").unwrap();
                 events.register(
                     Identifier::parse(&id[1..]).unwrap(),
-                    ScriptCallback::new(engine.eval(event).unwrap()),
+                    ScriptCallback::new(Arc::new(
+                        bbscript::parse_source_file(event).expect(event).remove(0),
+                    )),
                 );
             }
         });
@@ -437,7 +425,7 @@ impl Server {
             structures,
             recipes: RecipeManager::new(recipes),
             events,
-            engine: {
+            script_environment: {
                 ModManager::runtime_engine_load(&mut engine, this.clone());
                 engine
             },
@@ -498,24 +486,29 @@ impl Server {
             world: self.get_or_create_world(Identifier::new("bb", "lobby")),
         }
     }
-    pub fn call_event(&self, id: Identifier, event_data: Dynamic) -> Dynamic {
-        self.events.call_event(id, event_data, &self.engine)
+    pub fn call_event(&self, id: Identifier, event_data: Variant) {
+        self.events
+            .call_event(id, event_data, &self.script_environment)
     }
     pub fn tick(&self) {
         while let Ok(connection) = self.new_players.lock().try_recv() {
             let player = {
-                let mut event_data = rhai::Map::new();
-                event_data.insert("location".into(), Dynamic::from(self.get_spawn_location()));
-                let event_data = self.call_event(
+                let mut event_data: HashMap<ImmutableString, Variant> = HashMap::new();
+                event_data.insert("location".into(), self.get_spawn_location().into_variant());
+                let event_data = Arc::new(Mutex::new(event_data)).into_variant();
+                self.call_event(
                     Identifier::new("bb", "resolve_spawn_location"),
-                    event_data.into(),
+                    event_data.clone(),
                 );
-                let event_data =
-                    self.call_event(Identifier::new("bb", "player_join"), event_data.into());
-                let mut event_data: rhai::Map = event_data.try_cast().unwrap();
+                self.call_event(
+                    Identifier::new("bb", "player_join"),
+                    event_data.clone().into_variant(),
+                );
+                let mut event_data = Map::from_variant(&event_data).unwrap();
                 let entity = event_data
+                    .lock()
                     .remove("entity")
-                    .and_then(|entity| entity.try_cast::<Arc<Entity>>())
+                    .and_then(|entity| Arc::<Entity>::from_variant(&entity).cloned())
                     .expect("player entity not specified");
 
                 let player = PlayerData::new(connection, self.ptr(), entity);
@@ -524,10 +517,13 @@ impl Server {
                 player
             };
             {
-                let mut event_data = rhai::Map::new();
-                event_data.insert("player".into(), Dynamic::from(player));
-                let _ =
-                    self.call_event(Identifier::new("bb", "post_player_join"), event_data.into());
+                let mut event_data = HashMap::new();
+                event_data.insert("player".into(), player.into_variant());
+                let event_data: Map = Arc::new(Mutex::new(event_data));
+                let _ = self.call_event(
+                    Identifier::new("bb", "post_player_join"),
+                    event_data.into_variant(),
+                );
             }
         }
         for player in &*self.players.lock() {
@@ -601,17 +597,17 @@ impl Server {
     }
 }
 impl ScriptingObject for Server {
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
+    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
         {
             let server = server.clone();
-            engine.register_fn("list_items", move || {
-                server
+            env.register_function("list_items", move || {
+                Ok(server
                     .upgrade()
                     .unwrap()
                     .item_registry
                     .list()
-                    .map(|id| Dynamic::from(id.to_string()))
-                    .collect::<rhai::Array>()
+                    .map(|id| Variant::from_str(id.to_string().as_str()))
+                    .collect::<bbscript::variant::Array>())
             });
         }
     }

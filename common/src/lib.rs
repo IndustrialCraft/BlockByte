@@ -9,8 +9,9 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use std::ops;
 use std::ops::Neg;
+use strum_macros::{Display, EnumIter};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumIter)]
 pub enum HorizontalFace {
     Front,
     Back,
@@ -36,8 +37,7 @@ impl HorizontalFace {
         }
     }
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Display, EnumIter)]
 pub enum Face {
     Front,
     Back,
@@ -358,13 +358,10 @@ impl TexCoords {
             v2: self.v1 + (sub.v2 * self_h),
         }
     }
-    pub fn map(&self, u: f32, v: f32) -> (f32,f32) {
+    pub fn map(&self, u: f32, v: f32) -> (f32, f32) {
         let self_w = self.u2 - self.u1;
         let self_h = self.v2 - self.v1;
-        (
-            self.u1 + (u * self_w),
-            self.v1 + (v * self_h),
-        )
+        (self.u1 + (u * self_w), self.v1 + (v * self_h))
     }
     pub fn flip_horizontally(&self) -> TexCoords {
         TexCoords {
@@ -544,7 +541,7 @@ pub mod KeyboardModifier {
 }
 
 //from winit
-#[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug, Display, EnumIter)]
 pub enum KeyboardKey {
     Key1,
     Key2,

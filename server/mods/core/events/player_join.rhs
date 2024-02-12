@@ -1,4 +1,4 @@
 #bb:player_join
-||{
+fn e(){
     this.entity = Entity("core:player", this.location);
 }

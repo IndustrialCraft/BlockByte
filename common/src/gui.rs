@@ -1,7 +1,8 @@
 use crate::{Color, Position, Vec2};
 use serde::{Deserialize, Serialize};
+use strum_macros::{Display, EnumIter};
 
-#[derive(Eq, PartialEq, Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Eq, PartialEq, Debug, Clone, Copy, Serialize, Deserialize, Display, EnumIter)]
 pub enum PositionAnchor {
     Top,
     Bottom,
@@ -62,9 +63,9 @@ pub enum GUIComponent {
         font_size: f32,
         text: String,
     },
-    LineEdit{
+    LineEdit {
         text: String,
-        size: Vec2
+        size: Vec2,
     },
     SlotComponent {
         item_id: Option<(u32, u32)>,

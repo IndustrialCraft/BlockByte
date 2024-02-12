@@ -4,16 +4,18 @@ use std::{
     sync::{Arc, Weak},
 };
 
+use bbscript::eval::{ExecutionEnvironment, ScriptError};
+use bbscript::variant::{FromVariant, IntoVariant, Variant};
 use block_byte_common::gui::{
     GUIComponent, GUIComponentEdit, GUIElement, GUIElementEdit, PositionAnchor,
 };
 use block_byte_common::messages::{ClientModelTarget, MouseButton, NetworkMessageS2C};
 use block_byte_common::{Color, Position, Vec2};
 use fxhash::FxHashMap;
+use immutable_string::ImmutableString;
 use json::{object, JsonValue};
 use parking_lot::{Mutex, MutexGuard};
 use rand::{thread_rng, Rng};
-use rhai::{Dynamic, Engine};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -67,36 +69,30 @@ impl ItemStack {
     }
 }
 impl ScriptingObject for ItemStack {
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
-        engine.register_fn("get_id", |item: &mut ItemStack| {
-            item.item_type.id.to_string()
+    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+        env.register_member("id", |item: &ItemStack| {
+            Some(Variant::from_str(item.item_type.id.to_string().as_str()))
         });
         {
             let server = server.clone();
-            engine.register_fn("ItemStack", move |item: &str, count: i64| {
-                ItemStack::new(
+            env.register_function("ItemStack", move |item: &ImmutableString, count: &i64| {
+                Ok(ItemStack::new(
                     server
                         .upgrade()
                         .unwrap()
                         .item_registry
-                        .item_by_identifier(&Identifier::parse(item).unwrap())
+                        .item_by_identifier(&Identifier::parse(item.as_ref()).unwrap())
                         .unwrap(),
-                    count as u32,
-                )
+                    *count as u32,
+                ))
             });
         }
-        engine.register_get_set(
-            "count",
-            |item: &mut ItemStack| item.item_count as i64,
-            |item: &mut ItemStack, count: i64| {
-                item.item_count = count.max(0).min(item.item_type.stack_size as i64) as u32;
-            },
-        );
-        engine.register_fn("get_stack_size", |item: &mut ItemStack| {
-            item.item_type.stack_size as i64
+        env.register_member("count", |item: &ItemStack| Some(item.item_count as i64));
+        env.register_member("stack_size", |item: &ItemStack| {
+            Some(item.item_type.stack_size as i64)
         });
-        engine.register_fn("with_count", |item: &mut ItemStack, new_count: i64| {
-            ItemStack::new(item.get_type(), new_count as u32)
+        env.register_method("with_count", |item: &ItemStack, new_count: &i64| {
+            Ok(ItemStack::new(item.get_type(), *new_count as u32))
         });
     }
 }
@@ -135,25 +131,26 @@ impl Inventory {
             client_properties: Mutex::new(UserData::new()),
         }
     }
-    pub fn set_client_property(&self, id: &Identifier, value: Dynamic, server: &Server) {
+    pub fn set_client_property(&self, id: &Identifier, value: Variant, server: &Server) {
         let previous = self
             .client_properties
             .lock()
             .take_data_point(id)
-            .unwrap_or(Dynamic::UNIT);
+            .unwrap_or(Variant::NULL());
         for viewer in self.viewers.lock().iter() {
             let _ = viewer.1.client_property_listener.call_function(
-                &server.engine,
+                &server.script_environment,
                 None,
-                (
+                vec![
                     ModGuiViewer {
                         viewer: viewer.1.viewer.clone(),
                         id: viewer.1.id.clone(),
-                    },
-                    id.to_string(),
+                    }
+                    .into_variant(),
+                    Variant::from_str(id.to_string().as_str()),
                     value.clone(),
                     previous.clone(),
-                ),
+                ],
             );
         }
         self.client_properties.lock().put_data_point(id, value);
@@ -275,17 +272,18 @@ impl Inventory {
         }
         for property in self.client_properties.lock().data_points() {
             let _ = viewer.client_property_listener.call_function(
-                &viewer.viewer.server.engine,
+                &viewer.viewer.server.script_environment,
                 None,
-                (
+                vec![
                     ModGuiViewer {
                         viewer: viewer.viewer.clone(),
                         id: viewer.id.clone(),
-                    },
-                    property.0.to_string(),
+                    }
+                    .into_variant(),
+                    Variant::from_str(property.0.to_string().as_str()),
                     property.1.clone(),
-                    Dynamic::UNIT,
-                ),
+                    Variant::NULL(),
+                ],
             );
         }
         self.viewers.lock().insert(id.clone(), Arc::new(viewer));
@@ -367,32 +365,37 @@ impl Inventory {
                 let viewers = self.viewers.lock();
                 viewers.get(&viewer_id).unwrap().clone()
             };
-            match slot {
-                Some(slot) => viewer.on_click.call_function(
-                    &player.server.engine,
-                    None,
-                    (
-                        player.ptr(),
-                        OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
-                        slot as i64,
-                        button,
-                        shifting,
+            InteractionResult::from_variant(
+                &match slot {
+                    Some(slot) => viewer.on_click.call_function(
+                        &player.server.script_environment,
+                        None,
+                        vec![
+                            player.ptr().into_variant(),
+                            OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr())
+                                .into_variant(),
+                            (slot as i64).into_variant(),
+                            button.into_variant(),
+                            shifting.into_variant(),
+                        ],
                     ),
-                ),
-                None => viewer.on_click.call_function(
-                    &player.server.engine,
-                    None,
-                    (
-                        player.ptr(),
-                        OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
-                        id.to_string(),
-                        button,
-                        shifting,
+                    None => viewer.on_click.call_function(
+                        &player.server.script_environment,
+                        None,
+                        vec![
+                            player.ptr().into_variant(),
+                            OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr())
+                                .into_variant(),
+                            Variant::from_str(id.to_string().as_str()),
+                            button.into_variant(),
+                            shifting.into_variant(),
+                        ],
                     ),
-                ),
-            }
-            .try_cast::<InteractionResult>()
-            .unwrap_or(InteractionResult::Ignored)
+                }
+                .unwrap(),
+            )
+            .unwrap()
+            .clone()
         };
         if let InteractionResult::Ignored = result {
             if button == MouseButton::Left {
@@ -436,34 +439,39 @@ impl Inventory {
                 let viewers = self.viewers.lock();
                 viewers.get(&viewer_id).unwrap().clone()
             };
-            match slot {
-                Some(slot) => viewer.on_scroll.call_function(
-                    &player.server.engine,
-                    None,
-                    (
-                        player.ptr(),
-                        OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
-                        slot as i64,
-                        x as i64,
-                        y as i64,
-                        shifting,
+            InteractionResult::from_variant(
+                &match slot {
+                    Some(slot) => viewer.on_scroll.call_function(
+                        &player.server.script_environment,
+                        None,
+                        vec![
+                            player.ptr().into_variant(),
+                            OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr())
+                                .into_variant(),
+                            (slot as i64).into_variant(),
+                            (x as i64).into_variant(),
+                            (y as i64).into_variant(),
+                            shifting.into_variant(),
+                        ],
                     ),
-                ),
-                None => viewer.on_scroll.call_function(
-                    &player.server.engine,
-                    None,
-                    (
-                        player.ptr(),
-                        OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr()),
-                        id.to_string(),
-                        x as i64,
-                        y as i64,
-                        shifting,
+                    None => viewer.on_scroll.call_function(
+                        &player.server.script_environment,
+                        None,
+                        vec![
+                            player.ptr().into_variant(),
+                            OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr())
+                                .into_variant(),
+                            Variant::from_str(id.to_string().as_str()),
+                            (x as i64).into_variant(),
+                            (y as i64).into_variant(),
+                            shifting.into_variant(),
+                        ],
                     ),
-                ),
-            }
-            .try_cast::<InteractionResult>()
-            .unwrap_or(InteractionResult::Ignored)
+                }
+                .unwrap(),
+            )
+            .unwrap()
+            .clone()
         };
         if let InteractionResult::Ignored = result {
             if let Some(slot) = slot {
@@ -565,28 +573,24 @@ impl OwnedInventoryView {
     }
 }
 impl ScriptingObject for OwnedInventoryView {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
-        engine.register_type_with_name::<OwnedInventoryView>("InventoryView");
-        engine.register_fn("get_item", |view: &mut OwnedInventoryView, index: i64| {
-            view.view()
-                .get_item(index as u32)
-                .unwrap()
-                .map(|item| Dynamic::from(item))
-                .unwrap_or(Dynamic::UNIT)
+    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+        env.register_custom_name::<OwnedInventoryView, _>("InventoryView");
+        env.register_method("get_item", |view: &OwnedInventoryView, index: &i64| {
+            Ok(Variant::from_option(
+                view.view().get_item(*index as u32).unwrap(),
+            ))
         });
-        engine.register_fn(
+        env.register_method(
             "set_item",
-            |view: &mut OwnedInventoryView, index: i64, item: Dynamic| {
-                let item = if item.is_unit() {
-                    None
-                } else {
-                    Some(item.try_cast::<ItemStack>().unwrap())
-                };
-                view.view().set_item(index as u32, item).unwrap();
+            |view: &OwnedInventoryView, index: &i64, item: &Variant| {
+                view.view()
+                    .set_item(*index as u32, Variant::into_option(item)?.cloned())
+                    .map_err(|_| ScriptError::runtime("inventory view access out of bounds"))?;
+                Ok(())
             },
         );
-        engine.register_fn("get_inventory", |view: &mut OwnedInventoryView| {
-            view.inventory.clone()
+        env.register_method("get_inventory", |view: &OwnedInventoryView| {
+            Ok(view.inventory.clone())
         });
     }
 }
@@ -616,11 +620,11 @@ pub struct ModGuiViewer {
     pub id: Uuid,
 }
 impl ScriptingObject for ModGuiViewer {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
-        engine.register_type_with_name::<ModGuiViewer>("GUIViewer");
-        engine.register_fn(
+    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+        env.register_custom_name::<ModGuiViewer, _>("GUIViewer");
+        env.register_method(
             "set_text",
-            |viewer: &mut ModGuiViewer, element_id: &str, text: &str| {
+            |viewer: &ModGuiViewer, element_id: &ImmutableString, text: &ImmutableString| {
                 viewer
                     .viewer
                     .send_message(&NetworkMessageS2C::GuiEditElement(
@@ -633,11 +637,17 @@ impl ScriptingObject for ModGuiViewer {
                             ..Default::default()
                         },
                     ));
+                Ok(())
             },
         );
-        engine.register_fn(
+        env.register_method(
             "set_slice",
-            |viewer: &mut ModGuiViewer, element_id: &str, u1: f64, v1: f64, u2: f64, v2: f64| {
+            |viewer: &ModGuiViewer,
+             element_id: &ImmutableString,
+             u1: &f64,
+             v1: &f64,
+             u2: &f64,
+             v2: &f64| {
                 viewer
                     .viewer
                     .send_message(&NetworkMessageS2C::GuiEditElement(
@@ -646,12 +656,12 @@ impl ScriptingObject for ModGuiViewer {
                             component_type: GUIComponentEdit::ImageComponent {
                                 slice: Some(Some((
                                     Vec2 {
-                                        x: u1 as f32,
-                                        y: v1 as f32,
+                                        x: *u1 as f32,
+                                        y: *v1 as f32,
                                     },
                                     Vec2 {
-                                        x: u2 as f32,
-                                        y: v2 as f32,
+                                        x: *u2 as f32,
+                                        y: *v2 as f32,
                                     },
                                 ))),
                                 size: None,
@@ -660,11 +670,12 @@ impl ScriptingObject for ModGuiViewer {
                             ..Default::default()
                         },
                     ));
+                Ok(())
             },
         );
-        engine.register_fn(
+        env.register_method(
             "clear_slice",
-            |viewer: &mut ModGuiViewer, element_id: &str| {
+            |viewer: &ModGuiViewer, element_id: &ImmutableString| {
                 viewer
                     .viewer
                     .send_message(&NetworkMessageS2C::GuiEditElement(
@@ -678,6 +689,7 @@ impl ScriptingObject for ModGuiViewer {
                             ..Default::default()
                         },
                     ));
+                Ok(())
             },
         );
     }
@@ -854,40 +866,47 @@ impl InventoryWrapper {
     }
 }
 impl ScriptingObject for InventoryWrapper {
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
-        engine.register_type_with_name::<InventoryWrapper>("Inventory");
-        engine.register_fn("create_inventory", |size: i64| {
+    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+        env.register_custom_name::<InventoryWrapper, _>("Inventory");
+        env.register_function("create_inventory", |size: &i64| {
             //todo: verify size
-            InventoryWrapper::Own(Inventory::new_owned(size as u32, None))
+            Ok(InventoryWrapper::Own(Inventory::new_owned(
+                *size as u32,
+                None,
+            )))
         });
-        engine.register_fn(
+        env.register_method(
             "view",
-            |inventory: &mut InventoryWrapper, inventory_range: Range<i64>| {
-                OwnedInventoryView::new(
+            |inventory: &InventoryWrapper, range_start: &i64, range_end: &i64| {
+                Ok(OwnedInventoryView::new(
                     Range::<u32> {
-                        start: inventory_range.start as u32,
-                        end: inventory_range.end as u32,
+                        start: *range_start as u32,
+                        end: *range_end as u32,
                     },
                     inventory.clone(),
-                )
+                ))
             },
         );
-        engine.register_fn("full_view", |inventory: &mut InventoryWrapper| {
-            OwnedInventoryView::new(0..inventory.get_inventory().get_size(), inventory.clone())
+        env.register_method("full_view", |inventory: &InventoryWrapper| {
+            Ok(OwnedInventoryView::new(
+                0..inventory.get_inventory().get_size(),
+                inventory.clone(),
+            ))
         });
-        engine.register_get("user_data", |inventory: &mut InventoryWrapper| {
-            UserDataWrapper::Inventory(inventory.clone())
+        env.register_member("user_data", |inventory: &InventoryWrapper| {
+            Some(UserDataWrapper::Inventory(inventory.clone()))
         });
         {
             let server = server.clone();
-            engine.register_fn(
+            env.register_method(
                 "set_client_property",
-                move |inventory: &mut InventoryWrapper, id: &str, value: Dynamic| {
+                move |inventory: &InventoryWrapper, id: &ImmutableString, value: &Variant| {
                     inventory.get_inventory().set_client_property(
-                        &Identifier::parse(id).unwrap(),
-                        value,
+                        &Identifier::parse(id.as_ref()).unwrap(),
+                        value.clone(),
                         &server.upgrade().unwrap(),
                     );
+                    Ok(())
                 },
             );
         }
@@ -983,66 +1002,68 @@ impl Recipe {
     }
 }
 impl ScriptingObject for Recipe {
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
-        engine.register_type_with_name::<Arc<Recipe>>("Recipe");
+    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+        env.register_custom_name::<Arc<Recipe>, _>("Recipe");
         {
             let server = server.clone();
-            engine.register_fn("Recipe", move |id: &str| {
-                match server
-                    .upgrade()
-                    .unwrap()
-                    .recipes
-                    .by_id(&Identifier::parse(id).unwrap())
-                {
-                    Some(recipe) => Dynamic::from(recipe),
-                    None => Dynamic::UNIT,
-                }
+            env.register_function("Recipe", move |id: &ImmutableString| {
+                Ok(Variant::from_option(
+                    server
+                        .upgrade()
+                        .unwrap()
+                        .recipes
+                        .by_id(&Identifier::parse(id.as_ref()).unwrap()),
+                ))
             });
         }
         {
             let server = server.clone();
-            engine.register_fn("recipes_by_type", move |id: &str| {
-                server
-                    .upgrade()
-                    .unwrap()
-                    .recipes
-                    .by_type(&Identifier::parse(id).unwrap())
-                    .iter()
-                    .map(|recipe| Dynamic::from(recipe.clone()))
-                    .collect::<rhai::Array>()
+            env.register_function("recipes_by_type", move |id: &ImmutableString| {
+                let server = server.upgrade().unwrap();
+                Ok(Arc::new(Mutex::new(
+                    server
+                        .recipes
+                        .by_type(&Identifier::parse(id.as_ref()).unwrap())
+                        .iter()
+                        .cloned()
+                        .map(|recipe| recipe.into_variant())
+                        .collect::<Vec<_>>(),
+                )))
             });
         }
-        engine.register_fn(
+        env.register_method(
             "has_ingredients",
-            |recipe: &mut Arc<Recipe>, inventory: OwnedInventoryView| {
-                recipe.has_ingredients(&inventory.view())
+            |recipe: &Arc<Recipe>, inventory: &OwnedInventoryView| {
+                Ok(recipe.has_ingredients(&inventory.view()))
             },
         );
-        engine.register_fn(
+        env.register_method(
             "has_output_space",
-            |recipe: &mut Arc<Recipe>, inventory: OwnedInventoryView| {
-                recipe.has_output_space(&inventory.view())
+            |recipe: &Arc<Recipe>, inventory: &OwnedInventoryView| {
+                Ok(recipe.has_output_space(&inventory.view()))
             },
         );
-        engine.register_fn(
+        env.register_method(
             "consume_inputs",
-            |recipe: &mut Arc<Recipe>, inventory: OwnedInventoryView| match recipe
-                .consume_inputs(&inventory.view())
-            {
-                Ok(_) => true,
-                Err(_) => false,
+            |recipe: &Arc<Recipe>, inventory: &OwnedInventoryView| {
+                Ok(match recipe.consume_inputs(&inventory.view()) {
+                    Ok(_) => true,
+                    Err(_) => false,
+                })
             },
         );
-        engine.register_fn(
+        env.register_method(
             "add_outputs",
-            |recipe: &mut Arc<Recipe>, inventory: OwnedInventoryView| match recipe
-                .add_outputs(&inventory.view())
-            {
-                Ok(_) => true,
-                Err(_) => false,
+            |recipe: &Arc<Recipe>, inventory: &OwnedInventoryView| {
+                Ok(match recipe.add_outputs(&inventory.view()) {
+                    Ok(_) => true,
+                    Err(_) => false,
+                })
             },
         );
-        engine.register_get("id", |recipe: &mut Arc<Recipe>| recipe.id.clone());
+        env.register_member("id", |recipe: &Arc<Recipe>| {
+            Some(ImmutableString::from(recipe.id.to_string()))
+        });
     }
 }
 

@@ -1,3 +1,5 @@
+use std::any::{Any, TypeId};
+use std::fmt::Formatter;
 use std::hash::Hasher;
 use std::ops::{Add, Range};
 use std::sync::atomic::Ordering;
@@ -14,6 +16,8 @@ use std::{
 
 use array_init::array_init;
 use atomic_counter::{AtomicCounter, RelaxedCounter};
+use bbscript::eval::ExecutionEnvironment;
+use bbscript::variant::{FromVariant, FunctionType, IntoVariant, Primitive, Variant};
 use bitcode::__private::Serialize;
 use block_byte_common::gui::{GUIComponent, GUIElement, GUIElementEdit, PositionAnchor};
 use block_byte_common::messages::{
@@ -24,12 +28,13 @@ use block_byte_common::{
 };
 use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
+use immutable_string::ImmutableString;
 use json::{object, JsonValue};
 use parking_lot::Mutex;
 use pathfinding::prelude::astar;
 use rand::{thread_rng, Rng};
-use rhai::{Array, Dynamic, Engine, FnPtr};
-use serde::Deserialize;
+use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serializer};
 use uuid::Uuid;
 
 use crate::inventory::{
@@ -325,31 +330,24 @@ impl World {
     }
 }
 impl ScriptingObject for World {
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
-        engine.register_type_with_name::<Arc<World>>("World");
+    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+        env.register_custom_name::<Arc<World>, _>("World");
         {
             let server = server.clone();
-            engine.register_fn("load_world", move |id: &str| {
-                server
+            env.register_function("load_world", move |id: &ImmutableString| {
+                Ok(server
                     .upgrade()
                     .unwrap()
-                    .get_or_create_world(Identifier::parse(id).unwrap())
+                    .get_or_create_world(Identifier::parse(id.as_ref()).unwrap()))
             });
         }
-        engine.register_get("user_data", |world: &mut Arc<World>| {
-            UserDataWrapper::World(world.ptr())
+        env.register_member("user_data", |world: &Arc<World>| {
+            Some(UserDataWrapper::World(world.ptr()).into_variant())
         });
-        engine.register_fn(
+        /*engine.register_fn(
             "place_structure",
             |world: &mut Arc<World>, structure: Arc<Structure>, position: BlockPosition| {
                 world.place_structure(position, &structure, true);
-            },
-        );
-        engine.register_fn(
-            "get_block_data",
-            |world: &mut Arc<World>, position: BlockPosition| match world.get_block_load(position) {
-                BlockData::Simple(_) => Dynamic::UNIT,
-                BlockData::Data(data) => Dynamic::from(data),
             },
         );
         engine.register_fn(
@@ -360,7 +358,7 @@ impl ScriptingObject for World {
              origin: BlockPosition| {
                 Structure::from_world(&world, first, second, origin)
             },
-        );
+        );*/
     }
 }
 impl Eq for World {}
@@ -629,16 +627,13 @@ impl Chunk {
                 );
             }
         }
-        let player = player
-            .map(|player| Dynamic::from(player))
-            .unwrap_or(Dynamic::UNIT);
         let _ = previous_block
             .static_data
             .get_function("on_destroy")
             .call_function(
-                &self.world.server.engine,
-                Some(&mut Dynamic::from(block_location.clone())),
-                (player.clone(),),
+                &self.world.server.script_environment,
+                Some(block_location.clone().into_variant()),
+                vec![player.clone().into_variant()],
             );
         let new_block = &self.world.server.block_registry.state_by_ref(block).parent;
         let block = block.create_block_data(&self.this.upgrade().unwrap(), block_position);
@@ -659,9 +654,9 @@ impl Chunk {
             .static_data
             .get_function("on_player")
             .call_function(
-                &self.world.server.engine,
-                Some(&mut Dynamic::from(block_location)),
-                (player,),
+                &self.world.server.script_environment,
+                Some(block_location.into_variant()),
+                vec![player.into_variant()],
             );
         if let Some(new_block_data) = new_block_data {
             new_block_data.on_place();
@@ -787,9 +782,9 @@ impl Chunk {
                 }
                 for block in blocks {
                     let _ = block.0.static_data.get_function("on_tick").call_function(
-                        &chunk.world.server.engine,
-                        Some(&mut Dynamic::from(block.1)),
-                        (),
+                        &chunk.world.server.script_environment,
+                        Some(block.1.into_variant()),
+                        vec![],
                     );
                 }
                 for block_update in block_updates {
@@ -937,9 +932,9 @@ impl PartialEq for ChunkViewer {
 
 impl Eq for ChunkViewer {}
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct UserData {
-    data: HashMap<Identifier, Dynamic>,
+    data: HashMap<Identifier, Variant>,
 }
 impl UserData {
     pub fn new() -> Self {
@@ -947,21 +942,51 @@ impl UserData {
             data: HashMap::new(),
         }
     }
-    pub fn put_data_point(&mut self, id: &Identifier, data: Dynamic) {
-        if data.is_unit() {
+    pub fn put_data_point(&mut self, id: &Identifier, data: Variant) {
+        if data.as_any().type_id() == TypeId::of::<()>() {
             self.data.remove(id);
         } else {
             self.data.insert(id.clone(), data);
         }
     }
-    pub fn take_data_point(&mut self, id: &Identifier) -> Option<Dynamic> {
+    pub fn take_data_point(&mut self, id: &Identifier) -> Option<Variant> {
         self.data.remove(id)
     }
-    pub fn get_data_point_ref(&mut self, id: &Identifier) -> Option<&mut Dynamic> {
+    pub fn get_data_point_ref(&mut self, id: &Identifier) -> Option<&mut Variant> {
         self.data.get_mut(id)
     }
-    pub fn data_points(&self) -> std::collections::hash_map::Iter<Identifier, Dynamic> {
+    pub fn data_points(&self) -> std::collections::hash_map::Iter<Identifier, Variant> {
         self.data.iter()
+    }
+}
+impl Serialize for UserData {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_unit()
+    }
+}
+impl<'de> Deserialize<'de> for UserData {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_unit(UserDataVisitor)?;
+        Ok(UserData::new())
+    }
+}
+struct UserDataVisitor;
+impl<'de> serde::de::Visitor<'de> for UserDataVisitor {
+    type Value = ();
+    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+        formatter.write_str("unit")
+    }
+    fn visit_unit<E>(self) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        Ok(())
     }
 }
 
@@ -1148,126 +1173,137 @@ impl PlayerData {
     }
 }
 impl ScriptingObject for PlayerData {
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
-        engine.register_type_with_name::<Arc<PlayerData>>("Player");
-        engine.register_fn("get_entity", |player: &mut Arc<PlayerData>| {
-            player.get_entity()
+    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+        env.register_custom_name::<Arc<PlayerData>, _>("Player");
+        env.register_method("get_entity", |player: &Arc<PlayerData>| {
+            Ok(player.get_entity().into_variant())
         });
-        engine.register_fn(
+        env.register_method(
             "send_chat_message",
-            |player: &mut Arc<PlayerData>, message: &str| {
+            |player: &Arc<PlayerData>, message: &ImmutableString| {
                 player.send_chat_message(message.to_string());
+                Ok(())
             },
         );
-        engine.register_fn("speed", |player: &mut Arc<PlayerData>, speed: f64| {
-            *player.speed.lock() = speed as f32;
+        env.register_method("speed", |player: &Arc<PlayerData>, speed: &f64| {
+            *player.speed.lock() = *speed as f32;
             player.resync_abilities();
+            Ok(())
         });
-        engine.register_fn(
+        env.register_method(
             "movement_type",
-            |player: &mut Arc<PlayerData>, movement_type: MovementType| {
-                *player.move_type.lock() = movement_type;
+            |player: &Arc<PlayerData>, movement_type: &MovementType| {
+                *player.move_type.lock() = *movement_type;
                 player.resync_abilities();
+                Ok(())
             },
         );
-        engine.register_get("user_data", |player: &mut Arc<PlayerData>| {
-            UserDataWrapper::Player(player.ptr())
+        env.register_member("user_data", |player: &Arc<PlayerData>| {
+            Some(UserDataWrapper::Player(player.ptr()).into_variant())
         });
-        engine.register_fn("close_inventory", |player: &mut Arc<PlayerData>| {
+        env.register_method("close_inventory", |player: &Arc<PlayerData>| {
             player.set_open_inventory(None);
+            Ok(())
         });
         {
             let server = server.clone();
-            engine.register_fn(
+            env.register_method(
                 "open_inventory",
-                move |player: &mut Arc<PlayerData>,
-                      inventory: InventoryWrapper,
-                      range: Range<i64>,
-                      layout: &str,
-                      client_property_listener: FnPtr,
-                      on_click: FnPtr,
-                      on_scroll: FnPtr| {
+                move |player: &Arc<PlayerData>,
+                      inventory: &InventoryWrapper,
+                      range_start: &i64,
+                      range_end: &i64,
+                      layout: &ImmutableString,
+                      client_property_listener: &FunctionType,
+                      on_click: &FunctionType,
+                      on_scroll: &FunctionType| {
                     player.set_open_inventory(Some((
-                        inventory,
+                        inventory.clone(),
                         GuiInventoryData {
                             slot_range: Range::<u32> {
-                                start: range.start as u32,
-                                end: range.end as u32,
+                                start: *range_start as u32,
+                                end: *range_end as u32,
                             },
                             layout: server
                                 .upgrade()
                                 .unwrap()
                                 .gui_layouts
-                                .get(&Identifier::parse(layout).unwrap())
+                                .get(&Identifier::parse(layout.as_ref()).unwrap())
                                 .unwrap()
                                 .clone(),
-                            client_property_listener: ScriptCallback::new(client_property_listener),
-                            on_click: ScriptCallback::new(on_click),
-                            on_scroll: ScriptCallback::new(on_scroll),
+                            client_property_listener: ScriptCallback::from_function_type(
+                                client_property_listener,
+                            ),
+                            on_click: ScriptCallback::from_function_type(on_click),
+                            on_scroll: ScriptCallback::from_function_type(on_scroll),
                         },
                     )));
+                    Ok(())
                 },
             );
         }
-        engine.register_fn(
-            "get_open_inventory",
-            |player: &mut Arc<PlayerData>| match &*player.open_inventory.lock() {
-                Some(open_inventory) => Dynamic::from(open_inventory.0.clone()),
-                None => Dynamic::UNIT,
-            },
-        );
-        engine.register_fn(
+        env.register_method("get_open_inventory", |player: &Arc<PlayerData>| {
+            Ok(Variant::from_option(
+                player
+                    .open_inventory
+                    .lock()
+                    .as_ref()
+                    .map(|inv| inv.0.clone()),
+            ))
+        });
+        env.register_method(
             "set_hand_item",
-            |player: &mut Arc<PlayerData>, item: Dynamic| {
-                let item = if item.is_unit() {
-                    None
-                } else {
-                    Some(item.try_cast::<ItemStack>().unwrap())
-                };
-                player.set_inventory_hand(item);
+            |player: &Arc<PlayerData>, item: &Variant| {
+                player.set_inventory_hand(Variant::into_option(item)?.cloned());
+                Ok(())
             },
         );
-        engine.register_fn("get_hand_item", |player: &mut Arc<PlayerData>| {
-            player
-                .hand_item
-                .lock()
-                .as_ref()
-                .map(|item| Dynamic::from(item.clone()))
-                .unwrap_or(Dynamic::UNIT)
+        env.register_method("get_hand_item", |player: &Arc<PlayerData>| {
+            Ok(Variant::from_option(
+                player.hand_item.lock().as_ref().cloned(),
+            ))
         });
         {
             let server = server.clone();
-            engine.register_fn(
+            env.register_method(
                 "open_overlay",
-                move |player: &mut Arc<PlayerData>, id: &str, layout: &str| ModGuiViewer {
-                    id: player.open_overlay(
-                        Identifier::parse(id).unwrap(),
-                        server
-                            .upgrade()
-                            .unwrap()
-                            .gui_layouts
-                            .get(&Identifier::parse(layout).unwrap())
-                            .unwrap()
-                            .clone(),
-                    ),
-                    viewer: player.clone(),
+                move |player: &Arc<PlayerData>, id: &ImmutableString, layout: &ImmutableString| {
+                    Ok(ModGuiViewer {
+                        id: player.open_overlay(
+                            Identifier::parse(id.as_ref()).unwrap(),
+                            server
+                                .upgrade()
+                                .unwrap()
+                                .gui_layouts
+                                .get(&Identifier::parse(layout.as_ref()).unwrap())
+                                .unwrap()
+                                .clone(),
+                        ),
+                        viewer: player.clone(),
+                    })
                 },
             );
         }
-        engine.register_fn("get_overlay", |player: &mut Arc<PlayerData>, id: &str| {
-            player
-                .get_overlay(&Identifier::parse(id).unwrap())
-                .map(|id| {
-                    Dynamic::from(ModGuiViewer {
-                        id,
-                        viewer: player.clone(),
-                    })
-                })
-                .unwrap_or(Dynamic::UNIT)
-        });
-        engine.register_fn("close_overlay", |player: &mut Arc<PlayerData>, id: &str| {
-            player.close_overlay(&Identifier::parse(id).unwrap());
-        });
+        env.register_method(
+            "get_overlay",
+            |player: &Arc<PlayerData>, id: &ImmutableString| {
+                Ok(Variant::from_option(
+                    player
+                        .get_overlay(&Identifier::parse(id.clone()).unwrap())
+                        .map(|id| ModGuiViewer {
+                            id,
+                            viewer: player.clone(),
+                        }),
+                ))
+            },
+        );
+        env.register_method(
+            "close_overlay",
+            |player: &Arc<PlayerData>, id: &ImmutableString| {
+                player.close_overlay(&Identifier::parse(id.clone()).unwrap());
+                Ok(())
+            },
+        );
     }
 }
 
@@ -1583,20 +1619,24 @@ impl Entity {
             .entity_type
             .static_data
             .get_function("on_tick")
-            .call_function(&self.server.engine, None, (self.this.upgrade().unwrap(),));
+            .call_function(
+                &self.server.script_environment,
+                None,
+                vec![self.this.upgrade().unwrap().into_variant()],
+            );
 
         if let Some(player) = self.get_player() {
             let messages = player.connection.lock().receive_messages();
             for message in messages {
                 match message {
                     NetworkMessageC2S::Keyboard(key, key_mod, pressed, _repeat) => {
-                        let mut keyboard_event = rhai::Map::new();
-                        keyboard_event.insert("key".into(), Dynamic::from(key));
-                        keyboard_event.insert("pressed".into(), Dynamic::from(pressed));
-                        keyboard_event.insert("player".into(), Dynamic::from(player.ptr()));
+                        let mut keyboard_event: HashMap<ImmutableString, Variant> = HashMap::new();
+                        keyboard_event.insert("key".into(), key.into_variant());
+                        keyboard_event.insert("pressed".into(), pressed.into_variant());
+                        keyboard_event.insert("player".into(), player.ptr().into_variant());
                         let _ = self.server.call_event(
                             Identifier::new("bb", "keyboard"),
-                            Dynamic::from(keyboard_event),
+                            Arc::new(Mutex::new(keyboard_event)).into_variant(),
                         );
                         match key {
                             KeyboardKey::Q => {
@@ -1696,23 +1736,28 @@ impl Entity {
                     }
                     NetworkMessageC2S::RequestBlockBreakTime(id, position) => {
                         let world = { self.location.lock().chunk.world.clone() };
-                        let block_break_time = world
-                            .server
-                            .block_registry
-                            .state_by_ref(world.get_block_load(position).get_block_state())
-                            .parent
-                            .static_data
-                            .get_function("on_left_click")
-                            .call_function(
-                                &world.server.engine,
-                                Some(&mut Dynamic::from(BlockLocation {
-                                    world: world.clone(),
-                                    position,
-                                })),
-                                (Dynamic::from(self.get_player().unwrap()),),
-                            )
-                            .as_float()
-                            .unwrap_or(0.);
+                        let block_break_time = (*f64::from_variant(
+                            &world
+                                .server
+                                .block_registry
+                                .state_by_ref(world.get_block_load(position).get_block_state())
+                                .parent
+                                .static_data
+                                .get_function("on_left_click")
+                                .call_function(
+                                    &world.server.script_environment,
+                                    Some(
+                                        BlockLocation {
+                                            world: world.clone(),
+                                            position,
+                                        }
+                                        .into_variant(),
+                                    ),
+                                    vec![self.get_player().unwrap().into_variant()],
+                                )
+                                .unwrap(),
+                        )
+                        .unwrap_or(&-1.));
                         if block_break_time >= 0. {
                             player.send_message(&NetworkMessageS2C::BlockBreakTimeResponse(
                                 id,
@@ -1747,13 +1792,17 @@ impl Entity {
                                 .static_data
                                 .get_function("on_right_click")
                                 .call_action(
-                                    &self.server.engine,
-                                    Some(&mut Dynamic::from(BlockLocation {
-                                        world: self.get_location().chunk.world.clone(),
-                                        position: block_position,
-                                    })),
-                                    (player.ptr(),),
-                                );
+                                    &self.server.script_environment,
+                                    Some(
+                                        BlockLocation {
+                                            world: self.get_location().chunk.world.clone(),
+                                            position: block_position,
+                                        }
+                                        .into_variant(),
+                                    ),
+                                    vec![player.ptr().into_variant()],
+                                )
+                                .unwrap();
                         }
                         if right_click_result == InteractionResult::Consumed {
                             continue;
@@ -1832,7 +1881,7 @@ impl Entity {
                     }
                     NetworkMessageC2S::SendMessage(message) => {
                         if message.starts_with("/") {
-                            let message = &message[1..].trim_end();
+                            /*let message = &message[1..].trim_end();
                             let parts: rhai::Array = message
                                 .split(" ")
                                 .map(|str| Dynamic::from_str(str).unwrap())
@@ -1843,7 +1892,7 @@ impl Entity {
                             let _ = self.server.call_event(
                                 Identifier::new("bb", "command"),
                                 Dynamic::from(event_data),
-                            );
+                            );*/
                         }
                     }
                     _ => {}
@@ -1923,9 +1972,9 @@ impl Entity {
     }
 }
 impl ScriptingObject for Entity {
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
-        engine.register_type_with_name::<Arc<Entity>>("Entity");
-        {
+    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+        env.register_custom_name::<Arc<Entity>, _>("Entity");
+        /*{
             let server = server.clone();
             engine.register_fn("Entity", move |id: &str, location: Location| {
                 Entity::new(
@@ -1962,7 +2011,7 @@ impl ScriptingObject for Entity {
                 .get_hand_item()
                 .map(|item| Dynamic::from(item))
                 .unwrap_or(Dynamic::UNIT)
-        });
+        });*/
     }
 }
 impl Animatable for Entity {
@@ -2423,8 +2472,9 @@ impl Structure {
     }
 }
 impl ScriptingObject for Structure {
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
-        engine.register_type_with_name::<Arc<Structure>>("Structure");
+    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+        env.register_custom_name::<Arc<Structure>, _>("Structure");
+        /*{
         let server = server.clone();
         engine.register_fn(
             "export_structure",
@@ -2436,6 +2486,8 @@ impl ScriptingObject for Structure {
                     .export_file(name.to_string(), json.to_string().as_bytes().to_vec());
             },
         );
+        }
+         */
     }
 }
 pub struct BlockNetwork {
@@ -2468,8 +2520,8 @@ impl BlockNetwork {
     }
 }
 impl ScriptingObject for BlockNetwork {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
-        engine.register_fn("list_members", |network: &mut Arc<BlockNetwork>| {
+    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+        /*engine.register_fn("list_members", |network: &mut Arc<BlockNetwork>| {
             network
                 .members
                 .lock()
@@ -2479,7 +2531,7 @@ impl ScriptingObject for BlockNetwork {
         });
         engine.register_get("user_data", |network: &mut Arc<BlockNetwork>| {
             UserDataWrapper::BlockNetwork(network.ptr())
-        });
+        });*/
     }
 }
 pub struct NetworkController {
@@ -2533,19 +2585,22 @@ impl WorldBlock {
     }
     pub fn on_place(&self) {
         for (id, connector) in &self.block.networks {
-            let connections: Vec<BlockLocation> = connector
-                .call_function(
-                    &self.chunk().world.server.engine,
-                    Some(&mut Dynamic::from(BlockLocation {
-                        world: self.chunk().world.clone(),
-                        position: self.position,
-                    })),
-                    (),
-                )
-                .cast::<Array>()
-                .into_iter()
-                .map(|position| position.cast::<BlockLocation>())
-                .collect();
+            let connections: Vec<BlockLocation> = Vec::new(); /*connector
+                                                              .call_function(
+                                                                  &self.chunk().world.server.engine,
+                                                                  Some(
+                                                                      &BlockLocation {
+                                                                          world: self.chunk().world.clone(),
+                                                                          position: self.position,
+                                                                      }
+                                                                      .into_variant(),
+                                                                  ),
+                                                                  vec![],
+                                                              )
+                                                              .cast::<Array>()
+                                                              .into_iter()
+                                                              .map(|position| position.cast::<BlockLocation>())
+                                                              .collect();*/
             let network = BlockNetwork::new(id.clone());
             self.set_network(network.clone());
             for connection in connections {
@@ -2632,9 +2687,9 @@ impl WorldBlock {
     }
 }
 impl ScriptingObject for WorldBlock {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
-        engine.register_type_with_name::<Arc<WorldBlock>>("WorldBlock");
-        engine.register_get("user_data", |block: &mut Arc<WorldBlock>| {
+    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+        env.register_custom_name::<Arc<WorldBlock>, _>("WorldBlock");
+        /*engine.register_get("user_data", |block: &mut Arc<WorldBlock>| {
             UserDataWrapper::Block(block.ptr())
         });
         engine.register_get("inventory", |block: &mut Arc<WorldBlock>| {
@@ -2649,7 +2704,7 @@ impl ScriptingObject for WorldBlock {
                 .get_network(&Identifier::parse(id).unwrap())
                 .map(|network| Dynamic::from(network))
                 .unwrap_or(Dynamic::UNIT)
-        });
+        });*/
     }
 }
 impl Animatable for WorldBlock {

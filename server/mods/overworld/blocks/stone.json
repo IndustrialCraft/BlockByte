@@ -15,6 +15,6 @@
     "selectable": true,
     "no_collide": false
   },
-  "on_left_click": "!|player|{this.ahoj;}",
-  "ahoj": "!||{print(\"lol\");}"
+  "on_left_click": "!fn e(player){this.ahoj();}",
+  "ahoj": "!fn e(){print('lol');}"
 }

@@ -18,6 +18,13 @@ pub enum ScriptError {
     RuntimeError { error: String },
     NonVectorIterated,
 }
+impl ScriptError {
+    pub fn runtime(text: &str) -> Self {
+        ScriptError::RuntimeError {
+            error: text.to_string(),
+        }
+    }
+}
 pub type ScriptResult = Result<Variant, ScriptError>;
 
 pub struct ScopeStack<'a> {
@@ -79,17 +86,17 @@ pub struct Function {
 impl Function {
     pub fn run(
         &self,
-        this: Variant,
+        parent_stack: Option<&ScopeStack>,
         parameters: Vec<Variant>,
         environment: &ExecutionEnvironment,
     ) -> ScriptResult {
-        let mut stack = ScopeStack::new();
+        let stack = ScopeStack::new();
+        let mut stack = parent_stack.unwrap_or(&stack);
         for (name, global) in &environment.globals {
             stack
                 .set_variable(name.clone(), global.clone(), true)
                 .unwrap();
         }
-        stack.set_variable("this".into(), this, true).unwrap();
         if parameters.len() != self.parameter_names.len() {
             return Err(ScriptError::MismatchedParameterCount);
         }
@@ -196,10 +203,20 @@ impl Function {
             } => {
                 let first = Function::eval_expression(stack, first, environment)?;
                 let second = Function::eval_expression(stack, second, environment)?;
-                let operator_call = environment
-                    .access_member(&first, &format!("operator{operator}").into())
-                    .ok_or(ScriptError::MemberNotFound)?;
-                Ok(operator_call.call(vec![second], environment)?)
+                if operator.as_ref() == "!=" {
+                    let operator_call = environment
+                        .access_member(&first, &"operator==".into())
+                        .ok_or(ScriptError::MemberNotFound)?;
+                    Ok((!*(bool::from_variant_error(
+                        &operator_call.call(vec![second], environment)?,
+                    )?))
+                    .into_variant())
+                } else {
+                    let operator_call = environment
+                        .access_member(&first, &format!("operator{operator}").into())
+                        .ok_or(ScriptError::MemberNotFound)?;
+                    Ok(operator_call.call(vec![second], environment)?)
+                }
             }
         }
     }
@@ -223,7 +240,8 @@ impl ExecutionEnvironment {
     pub fn register_member<
         T: Primitive,
         N: Into<ImmutableString>,
-        F: Fn(&T) -> Option<Variant> + 'static,
+        F: Fn(&T) -> Option<R> + Send + Sync + 'static,
+        R: IntoVariant,
     >(
         &mut self,
         name: N,
@@ -236,12 +254,14 @@ impl ExecutionEnvironment {
             .members
             .insert(
                 name.into(),
-                Box::new(move |this| function(T::from_variant(this).unwrap())),
+                Box::new(move |this| {
+                    function(T::from_variant(this).unwrap()).map(|r| r.into_variant())
+                }),
             );
     }
     pub fn register_method<
         T: Primitive,
-        F: IntoScriptFunction<T, A> + Send + Sync + 'static,
+        F: IntoScriptMethod<T, A> + Send + Sync + 'static,
         N: Into<ImmutableString>,
         A: 'static,
     >(
@@ -270,10 +290,10 @@ impl ExecutionEnvironment {
                 }),
             );
     }
-    pub fn register_global<F, N: Into<ImmutableString>>(&mut self, name: N, value: Variant) {
+    pub fn register_global<N: Into<ImmutableString>>(&mut self, name: N, value: Variant) {
         self.globals.insert(name.into(), value);
     }
-    pub fn register_function<F: IntoScriptFunction<(), A>, N: Into<ImmutableString>, A: 'static>(
+    pub fn register_function<F: IntoScriptFunction<A>, N: Into<ImmutableString>, A: 'static>(
         &mut self,
         name: N,
         function: F,
@@ -289,11 +309,11 @@ impl ExecutionEnvironment {
             .into_variant(),
         );
     }
-    pub fn register_custom_name<T: Primitive>(&mut self, custom_name: ImmutableString) {
+    pub fn register_custom_name<T: Primitive, N: Into<ImmutableString>>(&mut self, custom_name: N) {
         self.types
             .entry(TypeId::of::<T>())
             .or_insert(TypeInfo::new())
-            .custom_name = Some(custom_name);
+            .custom_name = Some(custom_name.into());
     }
     pub fn register_default_accessor<
         T: Primitive,
@@ -312,8 +332,8 @@ impl ExecutionEnvironment {
     }
 }
 pub struct TypeInfo {
-    members: HashMap<ImmutableString, Box<dyn Fn(&Variant) -> Option<Variant>>>,
-    default: Option<Box<dyn Fn(&Variant, ImmutableString) -> Option<Variant>>>,
+    members: HashMap<ImmutableString, Box<dyn Fn(&Variant) -> Option<Variant> + Send + Sync>>,
+    default: Option<Box<dyn Fn(&Variant, ImmutableString) -> Option<Variant> + Send + Sync>>,
     pub custom_name: Option<ImmutableString>,
 }
 impl TypeInfo {
@@ -348,37 +368,132 @@ impl TypeInfo {
     }
 }
 
-pub trait IntoScriptFunction<S: Primitive, A: 'static> {
+trait IntoScriptResult {
+    fn into_script_result(self) -> ScriptResult;
+}
+impl<T: Primitive> IntoScriptResult for Result<T, ScriptError> {
+    fn into_script_result(self) -> ScriptResult {
+        if TypeId::of::<T>() == TypeId::of::<Variant>() {
+            self.map(|ok| unsafe { std::mem::transmute_copy(&std::mem::ManuallyDrop::new(ok)) })
+        } else {
+            self.map(|ok| ok.into_variant())
+        }
+    }
+}
+
+pub trait IntoScriptFunction<A: 'static> {
     fn into_function(self) -> Box<dyn Fn(Vec<Variant>) -> ScriptResult + Send + Sync>;
+}
+pub trait IntoScriptMethod<S: Primitive, A: 'static> {
     fn into_method(self) -> Box<dyn Fn(&S, Vec<Variant>) -> ScriptResult + Send + Sync>;
 }
-impl<T, A> IntoScriptFunction<A, (A,)> for T
+macro_rules! register_into_function {
+    ($($i:tt,)*) => {
+        impl<T, R, $($i,)*> IntoScriptFunction<($($i,)*)> for T
+        where
+            $($i: Primitive,)*
+            R: IntoScriptResult,
+            T: Fn($(&$i,)*) -> R + Send + Sync + 'static,
+        {
+            fn into_function(self) -> Box<dyn Fn(Vec<Variant>) -> ScriptResult + Send + Sync> {
+                Box::new(move |mut args| {
+                    /*if args.len() != 1 {
+                        return Err(ScriptError::MismatchedParameterCount);
+                    }*/
+                    //todo
+                    self($($i::from_variant_error(&args.remove(0))?,)*).into_script_result()
+                })
+            }
+        }
+
+    };
+}
+macro_rules! register_into_method {
+    ($($i:tt,)*) => {
+        impl<T, R, A,$($i,)*> IntoScriptMethod<A, (A,$($i,)*)> for T
+        where
+            A: Primitive,
+            $($i: Primitive,)*
+            R: IntoScriptResult,
+            T: Fn(&A,$(&$i,)*) -> R + Send + Sync + 'static,
+        {
+            fn into_method(self) -> Box<dyn Fn(&A, Vec<Variant>) -> ScriptResult + Send + Sync> {
+                Box::new(move |this, mut args| {
+                    /*if args.len() != 0 {
+                        return Err(ScriptError::MismatchedParameterCount);
+                    }*/
+                    //todo
+                    self(this,$($i::from_variant_error(&args.remove(0))?,)*).into_script_result()
+                })
+            }
+        }};
+}
+impl<T, R> IntoScriptFunction<()> for T
 where
-    A: Primitive,
-    T: Fn(&A) -> ScriptResult + Send + Sync + 'static,
+    R: IntoScriptResult,
+    T: Fn() -> R + Send + Sync + 'static,
 {
     fn into_function(self) -> Box<dyn Fn(Vec<Variant>) -> ScriptResult + Send + Sync> {
         Box::new(move |args| {
             if args.len() != 1 {
                 return Err(ScriptError::MismatchedParameterCount);
             }
-            self(A::from_variant_error(&args[0])?)
+            self().into_script_result()
         })
     }
+}
+register_into_function!(A,);
+register_into_function!(A, B,);
+register_into_function!(A, B, C,);
+register_into_function!(A, B, C, D,);
+register_into_function!(A, B, C, D, E,);
+register_into_function!(A, B, C, D, E, F,);
+register_into_function!(A, B, C, D, E, F, G,);
+register_into_function!(A, B, C, D, E, F, G, H,);
+register_into_method!();
+register_into_method!(B,);
+register_into_method!(B, C,);
+register_into_method!(B, C, D,);
+register_into_method!(B, C, D, E,);
+register_into_method!(B, C, D, E, F,);
+register_into_method!(B, C, D, E, F, G,);
+register_into_method!(B, C, D, E, F, G, H,);
+/*impl<T, R, A> IntoScriptFunction<(A,)> for T
+where
+    A: Primitive,
+    R: IntoScriptResult,
+    T: Fn(&A) -> R + Send + Sync + 'static,
+{
+    fn into_function(self) -> Box<dyn Fn(Vec<Variant>) -> ScriptResult + Send + Sync> {
+        Box::new(move |args| {
+            if args.len() != 1 {
+                return Err(ScriptError::MismatchedParameterCount);
+            }
+            self(A::from_variant_error(&args[0])?).into_script_result()
+        })
+    }
+}
+impl<T, R, A> IntoScriptMethod<A, (A,)> for T
+where
+    A: Primitive,
+    R: IntoScriptResult,
+    T: Fn(&A) -> R + Send + Sync + 'static,
+{
     fn into_method(self) -> Box<dyn Fn(&A, Vec<Variant>) -> ScriptResult + Send + Sync> {
         Box::new(move |this, args| {
             if args.len() != 0 {
                 return Err(ScriptError::MismatchedParameterCount);
             }
-            self(this)
+            self(this).into_script_result()
         })
     }
 }
-impl<T, A, B> IntoScriptFunction<A, (A, B)> for T
+impl<T, R, A, B> IntoScriptFunction<(A, B)> for T
 where
     A: Primitive,
     B: Primitive,
-    T: Fn(&A, &B) -> ScriptResult + Send + Sync + 'static,
+    R: IntoScriptResult,
+    T: Fn(&A, &B) -> R + Send + Sync + 'static,
 {
     fn into_function(self) -> Box<dyn Fn(Vec<Variant>) -> ScriptResult + Send + Sync> {
         Box::new(move |args| {
@@ -389,23 +504,33 @@ where
                 A::from_variant_error(&args[0])?,
                 B::from_variant_error(&args[1])?,
             )
+            .into_script_result()
         })
     }
+}
+impl<T, R, A, B> IntoScriptMethod<A, (A, B)> for T
+where
+    A: Primitive,
+    B: Primitive,
+    R: IntoScriptResult,
+    T: Fn(&A, &B) -> R + Send + Sync + 'static,
+{
     fn into_method(self) -> Box<dyn Fn(&A, Vec<Variant>) -> ScriptResult + Send + Sync> {
         Box::new(move |this, args| {
             if args.len() != 1 {
                 return Err(ScriptError::MismatchedParameterCount);
             }
-            self(this, B::from_variant_error(&args[0])?)
+            self(this, B::from_variant_error(&args[0])?).into_script_result()
         })
     }
 }
-impl<T, A, B, C> IntoScriptFunction<A, (A, B, C)> for T
+impl<T, R, A, B, C> IntoScriptFunction<(A, B, C)> for T
 where
     A: Primitive,
     B: Primitive,
     C: Primitive,
-    T: Fn(&A, &B, &C) -> ScriptResult + Send + Sync + 'static,
+    R: IntoScriptResult,
+    T: Fn(&A, &B, &C) -> R + Send + Sync + 'static,
 {
     fn into_function(self) -> Box<dyn Fn(Vec<Variant>) -> ScriptResult + Send + Sync> {
         Box::new(move |args| {
@@ -417,8 +542,18 @@ where
                 B::from_variant_error(&args[1])?,
                 C::from_variant_error(&args[2])?,
             )
+            .into_script_result()
         })
     }
+}
+impl<T, R, A, B, C> IntoScriptMethod<A, (A, B, C)> for T
+where
+    A: Primitive,
+    B: Primitive,
+    C: Primitive,
+    R: IntoScriptResult,
+    T: Fn(&A, &B, &C) -> R + Send + Sync + 'static,
+{
     fn into_method(self) -> Box<dyn Fn(&A, Vec<Variant>) -> ScriptResult + Send + Sync> {
         Box::new(move |this, args| {
             if args.len() != 2 {
@@ -429,6 +564,8 @@ where
                 B::from_variant_error(&args[0])?,
                 C::from_variant_error(&args[1])?,
             )
+            .into_script_result()
         })
     }
 }
+*/

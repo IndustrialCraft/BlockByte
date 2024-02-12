@@ -1,10 +1,10 @@
 #bb:command
-||{
-    if this.command[0] == "sethealth"{
+fn e(){
+    if this.command.get(0) == "sethealth"{
         let health = parse_int(this.command[1]);
         core::health::set_health(this.player, health);
     }
-    if this.command[0] == "damage"{
+    if this.command.get(0) == "damage"{
         let damage = parse_int(this.command[1]);
         core::health::set_health(this.player, core::health::get_health(this.player)-damage);
     }

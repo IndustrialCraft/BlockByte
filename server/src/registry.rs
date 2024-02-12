@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use immutable_string::ImmutableString;
 use std::ops::RangeInclusive;
 use std::str::FromStr;
 use std::sync::Weak;
@@ -9,12 +10,15 @@ use std::{
     sync::Arc,
 };
 
+use bbscript::eval::ExecutionEnvironment;
+use bbscript::variant::{FromVariant, FunctionType, IntoVariant, Variant};
 use block_byte_common::content::{
     ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData,
 };
 use block_byte_common::{BlockPosition, Face, HorizontalFace};
 use once_cell::sync::Lazy;
-use rhai::{Dynamic, Engine, FnPtr, Map};
+use parking_lot::Mutex;
+use strum_macros::{Display, EnumIter};
 use twox_hash::XxHash64;
 use zip::{write::FileOptions, DateTime, ZipWriter};
 
@@ -31,18 +35,18 @@ use crate::{
 };
 
 pub struct StaticData {
-    pub data: HashMap<String, Dynamic>,
+    pub data: HashMap<String, Variant>,
 }
 impl StaticData {
-    pub fn get(&self, id: &str) -> Option<&Dynamic> {
+    pub fn get(&self, id: &str) -> Option<&Variant> {
         self.data.get(id)
     }
     pub fn get_function(&self, id: &str) -> ScriptCallback {
         ScriptCallback {
-            function: self
-                .data
-                .get(id)
-                .and_then(|function| function.clone().try_cast::<FnPtr>()),
+            function: match FunctionType::from_variant(self.data.get(id).unwrap()).unwrap() {
+                FunctionType::ScriptFunction(function) => Some(function.clone()),
+                FunctionType::RustFunction(_) => unreachable!(),
+            },
         }
     }
 }
@@ -185,15 +189,15 @@ impl BlockStatePropertyStorage {
         self.properties.push((property, self.total_states));
         self.total_states *= num_states;
     }
-    pub fn dump_properties(&self, state: u32) -> Dynamic {
-        let mut map = Map::new();
+    pub fn dump_properties(&self, state: u32) -> Variant {
+        let mut map: HashMap<ImmutableString, _> = HashMap::new();
         for (name, i) in &self.property_names {
             map.insert(
-                name.into(),
+                name.as_str().into(),
                 self.get_from_state(state, BlockStatePropertyKey::Id(*i)),
             );
         }
-        Dynamic::from_map(map)
+        Arc::new(Mutex::new(map)).into_variant()
     }
     pub fn dump_properties_to_string(&self, state: u32) -> String {
         if self.total_states == 1 {
@@ -209,12 +213,12 @@ impl BlockStatePropertyStorage {
         }
         format!("{{{}}}", output.join(","))
     }
-    pub fn get_from_state(&self, state: u32, property: BlockStatePropertyKey) -> Dynamic {
+    pub fn get_from_state(&self, state: u32, property: BlockStatePropertyKey) -> Variant {
         let (property, before_states) = self
             .properties
             .get(match property.to_id(&self.property_names) {
                 Some(id) => id,
-                None => return Dynamic::UNIT,
+                None => return Variant::NULL(),
             })
             .unwrap();
         let state = (state / before_states) % property.get_num_states();
@@ -235,7 +239,7 @@ impl BlockStatePropertyStorage {
         &self,
         state: u32,
         property: BlockStatePropertyKey,
-        value: Dynamic,
+        value: Variant,
     ) -> Result<u32, u32> {
         let (property, before_states) = self
             .properties
@@ -291,15 +295,6 @@ pub struct Block {
     pub static_data: StaticData,
 }
 
-impl ScriptingObject for Block {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
-        engine.register_type_with_name::<Arc<Block>>("Block");
-        engine.register_fn("get_default_state", |block: &mut Arc<Block>| {
-            block.get_state_ref(0)
-        });
-    }
-}
-
 impl Block {
     pub fn get_state_ref(&self, state_id: u32) -> BlockStateRef {
         if state_id >= self.properties.get_total_states() {
@@ -328,14 +323,14 @@ impl BlockStateProperty {
             BlockStateProperty::Bool => 2,
         }
     }
-    pub fn from_value_to_id(&self, value: Dynamic) -> Option<u32> {
+    pub fn from_value_to_id(&self, value: Variant) -> Option<u32> {
         match self {
             BlockStateProperty::Face => {
-                let face = value.try_cast::<Face>();
+                let face = Face::from_variant(&value).cloned();
                 face.map(|face| Face::all().iter().position(|f| *f == face).unwrap() as u32)
             }
             BlockStateProperty::HorizontalFace => {
-                let face = value.try_cast::<HorizontalFace>();
+                let face = HorizontalFace::from_variant(&value).cloned();
                 face.map(|face| {
                     HorizontalFace::all()
                         .iter()
@@ -343,8 +338,8 @@ impl BlockStateProperty {
                         .unwrap() as u32
                 })
             }
-            BlockStateProperty::Number(range) => value.as_int().ok().and_then(|number| {
-                let number = number as i32;
+            BlockStateProperty::Number(range) => i64::from_variant(&value).and_then(|number| {
+                let number = *number as i32;
                 if range.contains(&number) {
                     Some((number - range.start()) as u32)
                 } else {
@@ -352,13 +347,15 @@ impl BlockStateProperty {
                 }
             }),
             BlockStateProperty::String(list) => {
-                value.into_immutable_string().ok().and_then(|text| {
+                ImmutableString::from_variant(&value).and_then(|text| {
                     list.iter()
-                        .position(|t| t.as_str() == text.as_str())
+                        .position(|t| t.as_str() == text.as_ref())
                         .map(|pos| pos as u32)
                 })
             }
-            BlockStateProperty::Bool => value.as_bool().ok().map(|value| if value { 1 } else { 0 }),
+            BlockStateProperty::Bool => {
+                bool::from_variant(&value).map(|value| if *value { 1 } else { 0 })
+            }
         }
     }
     pub fn from_id_to_string(&self, id: u32) -> String {
@@ -440,17 +437,17 @@ impl BlockStateProperty {
             },
         }
     }
-    pub fn from_id_to_value(&self, id: u32) -> Dynamic {
+    pub fn from_id_to_value(&self, id: u32) -> Variant {
         match self {
-            BlockStateProperty::Face => Dynamic::from(Face::all()[id as usize]),
-            BlockStateProperty::HorizontalFace => Dynamic::from(HorizontalFace::all()[id as usize]),
+            BlockStateProperty::Face => Face::all()[id as usize].into_variant(),
+            BlockStateProperty::HorizontalFace => HorizontalFace::all()[id as usize].into_variant(),
             BlockStateProperty::Number(range) => {
-                Dynamic::from_int((id as i32 + range.start()) as i64)
+                ((id as i32 + range.start()) as i64).into_variant()
             }
             BlockStateProperty::String(list) => {
-                Dynamic::from_str(list.get(id as usize).unwrap().as_str()).unwrap()
+                Variant::from_str(list.get(id as usize).unwrap().as_str())
             }
-            BlockStateProperty::Bool => Dynamic::from_bool(id == 1),
+            BlockStateProperty::Bool => (id == 1).into_variant(),
         }
     }
 }
@@ -516,19 +513,19 @@ impl BlockState {
             .static_data
             .get_function("on_neighbor_update")
             .call_function(
-                &location.chunk.world.server.engine,
-                Some(&mut Dynamic::from(Into::<BlockLocation>::into(&location))),
-                (),
+                &location.chunk.world.server.script_environment,
+                Some(Into::<BlockLocation>::into(&location).into_variant()),
+                vec![],
             );
     }
-    pub fn with_property(&self, property: &str, value: Dynamic) -> Result<BlockStateRef, ()> {
+    pub fn with_property(&self, property: &str, value: Variant) -> Result<BlockStateRef, ()> {
         self.parent
             .properties
             .set_state(self.state_id, BlockStatePropertyKey::Name(property), value)
             .map_err(|_| ())
             .map(|state| self.parent.get_state_ref(state))
     }
-    pub fn get_property(&self, property: &str) -> Dynamic {
+    pub fn get_property(&self, property: &str) -> Variant {
         self.parent
             .properties
             .get_from_state(self.state_id, BlockStatePropertyKey::Name(property))
@@ -546,64 +543,65 @@ impl ToString for BlockState {
     }
 }
 impl ScriptingObject for BlockState {
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
-        engine.register_type_with_name::<BlockStateRef>("BlockState");
+    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+        env.register_custom_name::<BlockStateRef, _>("BlockState");
         {
             let server = server.clone();
-            engine.register_fn("BlockState", move |state: &str| {
-                match server
-                    .upgrade()
-                    .unwrap()
-                    .block_registry
-                    .state_from_string(state)
-                {
-                    Ok(state) => Dynamic::from(state),
-                    Err(_) => Dynamic::UNIT,
-                }
+            env.register_function("BlockState", move |state: &ImmutableString| {
+                Ok(Variant::from_option(
+                    server
+                        .upgrade()
+                        .unwrap()
+                        .block_registry
+                        .state_from_string(state)
+                        .ok(),
+                ))
             });
         }
         {
             let server = server.clone();
-            engine.register_fn(
+            env.register_method(
                 "with_property",
-                move |state: &mut BlockStateRef, property: &str, value: Dynamic| {
+                move |state: &BlockStateRef, property: &ImmutableString, value: &Variant| {
                     let server = server.upgrade().unwrap();
                     let block_state = server.block_registry.state_by_ref(*state);
-                    match block_state.with_property(property, value) {
-                        Ok(state) => Dynamic::from(state),
-                        Err(_) => Dynamic::UNIT,
-                    }
+                    Ok(Variant::from_option(
+                        block_state.with_property(property, value.clone()).ok(),
+                    ))
                 },
             );
         }
         {
             let server = server.clone();
-            engine.register_fn(
+            env.register_method(
                 "get_property",
-                move |state: &mut BlockStateRef, property: &str| {
+                move |state: &BlockStateRef, property: &ImmutableString| {
                     let server = server.upgrade().unwrap();
                     let block_state = server.block_registry.state_by_ref(*state);
-                    block_state.get_property(property)
+                    Ok(block_state.get_property(property))
                 },
             );
         }
         {
             let server = server.clone();
-            engine.register_fn("to_string", move |state: &mut BlockStateRef| {
-                server
-                    .upgrade()
-                    .unwrap()
-                    .block_registry
-                    .state_by_ref(*state)
-                    .to_string()
+            env.register_method("to_string", move |state: &BlockStateRef| {
+                Ok(Variant::from_str(
+                    server
+                        .upgrade()
+                        .unwrap()
+                        .block_registry
+                        .state_by_ref(*state)
+                        .to_string()
+                        .as_str(),
+                ))
             });
         }
-        engine.register_fn("==", |first: BlockStateRef, second: BlockStateRef| {
-            first.state_id == second.state_id
-        });
-        engine.register_fn("!=", |first: BlockStateRef, second: BlockStateRef| {
-            first.state_id != second.state_id
-        });
+        env.register_method(
+            "operator==",
+            |first: &BlockStateRef, second: &BlockStateRef| {
+                Ok((first.state_id == second.state_id).into_variant())
+            },
+        );
     }
 }
 
@@ -655,18 +653,24 @@ impl Item {
         block_position: BlockPosition,
         block_face: Face,
     ) -> InteractionResult {
-        let mut new_item = Dynamic::from(item.clone());
-        let result = self
-            .static_data
-            .get_function("on_right_click_block")
-            .call_function(
-                &player.server.clone().engine,
-                Some(&mut new_item),
-                (player, block_position, block_face),
-            )
-            .try_cast::<InteractionResult>()
-            .unwrap_or(InteractionResult::Ignored);
-        *item = new_item.cast();
+        let mut new_item = item.clone().into_variant();
+        let result = *InteractionResult::from_variant(
+            &self
+                .static_data
+                .get_function("on_right_click_block")
+                .call_function(
+                    &player.server.clone().script_environment,
+                    Some(new_item),
+                    vec![
+                        player.into_variant(),
+                        block_position.into_variant(),
+                        block_face.into_variant(),
+                    ],
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        //*item = new_item.cast();
         result
     }
     pub fn on_right_click(
@@ -675,28 +679,25 @@ impl Item {
         player: Arc<PlayerData>,
         entity: Option<Arc<Entity>>,
     ) -> InteractionResult {
-        let mut new_item = Dynamic::from(item.clone());
-        let result = self
-            .static_data
-            .get_function("on_right_click")
-            .call_function(
-                &player.server.clone().engine,
-                Some(&mut new_item),
-                (
-                    player,
-                    entity
-                        .map(|entity| Dynamic::from(entity))
-                        .unwrap_or(Dynamic::UNIT),
-                ),
-            )
-            .try_cast::<InteractionResult>()
-            .unwrap_or(InteractionResult::Ignored);
-        *item = new_item.cast();
+        let mut new_item = item.clone().into_variant();
+        let result = InteractionResult::from_variant(
+            &self
+                .static_data
+                .get_function("on_right_click")
+                .call_function(
+                    &player.server.clone().script_environment,
+                    Some(new_item),
+                    vec![player.into_variant(), Variant::from_option(entity)],
+                )
+                .unwrap(),
+        )
+        .unwrap()
+        .clone();
         result
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(Copy, PartialEq, Eq, Clone, Debug, Display, EnumIter)]
 pub enum InteractionResult {
     Consumed,
     Ignored,

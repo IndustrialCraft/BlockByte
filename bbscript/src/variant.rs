@@ -1,4 +1,4 @@
-use crate::eval::{ExecutionEnvironment, Function, ScriptError, ScriptResult};
+use crate::eval::{ExecutionEnvironment, Function, ScopeStack, ScriptError, ScriptResult};
 use dyn_clone::DynClone;
 use immutable_string::ImmutableString;
 use parking_lot::Mutex;
@@ -40,11 +40,27 @@ impl<T: Any + Clone + Send + Sync> Primitive for T {
 pub struct Variant(Box<dyn Primitive>);
 
 impl Variant {
+    pub fn from_str(text: &str) -> Variant {
+        ImmutableString::from(text).into_variant()
+    }
+    pub fn from_option<T: IntoVariant>(option: Option<T>) -> Variant {
+        option.map(|e| e.into_variant()).unwrap_or(Variant::NULL())
+    }
+    pub fn into_option<T: FromVariant>(variant: &Variant) -> Result<Option<&T>, ScriptError> {
+        if variant.0.as_any().type_id() == TypeId::of::<()>() {
+            return Ok(None);
+        }
+        T::from_variant_error(variant).map(|variant| Some(variant))
+    }
     pub fn call(&self, args: Vec<Variant>, environment: &ExecutionEnvironment) -> ScriptResult {
         match FunctionVariant::from_variant(self) {
             Some(function_variant) => match &function_variant.function {
                 FunctionType::ScriptFunction(function) => {
-                    function.run(function_variant.this.clone(), args, environment)
+                    let scope = ScopeStack::new();
+                    scope
+                        .set_variable("this".into(), function_variant.this.clone(), true)
+                        .unwrap();
+                    function.run(Some(&scope), args, environment)
                 }
                 FunctionType::RustFunction(function) => {
                     function(function_variant.this.clone(), args)
@@ -98,6 +114,15 @@ pub enum FunctionType {
     ScriptFunction(Arc<Function>),
     RustFunction(Arc<dyn Fn(Variant, Vec<Variant>) -> ScriptResult + Send + Sync>),
 }
-
 pub type Array = Arc<Mutex<Vec<Variant>>>;
+impl FromIterator<Variant> for Array {
+    fn from_iter<T: IntoIterator<Item = Variant>>(iter: T) -> Self {
+        Arc::new(Mutex::new(Vec::from_iter(iter)))
+    }
+}
 pub type Map = Arc<Mutex<HashMap<ImmutableString, Variant>>>;
+/*impl FromIterator<(ImmutableString, Variant)> for Map {
+    fn from_iter<T: IntoIterator<Item = (ImmutableString, Variant)>>(iter: T) -> Self {
+        Arc::new(Mutex::new(HashMap::from_iter(iter)))
+    }
+}*/

@@ -1,29 +1,31 @@
 use anyhow::{anyhow, Context, Result};
+use bbscript::eval::{ExecutionEnvironment, Function, ScopeStack, ScriptError, ScriptResult};
+use bbscript::variant::{
+    Array, FromVariant, FunctionType, FunctionVariant, IntoVariant, Map, Variant,
+};
 use block_byte_common::content::Transformation;
+use block_byte_common::gui::PositionAnchor;
 use block_byte_common::messages::MovementType;
-use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, KeyboardKey, Position, Vec3};
+use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, KeyboardKey, Position};
 use image::io::Reader;
 use image::{ImageOutputFormat, Rgba, RgbaImage};
+use immutable_string::ImmutableString;
 use json::JsonValue;
-use parking_lot::MutexGuard;
-use rhai::plugin::*;
-use rhai::{
-    exported_module, Engine, EvalAltResult, FnPtr, FuncArgs, GlobalRuntimeState, Scope, StaticVec,
-    AST,
-};
+use parking_lot::{Mutex, MutexGuard};
 use std::collections::HashSet;
+use std::fmt::Display;
 use std::{
-    cell::OnceCell,
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Weak},
 };
+use strum::IntoEnumIterator;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::inventory::{InventoryWrapper, ItemStack, ModGuiViewer, OwnedInventoryView};
-use crate::registry::{Block, BlockState, BlockStateRef, InteractionResult};
+use crate::registry::{BlockState, BlockStateRef, InteractionResult};
 use crate::util::BlockLocation;
 use crate::world::{BlockNetwork, PlayerData, UserData, World, WorldBlock};
 use crate::{
@@ -80,10 +82,9 @@ impl Mod {
     pub fn load_scripts(
         &self,
         id: &str,
-        engine: &Engine,
-        script_errors: &mut Vec<(String, Box<EvalAltResult>)>,
-    ) -> Vec<(String, Module)> {
-        let mut modules = Vec::new();
+        script_errors: &mut Vec<(String, ScriptError)>,
+    ) -> Vec<(String, Function)> {
+        let mut functions = Vec::new();
         let scripts_path = {
             let mut scripts_path = self.path.clone();
             scripts_path.push("scripts");
@@ -94,25 +95,21 @@ impl Mod {
             .filter_map(|e| e.ok())
             .filter(|entry| entry.metadata().unwrap().is_file())
         {
-            let parsed = engine.compile_file(script.clone().into_path()).unwrap();
-            let module_name = script
-                .into_path()
-                .canonicalize()
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string();
+            let path = script.into_path();
+            let module_name = path.canonicalize().unwrap().to_str().unwrap().to_string();
             let module_path =
                 module_name.replace(scripts_path.canonicalize().unwrap().to_str().unwrap(), "");
             let module_name = module_path.replace("/", "::");
             let module_name = module_name.replace(".rhs", "");
             let module_name = format!("{}{}", id, module_name);
-            match Module::eval_ast_as_new(Scope::new(), &parsed, engine) {
-                Ok(module) => modules.push((module_name, module)),
-                Err(error) => script_errors.push((format!("{}{}", id, module_path), error)),
+            for function in
+                bbscript::parse_source_file(std::fs::read_to_string(path).unwrap().as_str())
+                    .unwrap()
+            {
+                functions.push((format!("{}::{}", module_name, function.name), function));
             }
         }
-        modules
+        functions
     }
     pub fn load_content<F: Fn(&str, Identifier) -> Option<JsonValue>>(
         &self,
@@ -130,7 +127,7 @@ impl Mod {
                 if file.file_type().is_file() {
                     content.insert(
                         Identifier::new(
-                            &self.namespace,
+                            self.namespace.as_str(),
                             pathdiff::diff_paths(file.path(), &path)
                                 .unwrap()
                                 .to_str()
@@ -188,7 +185,7 @@ pub struct ModManager {
 }
 
 impl ModManager {
-    pub fn load_mods(path: &Path) -> (Self, Vec<(String, Box<EvalAltResult>)>, Engine) {
+    pub fn load_mods(path: &Path) -> (Self, Vec<(String, ScriptError)>, ExecutionEnvironment) {
         let mut errors = Vec::new();
         let mut mods = HashMap::new();
         for mod_path in std::fs::read_dir(path).unwrap() {
@@ -205,18 +202,22 @@ impl ModManager {
             }
         }
 
-        let mut modules = Vec::new();
-        let mut engine = Engine::new();
+        let mut script_environment = ExecutionEnvironment::new();
         for (mod_id, loaded_mod) in &mods {
-            let script_modules = loaded_mod.load_scripts(mod_id.as_str(), &engine, &mut errors);
-            for (module_id, module) in script_modules {
-                let module = Arc::new(module);
-                engine.register_static_module(module_id.as_str(), module.clone());
-                modules.push((module_id, module));
+            let script_modules = loaded_mod.load_scripts(mod_id.as_str(), &mut errors);
+            for (name, function) in script_modules {
+                script_environment.register_global(
+                    name,
+                    FunctionVariant {
+                        this: Variant::NULL(),
+                        function: FunctionType::ScriptFunction(Arc::new(function)),
+                    }
+                    .into_variant(),
+                );
             }
         }
 
-        (ModManager { mods }, errors, engine)
+        (ModManager { mods }, errors, script_environment)
     }
     pub fn load_resource_type<F: FnMut(Identifier, ContentType)>(
         &self,
@@ -242,156 +243,134 @@ impl ModManager {
             })
         }
     }
-    pub fn runtime_engine_load(engine: &mut Engine, server: Weak<Server>) {
+    pub fn runtime_engine_load(env: &mut ExecutionEnvironment, server: Weak<Server>) {
         {
             let server = server.clone();
-            engine.register_fn("Server", move || server.upgrade().unwrap());
+            env.register_function(
+                "call_event",
+                move |id: &ImmutableString, event_data: &Variant| {
+                    Ok(server
+                        .upgrade()
+                        .unwrap()
+                        .call_event(Identifier::parse(id.as_ref()).unwrap(), event_data.clone()))
+                },
+            );
         }
-        {
-            let server = server.clone();
-            engine.register_fn("call_event", move |id: &str, event_data: Dynamic| {
-                server
-                    .upgrade()
-                    .unwrap()
-                    .call_event(Identifier::parse(id).unwrap(), event_data)
-            });
-        }
-        engine.register_static_module("MovementType", exported_module!(MovementTypeModule).into());
-        engine.register_static_module("Face", exported_module!(FaceModule).into());
-        engine.register_static_module(
-            "PositionAnchorModule",
-            exported_module!(PositionAnchorModule).into(),
-        );
-        engine.register_static_module(
-            "HorizontalFace",
-            exported_module!(HorizontalFaceModule).into(),
-        );
-        engine.register_static_module(
-            "InteractionResult",
-            exported_module!(InteractionResultModule).into(),
-        );
-        engine.register_static_module("KeyboardKey", exported_module!(KeyboardKeyModule).into());
+        Self::load_enum::<MovementType>(env, "MovementType");
+        Self::load_enum::<Face>(env, "Face");
+        Self::load_enum::<PositionAnchor>(env, "PositionAnchor");
+        Self::load_enum::<HorizontalFace>(env, "HorizontalFace");
+        Self::load_enum::<InteractionResult>(env, "InteractionResult");
+        Self::load_enum::<KeyboardKey>(env, "KeyboardKey");
 
-        engine.register_fn("random_uuid", || Uuid::new_v4().to_string());
+        env.register_function("random_uuid", || {
+            Ok(Variant::from_str(Uuid::new_v4().to_string().as_str()))
+        });
 
-        Self::load_scripting_object::<PlayerData>(engine, &server);
-        Self::load_scripting_object::<Entity>(engine, &server);
-        Self::load_scripting_object::<WorldBlock>(engine, &server);
-        Self::load_scripting_object::<World>(engine, &server);
-        Self::load_scripting_object::<Location>(engine, &server);
-        Self::load_scripting_object::<BlockLocation>(engine, &server);
-        Self::load_scripting_object::<Position>(engine, &server);
-        Self::load_scripting_object::<Identifier>(engine, &server);
-        Self::load_scripting_object::<Structure>(engine, &server);
-        Self::load_scripting_object::<BlockPosition>(engine, &server);
-        Self::load_scripting_object::<BlockState>(engine, &server);
-        Self::load_scripting_object::<Block>(engine, &server);
-        Self::load_scripting_object::<UserDataWrapper>(engine, &server);
-        Self::load_scripting_object::<InventoryWrapper>(engine, &server);
-        Self::load_scripting_object::<Recipe>(engine, &server);
-        Self::load_scripting_object::<ModGuiViewer>(engine, &server);
-        Self::load_scripting_object::<Transformation>(engine, &server);
-        Self::load_scripting_object::<Face>(engine, &server);
-        Self::load_scripting_object::<HorizontalFace>(engine, &server);
-        Self::load_scripting_object::<IdentifierTag>(engine, &server);
-        Self::load_scripting_object::<ItemStack>(engine, &server);
-        Self::load_scripting_object::<KeyboardKey>(engine, &server);
-        Self::load_scripting_object::<Server>(engine, &server);
-        Self::load_scripting_object::<OwnedInventoryView>(engine, &server);
-        Self::load_scripting_object::<BlockNetwork>(engine, &server);
+        Self::load_scripting_object::<PlayerData>(env, &server);
+        Self::load_scripting_object::<Entity>(env, &server);
+        Self::load_scripting_object::<WorldBlock>(env, &server);
+        Self::load_scripting_object::<World>(env, &server);
+        Self::load_scripting_object::<Location>(env, &server);
+        Self::load_scripting_object::<BlockLocation>(env, &server);
+        Self::load_scripting_object::<Position>(env, &server);
+        Self::load_scripting_object::<Structure>(env, &server);
+        Self::load_scripting_object::<BlockPosition>(env, &server);
+        Self::load_scripting_object::<BlockState>(env, &server);
+        Self::load_scripting_object::<UserDataWrapper>(env, &server);
+        Self::load_scripting_object::<InventoryWrapper>(env, &server);
+        Self::load_scripting_object::<Recipe>(env, &server);
+        Self::load_scripting_object::<ModGuiViewer>(env, &server);
+        Self::load_scripting_object::<Transformation>(env, &server);
+        Self::load_scripting_object::<Face>(env, &server);
+        Self::load_scripting_object::<HorizontalFace>(env, &server);
+        Self::load_scripting_object::<IdentifierTag>(env, &server);
+        Self::load_scripting_object::<ItemStack>(env, &server);
+        Self::load_scripting_object::<KeyboardKey>(env, &server);
+        Self::load_scripting_object::<Server>(env, &server);
+        Self::load_scripting_object::<OwnedInventoryView>(env, &server);
+        Self::load_scripting_object::<BlockNetwork>(env, &server);
     }
-    fn load_scripting_object<T>(engine: &mut Engine, server: &Weak<Server>)
+    fn load_scripting_object<T>(env: &mut ExecutionEnvironment, server: &Weak<Server>)
     where
         T: ScriptingObject,
     {
-        T::engine_register_server(engine, server);
-        T::engine_register(engine);
+        T::engine_register(env, server);
+    }
+    fn load_enum<T: Display + IntoEnumIterator + IntoVariant>(
+        env: &mut ExecutionEnvironment,
+        enum_name: &str,
+    ) {
+        for variant in T::iter() {
+            env.register_global(
+                format!("{}{}", enum_name, variant.to_string()),
+                variant.into_variant(),
+            );
+        }
     }
 }
 pub trait ScriptingObject {
-    #[allow(unused)]
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {}
-    #[allow(unused)]
-    fn engine_register(engine: &mut Engine) {}
+    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>);
 }
 impl ScriptingObject for Position {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
-        engine.register_type_with_name::<Position>("Position");
-        engine.register_fn("Position", |x: f64, y: f64, z: f64| Position { x, y, z });
-        engine.register_fn("+", |first: Position, second: Position| first + second);
-        engine.register_fn("*", |first: Position, scalar: f64| first.multiply(scalar));
-        engine.register_fn("distance", |first: &mut Position, other: Position| {
-            first.distance(&other)
+    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+        env.register_custom_name::<Position, _>("Position");
+        env.register_function("Position", |x: &f64, y: &f64, z: &f64| {
+            Ok(Position {
+                x: *x,
+                y: *y,
+                z: *z,
+            })
         });
-        engine.register_get_set(
-            "x",
-            |position: &mut Position| position.x,
-            |position: &mut Position, x: f64| position.x = x,
-        );
-        engine.register_get_set(
-            "y",
-            |position: &mut Position| position.y,
-            |position: &mut Position, y: f64| position.y = y,
-        );
-        engine.register_get_set(
-            "z",
-            |position: &mut Position| position.z,
-            |position: &mut Position, z: f64| position.z = z,
-        );
-        engine.register_fn("to_block_position", |position: &mut Position| {
-            position.to_block_pos()
+        env.register_method("operator+", |first: &Position, second: &Position| {
+            Ok(*first + *second)
         });
-        engine.register_fn("to_string", |position: &mut Position| position.to_string());
+        env.register_method("distance", |first: &Position, other: &Position| {
+            Ok(first.distance(other))
+        });
+        env.register_member("x", |position: &Position| Some(position.x));
+        env.register_member("y", |position: &Position| Some(position.y));
+        env.register_member("z", |position: &Position| Some(position.z));
+        env.register_method("to_block_position", |position: &Position| {
+            Ok(position.to_block_pos())
+        });
+        env.register_method("to_string", |position: &Position| {
+            Ok(Variant::from_str(position.to_string().as_str()))
+        });
     }
 }
 impl ScriptingObject for BlockPosition {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
-        engine.register_type_with_name::<BlockPosition>("BlockPosition");
-        engine.register_fn("BlockPosition", |x: i64, y: i64, z: i64| BlockPosition {
-            x: x as i32,
-            y: y as i32,
-            z: z as i32,
+    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+        env.register_custom_name::<BlockPosition, _>("BlockPosition");
+        env.register_function("BlockPosition", |x: &i64, y: &i64, z: &i64| {
+            Ok(BlockPosition {
+                x: *x as i32,
+                y: *y as i32,
+                z: *z as i32,
+            })
         });
-        engine.register_fn("+", |first: BlockPosition, second: BlockPosition| {
-            first + second
-        });
-        engine.register_fn(
+        env.register_method(
+            "operator+",
+            |first: &BlockPosition, second: &BlockPosition| Ok(*first + *second),
+        );
+        env.register_method(
             "distance",
-            |first: &mut BlockPosition, other: BlockPosition| first.distance(&other),
+            |first: &BlockPosition, other: &BlockPosition| Ok(first.distance(&other)),
         );
-        engine.register_get_set(
-            "x",
-            |position: &mut BlockPosition| position.x as i64,
-            |position: &mut BlockPosition, x: i64| {
-                position.x = x as i32;
-            },
-        );
-        engine.register_get_set(
-            "y",
-            |position: &mut BlockPosition| position.y as i64,
-            |position: &mut BlockPosition, y: i64| {
-                position.y = y as i32;
-            },
-        );
-        engine.register_get_set(
-            "z",
-            |position: &mut BlockPosition| position.z as i64,
-            |position: &mut BlockPosition, z: i64| {
-                position.z = z as i32;
-            },
-        );
-        engine.register_fn(
-            "offset_by_face",
-            |position: &mut BlockPosition, face: Face| position.offset_by_face(face),
-        );
-        engine.register_fn("to_string", |position: &mut BlockPosition| {
-            position.to_string()
+        env.register_member("x", |position: &BlockPosition| Some(position.x as i64));
+        env.register_member("y", |position: &BlockPosition| Some(position.y as i64));
+        env.register_member("z", |position: &BlockPosition| Some(position.z as i64));
+        env.register_method("offset_by_face", |position: &BlockPosition, face: &Face| {
+            Ok(position.offset_by_face(*face))
+        });
+        env.register_method("to_string", |position: &BlockPosition| {
+            Ok(Variant::from_str(position.to_string().as_str()))
         });
     }
 }
 impl ScriptingObject for Transformation {
-    fn engine_register(engine: &mut Engine) {
-        engine.register_type_with_name::<Transformation>("Transformation");
+    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+        /*engine.register_type_with_name::<Transformation>("Transformation");
         engine.register_fn("transform_from_rotation", |x: f64, y: f64, z: f64| {
             Transformation {
                 position: Vec3::ZERO,
@@ -481,7 +460,7 @@ impl ScriptingObject for Transformation {
                     z: 0.,
                 },
             }
-        });
+        });*/
     }
 }
 pub struct IdentifierTag {
@@ -505,47 +484,53 @@ impl IdentifierTag {
     }
 }
 impl ScriptingObject for IdentifierTag {
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
+    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
         {
             let server = server.clone();
-            engine.register_fn("Tag", move |id: &str| {
-                server
-                    .upgrade()
-                    .unwrap()
-                    .tags
-                    .get(&Identifier::parse(id).unwrap())
-                    .map(|tag| Dynamic::from(tag.clone()))
-                    .unwrap_or(Dynamic::UNIT)
+            env.register_function("Tag", move |id: &ImmutableString| {
+                Ok(Variant::from_option(
+                    server
+                        .upgrade()
+                        .unwrap()
+                        .tags
+                        .get(&Identifier::parse(id.as_ref()).unwrap())
+                        .cloned(),
+                ))
             });
         }
-        engine.register_fn("contains", |tag: &mut Arc<IdentifierTag>, id: &str| {
-            tag.contains(&Identifier::parse(id).unwrap())
-        });
+        env.register_method(
+            "contains",
+            |tag: &Arc<IdentifierTag>, id: &ImmutableString| {
+                Ok(tag.contains(&Identifier::parse(id.as_ref()).unwrap()))
+            },
+        );
         {
             let server = server.clone();
-            engine.register_fn(
+            env.register_method(
                 "contains",
-                move |tag: &mut Arc<IdentifierTag>, block: BlockStateRef| {
-                    tag.contains(
+                move |tag: &Arc<IdentifierTag>, block: &BlockStateRef| {
+                    Ok(tag.contains(
                         &server
                             .upgrade()
                             .unwrap()
                             .block_registry
-                            .state_by_ref(block)
+                            .state_by_ref(*block)
                             .parent
                             .id,
-                    )
+                    ))
                 },
             );
         }
     }
 }
 impl ScriptingObject for KeyboardKey {
-    fn engine_register_server(engine: &mut Engine, _server: &Weak<Server>) {
-        engine.register_type_with_name::<KeyboardKey>("KeyboardKey");
-        engine.register_fn("to_string", |key: &mut KeyboardKey| format!("{:?}", key));
-        engine.register_fn("==", |first: KeyboardKey, second: KeyboardKey| {
-            first == second
+    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+        env.register_custom_name::<KeyboardKey, _>("KeyboardKey");
+        env.register_method("to_string", |key: &KeyboardKey| {
+            Ok(Variant::from_str(format!("{:?}", key).as_str()))
+        });
+        env.register_method("operator==", |first: &KeyboardKey, second: &KeyboardKey| {
+            Ok(first == second)
         });
     }
 }
@@ -571,9 +556,9 @@ impl UserDataWrapper {
     }
 }
 impl ScriptingObject for UserDataWrapper {
-    fn engine_register_server(engine: &mut Engine, server: &Weak<Server>) {
-        engine.register_type_with_name::<UserDataWrapper>("UserData");
-        engine.register_indexer_get_set(
+    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+        env.register_custom_name::<UserDataWrapper, _>("UserData");
+        /*env.register_indexer_get_set(
             |user_data: &mut UserDataWrapper, id: &str| {
                 user_data
                     .get_user_data()
@@ -589,7 +574,7 @@ impl ScriptingObject for UserDataWrapper {
         );
         {
             let server = server.clone();
-            engine.register_fn(
+            env.register_fn(
                 "modify",
                 move |user_data: &mut UserDataWrapper, id: &str, callback: FnPtr| {
                     let mut user_data = user_data.get_user_data();
@@ -604,34 +589,39 @@ impl ScriptingObject for UserDataWrapper {
                     return_value
                 },
             );
-        }
+        }*/
     }
 }
 impl ScriptingObject for Face {
-    fn engine_register(engine: &mut Engine) {
-        engine.register_fn("to_horizontal_face", |this: Face| {
-            this.to_horizontal_face()
-                .map(|face| Dynamic::from(face))
-                .unwrap_or(Dynamic::UNIT)
+    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+        env.register_method("to_horizontal_face", |this: &Face| {
+            Ok(Variant::from_option(this.to_horizontal_face()))
         });
     }
 }
 impl ScriptingObject for HorizontalFace {
-    fn engine_register(engine: &mut Engine) {
-        engine.register_fn("to_face", |this: HorizontalFace| this.to_face());
+    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+        env.register_method("to_face", |this: &HorizontalFace| Ok(this.to_face()));
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ScriptCallback {
-    pub(crate) function: Option<FnPtr>,
+    pub function: Option<Arc<Function>>,
 }
 
 impl ScriptCallback {
-    const AST: OnceCell<AST> = OnceCell::new();
-    pub fn new(function: FnPtr) -> Self {
+    pub fn new(function: Arc<Function>) -> Self {
         Self {
             function: Some(function),
+        }
+    }
+    pub fn from_function_type(function: &FunctionType) -> Self {
+        match function {
+            FunctionType::ScriptFunction(function) => Self {
+                function: Some(function.clone()),
+            },
+            FunctionType::RustFunction(_) => panic!(),
         }
     }
     pub fn empty() -> Self {
@@ -639,35 +629,30 @@ impl ScriptCallback {
     }
     pub fn call_function(
         &self,
-        engine: &Engine,
-        this: Option<&mut Dynamic>,
-        args: impl FuncArgs,
-    ) -> Dynamic {
+        env: &ExecutionEnvironment,
+        this: Option<Variant>,
+        args: Vec<Variant>,
+    ) -> ScriptResult {
         if let Some(function) = &self.function {
-            let mut arg_values = StaticVec::new_const();
-            args.parse(&mut arg_values);
-            let global = &mut GlobalRuntimeState::new(engine);
-            let context = (engine, "", None, &*global, rhai::Position::NONE).into();
-            match function.call_raw(&context, this, arg_values) {
-                Ok(ret) => ret,
-                Err(error) => {
-                    println!("callback error: {error:#?}");
-                    Dynamic::UNIT
-                }
+            let stack = ScopeStack::new();
+            if let Some(this) = this {
+                stack.set_variable("this".into(), this, true).unwrap();
             }
+            function.run(Some(&stack), args, env)
         } else {
-            Dynamic::UNIT
+            Ok(Variant::NULL())
         }
     }
     pub fn call_action(
         &self,
-        engine: &Engine,
-        this: Option<&mut Dynamic>,
-        args: impl FuncArgs,
-    ) -> InteractionResult {
-        self.call_function(engine, this, args)
-            .try_cast::<InteractionResult>()
-            .unwrap_or(InteractionResult::Ignored)
+        env: &ExecutionEnvironment,
+        this: Option<Variant>,
+        args: Vec<Variant>,
+    ) -> Result<InteractionResult, ScriptError> {
+        let variant = self.call_function(env, this, args)?;
+        Ok(InteractionResult::from_variant(&variant)
+            .cloned()
+            .unwrap_or(InteractionResult::Ignored))
     }
     pub fn is_empty(&self) -> bool {
         self.function.is_none()
@@ -683,106 +668,16 @@ impl EventManager {
             events: HashMap::new(),
         }
     }
-    pub fn call_event(&self, id: Identifier, mut event_data: Dynamic, engine: &Engine) -> Dynamic {
+    pub fn call_event(&self, id: Identifier, event_data: Variant, env: &ExecutionEnvironment) {
         if let Some(event_list) = self.events.get(&id) {
             for event in event_list {
-                let _ = event.call_function(engine, Some(&mut event_data), ());
+                let _ = event.call_function(env, Some(event_data.clone()), vec![]);
             }
         }
-        event_data
     }
     pub fn register(&mut self, id: Identifier, callback: ScriptCallback) {
         self.events.entry(id).or_insert(Vec::new()).push(callback);
     }
-}
-#[export_module]
-#[allow(non_snake_case)]
-mod PositionAnchorModule {
-    use block_byte_common::gui::PositionAnchor;
-
-    #[allow(non_upper_case_globals)]
-    pub const Top: PositionAnchor = PositionAnchor::Top;
-    #[allow(non_upper_case_globals)]
-    pub const Bottom: PositionAnchor = PositionAnchor::Bottom;
-    #[allow(non_upper_case_globals)]
-    pub const Left: PositionAnchor = PositionAnchor::Left;
-    #[allow(non_upper_case_globals)]
-    pub const Right: PositionAnchor = PositionAnchor::Right;
-    #[allow(non_upper_case_globals)]
-    pub const TopLeft: PositionAnchor = PositionAnchor::TopLeft;
-    #[allow(non_upper_case_globals)]
-    pub const TopRight: PositionAnchor = PositionAnchor::TopRight;
-    #[allow(non_upper_case_globals)]
-    pub const BottomLeft: PositionAnchor = PositionAnchor::BottomLeft;
-    #[allow(non_upper_case_globals)]
-    pub const BottomRight: PositionAnchor = PositionAnchor::BottomRight;
-    #[allow(non_upper_case_globals)]
-    pub const Center: PositionAnchor = PositionAnchor::Center;
-    #[allow(non_upper_case_globals)]
-    pub const Cursor: PositionAnchor = PositionAnchor::Cursor;
-}
-#[export_module]
-#[allow(non_snake_case)]
-mod FaceModule {
-    #[allow(non_upper_case_globals)]
-    pub const Front: Face = Face::Front;
-    #[allow(non_upper_case_globals)]
-    pub const Back: Face = Face::Back;
-    #[allow(non_upper_case_globals)]
-    pub const Left: Face = Face::Left;
-    #[allow(non_upper_case_globals)]
-    pub const Right: Face = Face::Right;
-    #[allow(non_upper_case_globals)]
-    pub const Up: Face = Face::Up;
-    #[allow(non_upper_case_globals)]
-    pub const Down: Face = Face::Down;
-}
-#[export_module]
-#[allow(non_snake_case)]
-mod HorizontalFaceModule {
-    #[allow(non_upper_case_globals)]
-    pub const Front: HorizontalFace = HorizontalFace::Front;
-    #[allow(non_upper_case_globals)]
-    pub const Back: HorizontalFace = HorizontalFace::Back;
-    #[allow(non_upper_case_globals)]
-    pub const Left: HorizontalFace = HorizontalFace::Left;
-    #[allow(non_upper_case_globals)]
-    pub const Right: HorizontalFace = HorizontalFace::Right;
-}
-
-#[export_module]
-#[allow(non_snake_case)]
-mod MovementTypeModule {
-    #[allow(non_upper_case_globals)]
-    pub const Normal: MovementType = MovementType::Normal;
-    #[allow(non_upper_case_globals)]
-    pub const Fly: MovementType = MovementType::Fly;
-    #[allow(non_upper_case_globals)]
-    pub const NoClip: MovementType = MovementType::NoClip;
-}
-
-#[export_module]
-#[allow(non_snake_case)]
-mod InteractionResultModule {
-    use crate::registry::InteractionResult;
-
-    #[allow(non_upper_case_globals)]
-    pub const Ignored: InteractionResult = InteractionResult::Ignored;
-    #[allow(non_upper_case_globals)]
-    pub const Consumed: InteractionResult = InteractionResult::Consumed;
-}
-
-#[export_module]
-#[allow(non_snake_case)]
-mod KeyboardKeyModule {
-    use block_byte_common::KeyboardKey;
-
-    #[allow(non_upper_case_globals)]
-    pub const Tab: KeyboardKey = KeyboardKey::Tab;
-    #[allow(non_upper_case_globals)]
-    pub const C: KeyboardKey = KeyboardKey::C;
-    #[allow(non_upper_case_globals)]
-    pub const Escape: KeyboardKey = KeyboardKey::Escape;
 }
 
 #[derive(Clone)]
@@ -881,33 +776,36 @@ fn patch_up_json(base: JsonValue, patch: JsonValue) -> JsonValue {
         (_base, patch) => patch,
     }
 }
-pub fn json_to_dynamic(json: JsonValue, engine: &Engine) -> Dynamic {
-    use std::str::FromStr;
+pub fn json_to_variant(json: JsonValue) -> Variant {
     if let Some(string) = json.as_str() {
         return if string.starts_with("!") {
-            engine.eval(&string[1..]).unwrap()
+            //engine.eval(&string[1..]).unwrap()
+            FunctionType::ScriptFunction(Arc::new(
+                bbscript::parse_source_file(&string[1..])
+                    .expect(&string[1..])
+                    .remove(0),
+            ))
+            .into_variant()
         } else {
-            Dynamic::from_str(string).unwrap()
+            Variant::from_str(string)
         };
     }
     match json {
-        JsonValue::Null => Dynamic::UNIT,
-        JsonValue::Number(number) => Dynamic::from_float(number.into()),
-        JsonValue::Boolean(bool) => Dynamic::from_bool(bool),
+        JsonValue::Null => Variant::NULL(),
+        JsonValue::Number(number) => Into::<f64>::into(number).into_variant(),
+        JsonValue::Boolean(bool) => bool.into_variant(),
         JsonValue::Object(object) => {
-            let mut output = rhai::Map::new();
+            let mut output: HashMap<ImmutableString, _> = HashMap::new();
             for (name, property) in object.iter() {
-                output.insert(name.into(), json_to_dynamic(property.clone(), engine));
+                output.insert(name.into(), json_to_variant(property.clone()));
             }
-            Dynamic::from_map(output)
+            Arc::new(Mutex::new(output)).into_variant()
         }
-        JsonValue::Array(array) => {
-            let mut output = rhai::Array::new();
-            for property in array.into_iter() {
-                output.push(json_to_dynamic(property, engine));
-            }
-            Dynamic::from_array(output)
-        }
+        JsonValue::Array(array) => array
+            .into_iter()
+            .map(|entry| json_to_variant(entry))
+            .collect::<Array>()
+            .into_variant(),
         _ => unreachable!(),
     }
 }

@@ -1,6 +1,7 @@
 use crate::gui::{GUIElement, GUIElementEdit};
 use crate::{BlockPosition, ChunkPosition, Face, KeyboardKey, Position};
 use serde::{Deserialize, Serialize};
+use strum_macros::{Display, EnumIter};
 
 #[repr(u8)]
 #[derive(Serialize, Deserialize)]
@@ -32,7 +33,7 @@ pub enum ClientModelTarget {
     Entity(u32),
     ViewModel,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumIter)]
 pub enum MovementType {
     Normal = 0,
     Fly = 1,
@@ -54,7 +55,7 @@ pub enum NetworkMessageC2S {
     SendMessage(String),
     ConnectionMode(u8),
 }
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumIter)]
 pub enum MouseButton {
     Left,
     Right,
