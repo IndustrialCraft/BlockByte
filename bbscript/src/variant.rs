@@ -4,6 +4,7 @@ use immutable_string::ImmutableString;
 use parking_lot::Mutex;
 use std::any::{type_name, Any, TypeId};
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -37,7 +38,13 @@ impl<T: Any + Clone + Send + Sync> Primitive for T {
 }
 
 #[derive(Clone)]
-pub struct Variant(Box<dyn Primitive>);
+pub struct Variant(pub Box<dyn Primitive>);
+
+impl Debug for Variant {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Variant({})", (*self.0).type_name().1)
+    }
+}
 
 impl Variant {
     pub fn from_str(text: &str) -> Variant {
@@ -80,7 +87,11 @@ pub trait IntoVariant {
 }
 impl<T: Primitive> IntoVariant for T {
     fn into_variant(self) -> Variant {
-        Variant(Box::new(self))
+        if self.type_id() == TypeId::of::<Variant>() {
+            unsafe { std::mem::transmute_copy(&std::mem::ManuallyDrop::new(self)) }
+        } else {
+            Variant(Box::new(self))
+        }
     }
 }
 
@@ -99,7 +110,7 @@ impl<T: Primitive> FromVariant for T {
     fn from_variant_error(variant: &Variant) -> Result<&Self, ScriptError> {
         Self::from_variant(variant).ok_or(ScriptError::MismatchedType {
             expected: TypeName::new::<T>(),
-            got: variant.type_name(),
+            got: (*variant.0).type_name(),
         })
     }
 }

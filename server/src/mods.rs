@@ -244,6 +244,8 @@ impl ModManager {
         }
     }
     pub fn runtime_engine_load(env: &mut ExecutionEnvironment, server: Weak<Server>) {
+        bbscript::environment::register_defaults(env);
+
         {
             let server = server.clone();
             env.register_function(
@@ -671,7 +673,9 @@ impl EventManager {
     pub fn call_event(&self, id: Identifier, event_data: Variant, env: &ExecutionEnvironment) {
         if let Some(event_list) = self.events.get(&id) {
             for event in event_list {
-                let _ = event.call_function(env, Some(event_data.clone()), vec![]);
+                event
+                    .call_function(env, Some(event_data.clone()), vec![])
+                    .unwrap();
             }
         }
     }

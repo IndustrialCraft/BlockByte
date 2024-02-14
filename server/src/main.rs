@@ -500,11 +500,8 @@ impl Server {
                     Identifier::new("bb", "resolve_spawn_location"),
                     event_data.clone(),
                 );
-                self.call_event(
-                    Identifier::new("bb", "player_join"),
-                    event_data.clone().into_variant(),
-                );
-                let mut event_data = Map::from_variant(&event_data).unwrap();
+                self.call_event(Identifier::new("bb", "player_join"), event_data.clone());
+                let event_data = Map::from_variant(&event_data).unwrap();
                 let entity = event_data
                     .lock()
                     .remove("entity")

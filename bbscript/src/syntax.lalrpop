@@ -5,6 +5,15 @@ use immutable_string::ImmutableString;
 
 grammar;
 
+match {
+    // Ignore C++-style comments
+    r"//[^\n\r]*[\n\r]*" => { },
+    " " => {},
+    "\n" => {},
+    "\t" => {},
+    _
+}
+
 Comma<T>: Vec<T> = {
     <mut v:(<T> ",")*> <e:T?> => match e {
         None => v,
@@ -22,9 +31,9 @@ pub Expression: Expression = {
     <e:Expression> "." <id:Identifier> => Expression::MemberAccess{expression:Box::new(e),name:id},
     <id:Identifier> => Expression::ScopedVariable{name:id},
     <e:Expression> "(" <arg:Comma<Expression>> ")" => Expression::Call{expression:Box::new(e), parameters:arg},
+    "(" <e:Expression> ")" => e,
     #[precedence(level="1")]
     #[assoc(side="left")]
-    "(" <e:Expression> ")" => e,
     <e1:Expression> <op:Operator> <e2:Expression> => Expression::Operator{first:Box::new(e1),second:Box::new(e2),operator:op},
 };
 
@@ -44,8 +53,8 @@ pub ElseStatementBlock: StatementBlock = {
 }
 
 Number: Expression = <n:r"[0-9]+"> <n2:r"\.[0-9]*"?> => if n2.is_none() {Expression::IntLiteral{literal:i64::from_str(n).unwrap()}} else {Expression::FloatLiteral{literal:f64::from_str(format!("{n}{}", n2.unwrap()).as_str()).unwrap()}};
-Identifier: ImmutableString = <s:r"[a-zA-Z][a-zA-Z0-9]*"> => s.into();
-String: ImmutableString = <s:r"'[a-zA-Z0-9]+'"> => s.into();
+Identifier: ImmutableString = <s:r"[a-zA-Z_:][a-zA-Z0-9_:]*"> => s.into();
+String: ImmutableString = <s:r#""[^"]*""#> => s[1..s.len()-1].into();//strip start and end
 Operator: ImmutableString = {
     "+" => "+".into(),
     "-" => "-".into(),
@@ -59,7 +68,7 @@ Operator: ImmutableString = {
     "<=" => "<=".into(),
 };
 Function: Function = {
-    "fn" <n:Identifier> "(" <args:Comma<Identifier>> ")" <b:StatementBlock> => Function{name:n, body: b, parameter_names: args},
+    "fn" <n:Identifier?> "(" <args:Comma<Identifier>> ")" <b:StatementBlock> => Function{name:n.unwrap_or("anon".into()), body: b, parameter_names: args},
 };
 pub SourceFile: Vec<Function> = {
     <s:Function*> => s

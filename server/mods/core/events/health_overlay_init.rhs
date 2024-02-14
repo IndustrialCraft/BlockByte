@@ -1,5 +1,5 @@
 #bb:post_player_join
-fn e(){
-    this.player.open_overlay("core:health", "core:layout_health");
-    core::health::set_health(this.player, 100);
+fn(){
+    //this.get("player").open_overlay("core:health", "core:layout_health");
+    //core::health::set_health(this.player, 100);
 }

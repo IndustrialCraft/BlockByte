@@ -3,7 +3,7 @@ use crate::registry::BlockStateRef;
 use crate::Server;
 use anyhow::anyhow;
 use bbscript::eval::ExecutionEnvironment;
-use bbscript::variant::{IntoVariant, Variant};
+use bbscript::variant::{FromVariant, IntoVariant, Variant};
 use block_byte_common::{BlockPosition, Face, Position};
 use immutable_string::ImmutableString;
 use serde::de::Error;
@@ -210,6 +210,27 @@ impl ScriptingObject for BlockLocation {
                 world: location.world.clone(),
             })
         });
+        {
+            let server = server.clone();
+            env.register_default_accessor::<BlockLocation, _>(move |this, key| {
+                let location = BlockLocation::from_variant(this)?;
+                server
+                    .upgrade()
+                    .unwrap()
+                    .block_registry
+                    .state_by_ref(
+                        location
+                            .world
+                            .get_block(&location.position)?
+                            .get_block_state(),
+                    )
+                    .parent
+                    .static_data
+                    .data
+                    .get(key.as_ref())
+                    .cloned()
+            });
+        }
         /*{
             let server = server.clone();
             engine.register_indexer_get(move |location: &mut BlockLocation, id: &str| {

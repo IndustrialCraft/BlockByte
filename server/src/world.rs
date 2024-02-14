@@ -1974,20 +1974,24 @@ impl Entity {
 impl ScriptingObject for Entity {
     fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
         env.register_custom_name::<Arc<Entity>, _>("Entity");
-        /*{
+        {
             let server = server.clone();
-            engine.register_fn("Entity", move |id: &str, location: Location| {
-                Entity::new(
-                    &location,
-                    server
-                        .upgrade()
-                        .unwrap()
-                        .entity_registry
-                        .entity_by_identifier(&Identifier::parse(id).unwrap())
-                        .unwrap(),
-                )
-            });
+            env.register_function(
+                "Entity",
+                move |id: &ImmutableString, location: &Location| {
+                    Ok(Entity::new(
+                        location,
+                        server
+                            .upgrade()
+                            .unwrap()
+                            .entity_registry
+                            .entity_by_identifier(&Identifier::parse(id.as_ref()).unwrap())
+                            .unwrap(),
+                    ))
+                },
+            );
         }
+        /*
         engine.register_fn("is_shifting", |entity: &mut Arc<Entity>| {
             entity.is_shifting()
         });

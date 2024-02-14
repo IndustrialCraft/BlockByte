@@ -1,5 +1,5 @@
 use crate::eval::{ExecutionEnvironment, ScriptError};
-use crate::variant::{Array, IntoVariant, Variant};
+use crate::variant::{Array, FromVariant, IntoVariant, Map, Variant};
 use immutable_string::ImmutableString;
 
 pub fn register_defaults(environment: &mut ExecutionEnvironment) {
@@ -98,5 +98,22 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
         let mut this = this.lock();
         this.push(value.clone());
         Ok(Variant::NULL())
+    });
+    environment.register_method("get", |this: &Map, key: &ImmutableString| {
+        Ok(Variant::from_option(this.lock().get(key).cloned()))
+    });
+    environment.register_method(
+        "set",
+        |this: &Map, key: &ImmutableString, value: &Variant| {
+            Ok(this.lock().insert(key.clone(), value.clone()))
+        },
+    );
+    environment.register_default_accessor::<Map, _>(|this: &Variant, key: ImmutableString| {
+        let map = Map::from_variant(this)?;
+        map.lock().get(&key).cloned()
+    });
+    environment.register_function("print", |text: &ImmutableString| {
+        println!("{}", text);
+        Ok(())
     });
 }

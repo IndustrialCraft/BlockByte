@@ -43,9 +43,13 @@ impl StaticData {
     }
     pub fn get_function(&self, id: &str) -> ScriptCallback {
         ScriptCallback {
-            function: match FunctionType::from_variant(self.data.get(id).unwrap()).unwrap() {
-                FunctionType::ScriptFunction(function) => Some(function.clone()),
-                FunctionType::RustFunction(_) => unreachable!(),
+            function: match self
+                .data
+                .get(id)
+                .and_then(|variant| FunctionType::from_variant(variant))
+            {
+                Some(FunctionType::ScriptFunction(function)) => Some(function.clone()),
+                _ => None,
             },
         }
     }

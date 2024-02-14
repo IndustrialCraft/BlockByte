@@ -11,9 +11,9 @@ use std::sync::{Arc, Mutex};
 pub enum ScriptError {
     MismatchedParameterCount,
     MismatchedType { expected: TypeName, got: TypeName },
-    VariableNotDefined,
+    VariableNotDefined { variable: String },
     ConditionNotBool,
-    MemberNotFound,
+    MemberNotFound { member: String },
     NonFunctionCalled,
     RuntimeError { error: String },
     NonVectorIterated,
@@ -68,7 +68,9 @@ impl<'a> ScopeStack<'a> {
                 return if let Some(previous) = &self.previous {
                     previous.set_variable(name, value, false)
                 } else {
-                    Err(ScriptError::VariableNotDefined)
+                    Err(ScriptError::VariableNotDefined {
+                        variable: name.to_string(),
+                    })
                 };
             }
         }
@@ -176,9 +178,15 @@ impl Function {
             Expression::StringLiteral { literal } => Ok(literal.clone().into_variant()),
             Expression::IntLiteral { literal } => Ok((*literal).into_variant()),
             Expression::FloatLiteral { literal } => Ok((*literal).into_variant()),
-            Expression::ScopedVariable { name } => stack
-                .get_variable(name.as_ref())
-                .ok_or(ScriptError::VariableNotDefined),
+            Expression::ScopedVariable { name } => {
+                let variable = stack
+                    .get_variable(name.as_ref())
+                    .or_else(|| environment.globals.get(name).cloned())
+                    .ok_or(ScriptError::VariableNotDefined {
+                        variable: name.to_string(),
+                    });
+                variable
+            }
             Expression::Call {
                 expression,
                 parameters,
@@ -194,7 +202,9 @@ impl Function {
                 let value = Function::eval_expression(stack, expression, environment)?;
                 environment
                     .access_member(&value, name)
-                    .ok_or(ScriptError::MemberNotFound)
+                    .ok_or(ScriptError::MemberNotFound {
+                        member: name.to_string(),
+                    })
             }
             Expression::Operator {
                 first,
@@ -206,15 +216,18 @@ impl Function {
                 if operator.as_ref() == "!=" {
                     let operator_call = environment
                         .access_member(&first, &"operator==".into())
-                        .ok_or(ScriptError::MemberNotFound)?;
+                        .ok_or(ScriptError::MemberNotFound {
+                            member: "operator==".to_string(),
+                        })?;
                     Ok((!*(bool::from_variant_error(
                         &operator_call.call(vec![second], environment)?,
                     )?))
                     .into_variant())
                 } else {
+                    let operator = format!("operator{operator}");
                     let operator_call = environment
-                        .access_member(&first, &format!("operator{operator}").into())
-                        .ok_or(ScriptError::MemberNotFound)?;
+                        .access_member(&first, &operator.clone().into())
+                        .ok_or(ScriptError::MemberNotFound { member: operator })?;
                     Ok(operator_call.call(vec![second], environment)?)
                 }
             }
@@ -234,7 +247,7 @@ impl ExecutionEnvironment {
     }
     fn access_member(&self, value: &Variant, name: &ImmutableString) -> Option<Variant> {
         self.types
-            .get(&((*value).type_id()))?
+            .get(&((*value.0).type_id()))?
             .access_member(value, name)
     }
     pub fn register_member<

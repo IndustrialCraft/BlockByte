@@ -16,5 +16,5 @@
     "no_collide": false
   },
   "on_left_click": "!fn e(player){this.ahoj();}",
-  "ahoj": "!fn e(){print('lol');}"
+  "ahoj": "!fn e(){print(\"lol\");}"
 }
