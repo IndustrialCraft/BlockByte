@@ -112,10 +112,9 @@ impl Function {
         block: &StatementBlock,
         environment: &ExecutionEnvironment,
     ) -> ScriptResult {
-        let mut last_return_value = Variant::NULL();
         let stack = stack.push();
         for statement in &block.statements {
-            last_return_value = match statement {
+            match statement {
                 Statement::Assign {
                     is_let,
                     name,
@@ -123,10 +122,9 @@ impl Function {
                 } => {
                     let value = Function::eval_expression(&stack, value, environment)?;
                     stack.set_variable(name.clone(), value, *is_let)?;
-                    Variant::NULL()
                 }
                 Statement::Eval { expression } => {
-                    Function::eval_expression(&stack, expression, environment)?
+                    Function::eval_expression(&stack, expression, environment)?;
                 }
                 Statement::If {
                     condition,
@@ -141,9 +139,7 @@ impl Function {
                             unsatisfied.as_ref()
                         };
                     if let Some(statement) = statement {
-                        Function::execute_block(&stack, statement, environment)?
-                    } else {
-                        Variant::NULL()
+                        Function::execute_block(&stack, statement, environment)?;
                     }
                 }
                 Statement::For {
@@ -163,11 +159,13 @@ impl Function {
                         stack.set_variable(name.clone(), value, true).unwrap();
                         Function::execute_block(&stack, body, environment)?;
                     }
-                    Variant::NULL()
+                }
+                Statement::Return { expression } => {
+                    return Ok(Function::eval_expression(&stack, expression, environment)?);
                 }
             };
         }
-        Ok(last_return_value)
+        Ok(Variant::NULL())
     }
     fn eval_expression(
         stack: &ScopeStack,

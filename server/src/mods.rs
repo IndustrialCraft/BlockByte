@@ -10,7 +10,7 @@ use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, KeyboardKey,
 use image::io::Reader;
 use image::{ImageOutputFormat, Rgba, RgbaImage};
 use immutable_string::ImmutableString;
-use json::JsonValue;
+use json::{object, JsonValue};
 use parking_lot::{Mutex, MutexGuard};
 use std::collections::HashSet;
 use std::fmt::Display;
@@ -137,10 +137,15 @@ impl Mod {
                                 .0,
                         ),
                         if file.file_name().to_str().unwrap().ends_with(".json") {
+                            let mut json =
+                                json::parse(fs::read_to_string(file.path()).unwrap().as_str())
+                                    .unwrap();
+                            if json.remove("abstract").as_bool().unwrap_or(false) {
+                                continue;
+                            }
                             ContentType::Json(Self::recursively_load_json(
                                 resource_type,
-                                json::parse(fs::read_to_string(file.path()).unwrap().as_str())
-                                    .unwrap(),
+                                json,
                                 &json_base_provider,
                             ))
                         } else {
@@ -154,19 +159,29 @@ impl Mod {
     }
     fn recursively_load_json<F: Fn(&str, Identifier) -> Option<JsonValue>>(
         resource_type: &str,
-        json: JsonValue,
+        original_json: JsonValue,
         json_base_provider: &F,
     ) -> JsonValue {
-        if let Some(base) = json["base"].as_str() {
-            let base_json = Self::recursively_load_json(
+        let mut json = object! {};
+        let bases = if let Some(base) = original_json["base"].as_str() {
+            vec![base.to_string()]
+        } else {
+            original_json["base"]
+                .members()
+                .map(|base| base.as_str().map(|str| str.to_string()))
+                .collect::<Option<Vec<String>>>()
+                .unwrap()
+        };
+        for base in bases.into_iter().rev() {
+            let patch = Self::recursively_load_json(
                 resource_type,
                 json_base_provider(resource_type, Identifier::parse(base).unwrap()).unwrap(),
                 json_base_provider,
             );
-            patch_up_json(base_json, json)
-        } else {
-            json
+            json = patch_up_json(json, patch);
         }
+
+        patch_up_json(json, original_json)
     }
     fn read_json_resource(&self, resource_type: &str, id: &str) -> Result<JsonValue> {
         let mut full_path = self.path.clone();
@@ -174,7 +189,7 @@ impl Mod {
         for path_part in id.split("/") {
             full_path.push(path_part);
         }
-        fs::read_to_string(full_path)
+        fs::read_to_string(format!("{}.json", full_path.to_str().unwrap()))
             .with_context(|| format!("resource {} not found", id))
             .and_then(|data| json::parse(&data).map_err(|_| anyhow!("malformed json")))
     }
@@ -240,6 +255,10 @@ impl ModManager {
                 mod_data
                     .read_json_resource(resource_type, identifier.get_key())
                     .ok()
+                    .map(|mut json| {
+                        json.remove("abstract");
+                        json
+                    })
             })
         }
     }

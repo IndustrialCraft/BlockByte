@@ -1,0 +1,4 @@
+{
+  "abstract": true,
+  "on_left_click": "!fn(player){return 0.0;}"
+}

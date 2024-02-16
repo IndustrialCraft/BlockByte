@@ -42,6 +42,7 @@ pub Statement: Statement = {
     <e:Expression> ";" => Statement::Eval{expression:e},
     "if" <c:Expression> <s:StatementBlock> <u:ElseStatementBlock?> => Statement::If{condition:c,satisfied:s,unsatisfied:u},
     "for" <n:Identifier> "in" <e:Expression> <s:StatementBlock> => Statement::For{name:n,expression:e,body:s},
+    "return "<e:Expression> ";" => Statement::Return{expression:e},
 };
 
 pub StatementBlock: StatementBlock = {

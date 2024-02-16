@@ -24,6 +24,9 @@ pub enum Statement {
         expression: Expression,
         body: StatementBlock,
     },
+    Return {
+        expression: Expression,
+    },
 }
 #[derive(Debug)]
 pub enum Expression {
