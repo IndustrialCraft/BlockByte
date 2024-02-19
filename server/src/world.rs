@@ -933,32 +933,13 @@ impl PartialEq for ChunkViewer {
 impl Eq for ChunkViewer {}
 
 #[derive(Clone)]
-pub struct UserData {
-    data: HashMap<Identifier, Variant>,
-}
+pub struct UserData(pub HashMap<ImmutableString, Variant>);
 impl UserData {
     pub fn new() -> Self {
-        UserData {
-            data: HashMap::new(),
-        }
-    }
-    pub fn put_data_point(&mut self, id: &Identifier, data: Variant) {
-        if data.as_any().type_id() == TypeId::of::<()>() {
-            self.data.remove(id);
-        } else {
-            self.data.insert(id.clone(), data);
-        }
-    }
-    pub fn take_data_point(&mut self, id: &Identifier) -> Option<Variant> {
-        self.data.remove(id)
-    }
-    pub fn get_data_point_ref(&mut self, id: &Identifier) -> Option<&mut Variant> {
-        self.data.get_mut(id)
-    }
-    pub fn data_points(&self) -> std::collections::hash_map::Iter<Identifier, Variant> {
-        self.data.iter()
+        UserData(HashMap::new())
     }
 }
+
 impl Serialize for UserData {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -1211,8 +1192,7 @@ impl ScriptingObject for PlayerData {
                 "open_inventory",
                 move |player: &Arc<PlayerData>,
                       inventory: &InventoryWrapper,
-                      range_start: &i64,
-                      range_end: &i64,
+                      range: &Range<i64>,
                       layout: &ImmutableString,
                       client_property_listener: &FunctionType,
                       on_click: &FunctionType,
@@ -1221,8 +1201,8 @@ impl ScriptingObject for PlayerData {
                         inventory.clone(),
                         GuiInventoryData {
                             slot_range: Range::<u32> {
-                                start: *range_start as u32,
-                                end: *range_end as u32,
+                                start: range.start as u32,
+                                end: range.end as u32,
                             },
                             layout: server
                                 .upgrade()

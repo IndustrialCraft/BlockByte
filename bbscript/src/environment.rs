@@ -1,8 +1,20 @@
 use crate::eval::{ExecutionEnvironment, ScriptError};
-use crate::variant::{Array, FromVariant, IntoVariant, Map, Variant};
+use crate::variant::{Array, FromVariant, IntoVariant, Map, Primitive, Variant};
 use immutable_string::ImmutableString;
+use std::any::TypeId;
 
 pub fn register_defaults(environment: &mut ExecutionEnvironment) {
+    environment.register_global("null", Variant::NULL());
+
+    let type_name_resolver = environment.get_type_name_resolver();
+    environment.register_function("type_of", move |variant: &Variant| {
+        Ok((*variant.0).type_name().resolve_name(&type_name_resolver))
+    });
+
+    environment.register_function("is_null", |variant: &Variant| {
+        Ok((*variant.0).as_any().type_id() == TypeId::of::<()>())
+    });
+
     macro_rules! register_operators {
         ($operator_type:ty) => {
             register_operators!($operator_type, +);
@@ -60,6 +72,8 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
         };
     }
 
+    environment.register_custom_name::<ImmutableString, _>("String");
+
     register_operators!(i64);
     register_operators!(f64);
 
@@ -67,6 +81,15 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
     register_comparison!(f64, true);
     register_comparison!(bool, false);
     register_comparison!(ImmutableString, false);
+
+    environment.register_method(
+        "operator%",
+        |first: &i64, second: &i64| Ok(*first % *second),
+    );
+
+    environment.register_method("uoperator!", |this: &bool| Ok(!*this));
+    environment.register_method("uoperator-", |this: &i64| Ok(-*this));
+    environment.register_method("uoperator-", |this: &f64| Ok(-*this));
 
     environment.register_method("get", |this: &Array, index: &i64| {
         let this = this.lock();

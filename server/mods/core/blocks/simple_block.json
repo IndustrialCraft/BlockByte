@@ -1,4 +1,7 @@
 {
   "abstract": true,
-  "on_left_click": "!fn(player){return 0.0;}"
+  "on_left_click": "!fn(player){return 0.0;}",
+  "item": {
+    "stack_size": 20
+  }
 }

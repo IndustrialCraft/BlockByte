@@ -34,6 +34,7 @@ use crate::{
     Server,
 };
 
+#[derive(Debug)]
 pub struct StaticData {
     pub data: HashMap<String, Variant>,
 }
@@ -609,6 +610,7 @@ impl ScriptingObject for BlockState {
     }
 }
 
+#[derive(Debug)]
 pub struct ItemRegistry {
     items: HashMap<Identifier, Arc<Item>, BuildHasherDefault<XxHash64>>,
     id_generator: u32,
@@ -641,6 +643,7 @@ impl ItemRegistry {
     }
 }
 
+#[derive(Debug)]
 pub struct Item {
     pub id: Identifier,
     pub client_data: ClientItemData,
@@ -657,7 +660,7 @@ impl Item {
         block_position: BlockPosition,
         block_face: Face,
     ) -> InteractionResult {
-        let mut new_item = item.clone().into_variant();
+        let new_item = item.clone().into_variant();
         let result = *InteractionResult::from_variant(
             &self
                 .static_data
@@ -673,7 +676,7 @@ impl Item {
                 )
                 .unwrap(),
         )
-        .unwrap();
+        .unwrap_or(&InteractionResult::Ignored);
         //*item = new_item.cast();
         result
     }

@@ -103,7 +103,7 @@ impl Mod {
             let module_name = module_name.replace(".rhs", "");
             let module_name = format!("{}{}", id, module_name);
             for function in
-                bbscript::parse_source_file(std::fs::read_to_string(path).unwrap().as_str())
+                bbscript::parse_source_file(std::fs::read_to_string(path).unwrap().as_str(), 0)
                     .unwrap()
             {
                 functions.push((format!("{}::{}", module_name, function.name), function));
@@ -324,7 +324,7 @@ impl ModManager {
     ) {
         for variant in T::iter() {
             env.register_global(
-                format!("{}{}", enum_name, variant.to_string()),
+                format!("{}::{}", enum_name, variant.to_string()),
                 variant.into_variant(),
             );
         }
@@ -577,8 +577,23 @@ impl UserDataWrapper {
     }
 }
 impl ScriptingObject for UserDataWrapper {
-    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
         env.register_custom_name::<UserDataWrapper, _>("UserData");
+        env.register_default_accessor::<UserDataWrapper, _>(|this, name| {
+            UserDataWrapper::from_variant(this)
+                .unwrap()
+                .get_user_data()
+                .0
+                .get(name.as_ref())
+                .cloned()
+        });
+        env.register_setter::<UserDataWrapper, _>(|this, name, value| {
+            UserDataWrapper::from_variant(this)
+                .unwrap()
+                .get_user_data()
+                .0
+                .insert(name, value.clone());
+        });
         /*env.register_indexer_get_set(
             |user_data: &mut UserDataWrapper, id: &str| {
                 user_data
@@ -804,7 +819,7 @@ pub fn json_to_variant(json: JsonValue) -> Variant {
         return if string.starts_with("!") {
             //engine.eval(&string[1..]).unwrap()
             FunctionType::ScriptFunction(Arc::new(
-                bbscript::parse_source_file(&string[1..])
+                bbscript::parse_source_file(&string[1..], 0)
                     .expect(&string[1..])
                     .remove(0),
             ))

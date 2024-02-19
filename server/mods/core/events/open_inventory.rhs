@@ -1,0 +1,80 @@
+#bb:keyboard
+fn(){
+    let player = this.player;
+    let key = this.key;
+    if !this.pressed {
+        return;
+    }
+    if key == KeyboardKey::Tab{
+        if player.get_open_inventory() {
+            player.close_inventory();
+        } else {
+            let creative_inventory = create_inventory(27);
+            creative_inventory.user_data.page = 0;
+            creative_inventory.set_client_property("page", 0);
+            let i = 0;
+            for item in list_items(){
+                if i >= 27{
+                    break;
+                }
+                let item = ItemStack(item, 1);
+                creative_inventory.full_view().set_item(i, item.with_count(item.stack_size));
+                i += 1;
+            }
+            player.open_inventory(creative_inventory, 0..27, "core:layout_creative", fn(viewer,id,value,old_value){
+                            if id == "core:page"{
+                                viewer.set_text("page", "page: " + value);
+                            }
+                        }, fn(viewer, view, id, btn, shift){
+                                                     if type_of(id) == "String" {
+                                                         let user_data = view.get_inventory().user_data;
+                                                         let page = user_data.page;
+                                                         if id == "next"{
+                                                             page += 1;
+                                                         } else {
+                                                             if id == "previous" {
+                                                                 page -= 1;
+                                                             }
+                                                         }
+                                                         let page = max(page,0);
+                                                         user_data.page = page;
+                                                         view.get_inventory().set_client_property("page", page);
+                                                         for i in 0..27{
+                                                             creative_inventory.full_view().set_item(i, null);
+                                                         }
+                                                         let i = 0;
+                                                         for item in list_items(){
+                                                             if i/27 == page{
+                                                                 let item = ItemStack(item, 1);
+                                                                 creative_inventory.full_view().set_item(i%27, item.with_count(item.stack_size));
+                                                             }
+                                                             i += 1;
+                                                         }
+                                                     } else {
+                                                         if viewer.get_hand_item() {
+                                                             viewer.set_hand_item(null);
+                                                         } else {
+                                                             viewer.set_hand_item(view.get_item(id));
+                                                         }
+                                                         return InteractionResult::Consumed;
+                                                     }
+                                                 }, fn(player, view, id, x, y, shift){
+                                                                              if type_of(id) == "i64" {
+                                                                                  let item = player.get_hand_item();
+                                                                                  if item != () {
+                                                                                      item.count += y;
+                                                                                      player.set_hand_item(item);
+                                                                                  } else {
+                                                                                      if y > 0{
+                                                                                          let item = view.get_item(id);
+                                                                                          if item != (){
+                                                                                              player.set_hand_item(item.with_count(1));
+                                                                                          }
+                                                                                      }
+                                                                                  }
+                                                                                  return InteractionResult::Consumed;
+                                                                              }
+                                                                          });
+        }
+    }
+}

@@ -1,4 +1,6 @@
-use crate::eval::{ExecutionEnvironment, Function, ScopeStack, ScriptError, ScriptResult};
+use crate::eval::{
+    ExecutionEnvironment, Function, ScopeStack, ScriptError, ScriptResult, TypeNameResolver,
+};
 use dyn_clone::DynClone;
 use immutable_string::ImmutableString;
 use parking_lot::Mutex;
@@ -13,10 +15,13 @@ impl TypeName {
     pub fn new<T: 'static>() -> TypeName {
         TypeName(TypeId::of::<T>(), type_name::<T>())
     }
-    pub fn resolve_name<'a>(&'a self, env: &'a ExecutionEnvironment) -> &str {
-        env.get_type_info(self.0)
-            .and_then(|info| info.custom_name.as_ref().map(|name| name.as_ref()))
-            .unwrap_or(self.1)
+    pub fn resolve_name(&self, resolver: &TypeNameResolver) -> ImmutableString {
+        resolver
+            .0
+            .lock()
+            .get(&self.0)
+            .cloned()
+            .unwrap_or(self.1.into())
     }
 }
 

@@ -40,7 +40,7 @@ use crate::world::PlayerData;
 use bbscript::eval::ExecutionEnvironment;
 use bbscript::variant::{FromVariant, IntoVariant, Map, Variant};
 use block_byte_common::content::{
-    ClientBlockData, ClientEntityData, ClientItemData, ClientTexture,
+    ClientBlockData, ClientEntityData, ClientItemData, ClientItemModel, ClientTexture,
 };
 use block_byte_common::Position;
 use crossbeam_channel::Receiver;
@@ -166,25 +166,6 @@ impl Server {
             },
         };
 
-        let mut load_item_from_json = |id: Identifier, mut json: JsonValue| {
-            let client_data: ClientEntityData =
-                serde_json::from_str(json.remove("client").to_string().as_str()).unwrap();
-            let static_data = static_data_from_json(json);
-            entity_registry
-                .register(id.clone(), move |client_id| {
-                    Arc::new(EntityType {
-                        id,
-                        client_id,
-                        client_data,
-                        item_model_mapping: ItemModelMapping {
-                            mapping: HashMap::new(),
-                        },
-                        static_data,
-                    })
-                })
-                .unwrap();
-        };
-
         mod_manager.load_resource_type("blocks", |id, content| match content {
             ContentType::Json(mut json) => {
                 let properties = {
@@ -228,21 +209,22 @@ impl Server {
                     }
                     properties
                 };
+                let name = json
+                    .remove("name")
+                    .as_str()
+                    .map(|name| name.to_string())
+                    .unwrap_or(id.to_string());
                 let client_block_data: ClientBlockData =
                     serde_json::from_str(json.remove("client").to_string().as_str()).unwrap();
-                {
-                    let item = json.remove("item");
-                    if !item.is_null() {
-                        load_item_from_json(id.clone(), item);
-                    }
-                }
+
+                let mut item = json.remove("item");
                 let static_data = static_data_from_json(json);
-                block_registry
+                let state_id = block_registry
                     .register(
-                        id,
+                        id.clone(),
                         |default_state, id| {
                             Arc::new(Block {
-                                id,
+                                id: id.clone(),
                                 default_state,
                                 data_container: None,
                                 item_model_mapping: ItemModelMapping {
@@ -256,6 +238,24 @@ impl Server {
                         |_id, _block| client_block_data.clone(), //todo: state function
                     )
                     .unwrap();
+                if !item.is_null() {
+                    let stack_size = item.remove("stack_size").as_u32().unwrap_or(20);
+                    let static_data = static_data_from_json(item);
+                    item_registry
+                        .register(id.clone(), move |client_id| {
+                            Arc::new(Item {
+                                id,
+                                client_data: ClientItemData {
+                                    name,
+                                    model: ClientItemModel::Block(state_id),
+                                },
+                                client_id,
+                                stack_size,
+                                static_data,
+                            })
+                        })
+                        .unwrap();
+                }
             }
             ContentType::Binary(_) => unimplemented!(),
         });
@@ -280,8 +280,23 @@ impl Server {
             ContentType::Binary(_) => unimplemented!(),
         });
         mod_manager.load_resource_type("entities", |id, content| match content {
-            ContentType::Json(json) => {
-                load_item_from_json(id, json);
+            ContentType::Json(mut json) => {
+                let client_data: ClientEntityData =
+                    serde_json::from_str(json.remove("client").to_string().as_str()).unwrap();
+                let static_data = static_data_from_json(json);
+                entity_registry
+                    .register(id.clone(), move |client_id| {
+                        Arc::new(EntityType {
+                            id,
+                            client_id,
+                            client_data,
+                            item_model_mapping: ItemModelMapping {
+                                mapping: HashMap::new(),
+                            },
+                            static_data,
+                        })
+                    })
+                    .unwrap();
             }
             ContentType::Binary(_) => unimplemented!(),
         });
@@ -364,7 +379,7 @@ impl Server {
                 events.register(
                     Identifier::parse(&id[1..]).unwrap(),
                     ScriptCallback::new(Arc::new(
-                        bbscript::parse_source_file(event).expect(event).remove(0),
+                        bbscript::parse_source_file(event, 1).unwrap().remove(0),
                     )),
                 );
             }
@@ -411,6 +426,7 @@ impl Server {
             content.push("content.zip");
             fs::write(content, &client_content.0).unwrap();
         }
+        println!("{:?}", item_registry);
         Arc::new_cyclic(|this| Server {
             this: this.clone(),
             new_players: Mutex::new(Server::create_listener_thread(this.clone(), port)),

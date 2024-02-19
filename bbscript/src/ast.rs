@@ -1,4 +1,6 @@
+use crate::eval::Function;
 use immutable_string::ImmutableString;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct StatementBlock {
@@ -8,7 +10,8 @@ pub struct StatementBlock {
 pub enum Statement {
     Assign {
         is_let: bool,
-        name: ImmutableString,
+        operator: Option<ImmutableString>,
+        left: Expression,
         value: Expression,
     },
     Eval {
@@ -25,7 +28,10 @@ pub enum Statement {
         body: StatementBlock,
     },
     Return {
-        expression: Expression,
+        expression: Option<Expression>,
+    },
+    Break {
+        expression: Option<Expression>,
     },
 }
 #[derive(Debug)]
@@ -38,6 +44,14 @@ pub enum Expression {
     },
     FloatLiteral {
         literal: f64,
+    },
+    RangeLiteral {
+        start: i64,
+        end: i64,
+        inclusive: bool,
+    },
+    FunctionLiteral {
+        function: Arc<Function>,
     },
     Call {
         expression: Box<Expression>,
@@ -55,4 +69,9 @@ pub enum Expression {
         second: Box<Expression>,
         operator: ImmutableString,
     },
+    UnaryOperator {
+        expression: Box<Expression>,
+        operator: ImmutableString,
+    },
+    Error,
 }

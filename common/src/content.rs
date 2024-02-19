@@ -59,7 +59,6 @@ pub struct ClientItemData {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type")]
 pub enum ClientItemModel {
     Texture(String), //todo: support animated textures
     Block(u32),

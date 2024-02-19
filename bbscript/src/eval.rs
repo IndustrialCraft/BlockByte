@@ -1,22 +1,44 @@
 use crate::ast::{Expression, Statement, StatementBlock};
+use crate::eval::ControlFlow::Normal;
+use crate::eval::ScriptError::{BreakOutsideLoop, NonVectorIterated};
 use crate::variant::{
     Array, FromVariant, FunctionType, FunctionVariant, IntoVariant, Primitive, TypeName, Variant,
 };
 use immutable_string::ImmutableString;
+use parking_lot::Mutex;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub enum ScriptError {
-    MismatchedParameterCount,
-    MismatchedType { expected: TypeName, got: TypeName },
-    VariableNotDefined { variable: String },
-    ConditionNotBool,
-    MemberNotFound { member: String },
+    MismatchedParameterCount {
+        function_name: String,
+        expected: Vec<String>,
+        got: Vec<TypeName>,
+    },
+    MismatchedType {
+        expected: TypeName,
+        got: TypeName,
+    },
+    VariableNotDefined {
+        variable: String,
+    },
+    BreakOutsideLoop,
+    MemberNotFound {
+        member: String,
+    },
     NonFunctionCalled,
-    RuntimeError { error: String },
+    RuntimeError {
+        error: String,
+    },
     NonVectorIterated,
+}
+enum ControlFlow {
+    Normal(ScriptResult),
+    Return(ScriptResult),
+    Break(ScriptResult),
 }
 impl ScriptError {
     pub fn runtime(text: &str) -> Self {
@@ -45,7 +67,7 @@ impl<'a> ScopeStack<'a> {
         }
     }
     pub fn get_variable(&self, name: &str) -> Option<Variant> {
-        if let Some(variable) = self.variables.lock().unwrap().get_mut(name) {
+        if let Some(variable) = self.variables.lock().get_mut(name) {
             return Some(variable.clone());
         }
         if let Some(previous) = &self.previous {
@@ -60,9 +82,9 @@ impl<'a> ScopeStack<'a> {
         top: bool,
     ) -> Result<(), ScriptError> {
         if top {
-            self.variables.lock().unwrap().insert(name, value);
+            self.variables.lock().insert(name, value);
         } else {
-            if let Some(variable) = self.variables.lock().unwrap().get_mut(name.as_ref()) {
+            if let Some(variable) = self.variables.lock().get_mut(name.as_ref()) {
                 *variable = value;
             } else {
                 return if let Some(previous) = &self.previous {
@@ -100,46 +122,128 @@ impl Function {
                 .unwrap();
         }
         if parameters.len() != self.parameter_names.len() {
-            return Err(ScriptError::MismatchedParameterCount);
+            return Err(ScriptError::MismatchedParameterCount {
+                function_name: self.name.to_string(),
+                expected: self
+                    .parameter_names
+                    .iter()
+                    .map(|string| string.to_string())
+                    .collect(),
+                got: parameters
+                    .into_iter()
+                    .map(|variant| (*variant.0).type_name())
+                    .collect(),
+            });
         }
         for (value, name) in parameters.into_iter().zip(self.parameter_names.iter()) {
             stack.set_variable(name.clone(), value, true).unwrap();
         }
-        Function::execute_block(&mut stack, &self.body, environment)
+        match Function::execute_block(&mut stack, &self.body, environment) {
+            ControlFlow::Break(_) => Err(BreakOutsideLoop),
+            ControlFlow::Normal(val) => val,
+            ControlFlow::Return(val) => val,
+        }
     }
     fn execute_block(
         stack: &ScopeStack,
         block: &StatementBlock,
         environment: &ExecutionEnvironment,
-    ) -> ScriptResult {
+    ) -> ControlFlow {
         let stack = stack.push();
         for statement in &block.statements {
             match statement {
                 Statement::Assign {
                     is_let,
-                    name,
+                    operator,
+                    left,
                     value,
                 } => {
-                    let value = Function::eval_expression(&stack, value, environment)?;
-                    stack.set_variable(name.clone(), value, *is_let)?;
+                    let value = match Function::eval_expression(&stack, value, environment) {
+                        Ok(val) => val,
+                        Err(error) => return Normal(Err(error)),
+                    };
+                    let value = match operator {
+                        Some(operator) => {
+                            let first = match left {
+                                Expression::MemberAccess { expression, name } => {
+                                    let left = match Function::eval_expression(
+                                        &stack,
+                                        expression,
+                                        environment,
+                                    ) {
+                                        Ok(val) => val,
+                                        Err(error) => return Normal(Err(error)),
+                                    };
+                                    environment.access_member(&left, name).unwrap()
+                                }
+                                Expression::ScopedVariable { name } => {
+                                    stack.get_variable(name.as_ref()).unwrap()
+                                }
+                                _ => panic!(),
+                            };
+                            let operator = format!("operator{operator}");
+                            let operator_call = match environment
+                                .access_member(&first, &operator.clone().into())
+                                .ok_or(ScriptError::MemberNotFound { member: operator })
+                            {
+                                Ok(call) => call,
+                                Err(error) => return ControlFlow::Normal(Err(error)),
+                            };
+                            match operator_call.call(vec![value], environment) {
+                                Ok(value) => value,
+                                Err(error) => return ControlFlow::Normal(Err(error)),
+                            }
+                        }
+                        None => value,
+                    };
+                    match left {
+                        Expression::MemberAccess { expression, name } => {
+                            let left =
+                                match Function::eval_expression(&stack, expression, environment) {
+                                    Ok(val) => val,
+                                    Err(error) => return Normal(Err(error)),
+                                };
+                            environment.assign_member(&left, name, &value);
+                        }
+                        Expression::ScopedVariable { name } => {
+                            if let Err(error) = stack.set_variable(name.clone(), value, *is_let) {
+                                return Normal(Err(error));
+                            }
+                        }
+                        _ => panic!(),
+                    }
                 }
                 Statement::Eval { expression } => {
-                    Function::eval_expression(&stack, expression, environment)?;
+                    match Function::eval_expression(&stack, expression, environment) {
+                        Ok(val) => {}
+                        Err(error) => return Normal(Err(error)),
+                    }
                 }
                 Statement::If {
                     condition,
                     satisfied,
                     unsatisfied,
                 } => {
-                    let expression = Function::eval_expression(&stack, condition, environment)?;
-                    let statement =
-                        if *bool::from_variant(&expression).ok_or(ScriptError::ConditionNotBool)? {
-                            Some(satisfied)
-                        } else {
-                            unsatisfied.as_ref()
-                        };
+                    let expression = match Function::eval_expression(&stack, condition, environment)
+                    {
+                        Ok(val) => val,
+                        Err(error) => return Normal(Err(error)),
+                    };
+                    let sat = match bool::from_variant(&expression) {
+                        Some(bool) => *bool,
+                        None => (*expression.0).type_id() != TypeId::of::<()>(),
+                    };
+                    let statement = if sat {
+                        Some(satisfied)
+                    } else {
+                        unsatisfied.as_ref()
+                    };
+
                     if let Some(statement) = statement {
-                        Function::execute_block(&stack, statement, environment)?;
+                        match Function::execute_block(&stack, statement, environment) {
+                            Normal(Ok(_)) => {}
+                            ret => return ret,
+                        }
                     }
                 }
                 Statement::For {
@@ -147,25 +251,47 @@ impl Function {
                     name,
                     body,
                 } => {
-                    let expression = Function::eval_expression(&stack, expression, environment)?;
+                    let expression =
+                        match Function::eval_expression(&stack, expression, environment) {
+                            Ok(val) => val,
+                            Err(error) => return Normal(Err(error)),
+                        };
                     let stack = stack.push();
-                    for value in Array::from_variant(&expression)
-                        .ok_or(ScriptError::NonVectorIterated)?
-                        .lock()
-                        .iter()
-                        .cloned()
-                        .collect::<Vec<_>>()
-                    {
+                    let array = match Array::from_variant(&expression) {
+                        Some(array) => array,
+                        None => {
+                            return ControlFlow::Normal(Err(NonVectorIterated));
+                        }
+                    };
+                    for value in array.lock().iter().cloned().collect::<Vec<_>>() {
                         stack.set_variable(name.clone(), value, true).unwrap();
-                        Function::execute_block(&stack, body, environment)?;
+                        match Function::execute_block(&stack, body, environment) {
+                            Normal(Ok(_)) => {}
+                            Normal(result) => return ControlFlow::Normal(result),
+                            ControlFlow::Return(result) => return ControlFlow::Return(result),
+                            ControlFlow::Break(_) => {
+                                break;
+                            }
+                        }
                     }
                 }
                 Statement::Return { expression } => {
-                    return Ok(Function::eval_expression(&stack, expression, environment)?);
+                    return ControlFlow::Return(if let Some(expression) = expression {
+                        Function::eval_expression(&stack, expression, environment)
+                    } else {
+                        Ok(Variant::NULL())
+                    });
+                }
+                Statement::Break { expression } => {
+                    return ControlFlow::Break(if let Some(expression) = expression {
+                        Function::eval_expression(&stack, expression, environment)
+                    } else {
+                        Ok(Variant::NULL())
+                    });
                 }
             };
         }
-        Ok(Variant::NULL())
+        Normal(Ok(Variant::NULL()))
     }
     fn eval_expression(
         stack: &ScopeStack,
@@ -176,6 +302,14 @@ impl Function {
             Expression::StringLiteral { literal } => Ok(literal.clone().into_variant()),
             Expression::IntLiteral { literal } => Ok((*literal).into_variant()),
             Expression::FloatLiteral { literal } => Ok((*literal).into_variant()),
+            Expression::FunctionLiteral { function } => {
+                Ok(FunctionType::ScriptFunction(function.clone()).into_variant())
+            }
+            Expression::RangeLiteral {
+                start,
+                end,
+                inclusive,
+            } => Ok((*start..(*end + if *inclusive { 1 } else { 0 })).into_variant()),
             Expression::ScopedVariable { name } => {
                 let variable = stack
                     .get_variable(name.as_ref())
@@ -229,24 +363,55 @@ impl Function {
                     Ok(operator_call.call(vec![second], environment)?)
                 }
             }
+            Expression::UnaryOperator {
+                expression,
+                operator,
+            } => {
+                let expression = Function::eval_expression(stack, expression, environment)?;
+                let operator = format!("uoperator{operator}");
+                let operator_call = environment
+                    .access_member(&expression, &operator.clone().into())
+                    .ok_or(ScriptError::MemberNotFound { member: operator })?;
+                Ok(operator_call.call(vec![], environment)?)
+            }
+            Expression::Error => unreachable!(),
         }
+    }
+}
+impl Debug for Function {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "fn {}({}){{{:?}}}",
+            self.name,
+            self.parameter_names.join(","),
+            self.body
+        )
     }
 }
 pub struct ExecutionEnvironment {
     types: HashMap<TypeId, TypeInfo>,
     globals: HashMap<ImmutableString, Variant>,
+    custom_names: Arc<Mutex<HashMap<TypeId, ImmutableString>>>,
 }
 impl ExecutionEnvironment {
     pub fn new() -> Self {
         ExecutionEnvironment {
             types: HashMap::new(),
             globals: HashMap::new(),
+            custom_names: Arc::new(Mutex::new(HashMap::new())),
         }
     }
     fn access_member(&self, value: &Variant, name: &ImmutableString) -> Option<Variant> {
         self.types
             .get(&((*value.0).type_id()))?
             .access_member(value, name)
+    }
+    fn assign_member(&self, left: &Variant, name: &ImmutableString, value: &Variant) {
+        self.types
+            .get(&((*left.0).type_id()))
+            .unwrap()
+            .assign_member(left, name, value)
     }
     pub fn register_member<
         T: Primitive,
@@ -321,10 +486,9 @@ impl ExecutionEnvironment {
         );
     }
     pub fn register_custom_name<T: Primitive, N: Into<ImmutableString>>(&mut self, custom_name: N) {
-        self.types
-            .entry(TypeId::of::<T>())
-            .or_insert(TypeInfo::new())
-            .custom_name = Some(custom_name.into());
+        self.custom_names
+            .lock()
+            .insert(TypeId::of::<T>(), custom_name.into());
     }
     pub fn register_default_accessor<
         T: Primitive,
@@ -338,21 +502,42 @@ impl ExecutionEnvironment {
             .or_insert(TypeInfo::new())
             .default = Some(Box::new(function));
     }
+    pub fn register_setter<
+        T: Primitive,
+        F: Fn(&Variant, ImmutableString, &Variant) + Send + Sync + 'static,
+    >(
+        &mut self,
+        function: F,
+    ) {
+        self.types
+            .entry(TypeId::of::<T>())
+            .or_insert(TypeInfo::new())
+            .setter = Some(Box::new(function));
+    }
     pub fn get_type_info(&self, type_id: TypeId) -> Option<&TypeInfo> {
         self.types.get(&type_id)
     }
+    pub fn get_type_name_resolver(&self) -> TypeNameResolver {
+        TypeNameResolver(self.custom_names.clone())
+    }
 }
+pub struct TypeNameResolver(pub Arc<Mutex<HashMap<TypeId, ImmutableString>>>);
 pub struct TypeInfo {
     members: HashMap<ImmutableString, Box<dyn Fn(&Variant) -> Option<Variant> + Send + Sync>>,
     default: Option<Box<dyn Fn(&Variant, ImmutableString) -> Option<Variant> + Send + Sync>>,
-    pub custom_name: Option<ImmutableString>,
+    setter: Option<Box<dyn Fn(&Variant, ImmutableString, &Variant) + Send + Sync>>,
 }
 impl TypeInfo {
     pub fn new() -> Self {
         TypeInfo {
             members: HashMap::new(),
             default: None,
-            custom_name: None,
+            setter: None,
+        }
+    }
+    pub fn assign_member(&self, this: &Variant, name: &ImmutableString, value: &Variant) {
+        if let Some(setter) = &self.setter {
+            setter(this, name.clone(), value);
         }
     }
     pub fn access_member(&self, value: &Variant, name: &ImmutableString) -> Option<Variant> {
@@ -446,8 +631,12 @@ where
 {
     fn into_function(self) -> Box<dyn Fn(Vec<Variant>) -> ScriptResult + Send + Sync> {
         Box::new(move |args| {
-            if args.len() != 1 {
-                return Err(ScriptError::MismatchedParameterCount);
+            if args.len() != 0 {
+                return Err(ScriptError::MismatchedParameterCount {
+                    function_name: "rust_defined".to_string(),
+                    got: Vec::new(),
+                    expected: Vec::new(),
+                });
             }
             self().into_script_result()
         })

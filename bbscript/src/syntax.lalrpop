@@ -2,8 +2,10 @@ use std::str::FromStr;
 use crate::ast::{Expression, Statement, StatementBlock};
 use crate::eval::Function;
 use immutable_string::ImmutableString;
+use lalrpop_util::ErrorRecovery;
+use std::sync::Arc;
 
-grammar;
+grammar<'err>(errors: &'err mut Vec<ErrorRecovery<usize, Token<'input>, &'static str>>);
 
 match {
     // Ignore C++-style comments
@@ -32,17 +34,23 @@ pub Expression: Expression = {
     <id:Identifier> => Expression::ScopedVariable{name:id},
     <e:Expression> "(" <arg:Comma<Expression>> ")" => Expression::Call{expression:Box::new(e), parameters:arg},
     "(" <e:Expression> ")" => e,
+    <n1:r"[0-9]+"> ".." <i:"="?> <n2:r"[0-9]+"> => Expression::RangeLiteral{start: i64::from_str(n1).unwrap(), end: i64::from_str(n2).unwrap(), inclusive: i.is_some()},
+    <f:Function> => Expression::FunctionLiteral{function:Arc::new(f)},
     #[precedence(level="1")]
+    <op:UnaryOperator> <e:Expression> => Expression::UnaryOperator{expression:Box::new(e),operator:op},
+    #[precedence(level="2")]
     #[assoc(side="left")]
     <e1:Expression> <op:Operator> <e2:Expression> => Expression::Operator{first:Box::new(e1),second:Box::new(e2),operator:op},
+    ! => Expression::Error,
 };
 
 pub Statement: Statement = {
-    <l:"let"?> <id:Identifier> "=" <e:Expression> ";" => Statement::Assign{is_let: l.is_some(), name: id, value: e},
+    "return" <e:Expression?> ";" => Statement::Return{expression:e},
+    "break" <e:Expression?> ";" => Statement::Break{expression:e},
+    <l:"let"?> <left:Expression> <op:Operator?> "=" <e:Expression> ";" => Statement::Assign{is_let: l.is_some(), operator: op, left: left, value: e},
     <e:Expression> ";" => Statement::Eval{expression:e},
     "if" <c:Expression> <s:StatementBlock> <u:ElseStatementBlock?> => Statement::If{condition:c,satisfied:s,unsatisfied:u},
     "for" <n:Identifier> "in" <e:Expression> <s:StatementBlock> => Statement::For{name:n,expression:e,body:s},
-    "return "<e:Expression> ";" => Statement::Return{expression:e},
 };
 
 pub StatementBlock: StatementBlock = {
@@ -55,7 +63,7 @@ pub ElseStatementBlock: StatementBlock = {
 
 Number: Expression = <n:r"[0-9]+"> <n2:r"\.[0-9]*"?> => if n2.is_none() {Expression::IntLiteral{literal:i64::from_str(n).unwrap()}} else {Expression::FloatLiteral{literal:f64::from_str(format!("{n}{}", n2.unwrap()).as_str()).unwrap()}};
 Identifier: ImmutableString = <s:r"[a-zA-Z_:][a-zA-Z0-9_:]*"> => s.into();
-String: ImmutableString = <s:r#""[^"]*""#> => s[1..s.len()-1].into();//strip start and end
+String: ImmutableString = <s:r#""[^"]*""#> => s[1..s.len()-1].into();
 Operator: ImmutableString = {
     "+" => "+".into(),
     "-" => "-".into(),
@@ -67,6 +75,11 @@ Operator: ImmutableString = {
     "<" => "<".into(),
     ">=" => ">=".into(),
     "<=" => "<=".into(),
+    "%" => "%".into(),
+};
+UnaryOperator: ImmutableString = {
+    "-" => "-".into(),
+    "!" => "!".into(),
 };
 Function: Function = {
     "fn" <n:Identifier?> "(" <args:Comma<Identifier>> ")" <b:StatementBlock> => Function{name:n.unwrap_or("anon".into()), body: b, parameter_names: args},

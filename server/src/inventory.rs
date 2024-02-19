@@ -131,11 +131,12 @@ impl Inventory {
             client_properties: Mutex::new(UserData::new()),
         }
     }
-    pub fn set_client_property(&self, id: &Identifier, value: Variant, server: &Server) {
+    pub fn set_client_property(&self, id: &str, value: Variant, server: &Server) {
         let previous = self
             .client_properties
             .lock()
-            .take_data_point(id)
+            .0
+            .remove(id)
             .unwrap_or(Variant::NULL());
         for viewer in self.viewers.lock().iter() {
             let _ = viewer.1.client_property_listener.call_function(
@@ -147,13 +148,13 @@ impl Inventory {
                         id: viewer.1.id.clone(),
                     }
                     .into_variant(),
-                    Variant::from_str(id.to_string().as_str()),
+                    Variant::from_str(id),
                     value.clone(),
                     previous.clone(),
                 ],
             );
         }
-        self.client_properties.lock().put_data_point(id, value);
+        self.client_properties.lock().0.insert(id.into(), value);
     }
     pub fn get_user_data(&self) -> MutexGuard<UserData> {
         self.user_data.lock()
@@ -270,7 +271,7 @@ impl Inventory {
                     },
                 ));
         }
-        for property in self.client_properties.lock().data_points() {
+        for property in self.client_properties.lock().0.iter() {
             let _ = viewer.client_property_listener.call_function(
                 &viewer.viewer.server.script_environment,
                 None,
@@ -394,8 +395,8 @@ impl Inventory {
                 }
                 .unwrap(),
             )
-            .unwrap()
-            .clone()
+            .cloned()
+            .unwrap_or(InteractionResult::Ignored)
         };
         if let InteractionResult::Ignored = result {
             if button == MouseButton::Left {
@@ -470,8 +471,8 @@ impl Inventory {
                 }
                 .unwrap(),
             )
-            .unwrap()
-            .clone()
+            .cloned()
+            .unwrap_or(InteractionResult::Ignored)
         };
         if let InteractionResult::Ignored = result {
             if let Some(slot) = slot {
@@ -902,7 +903,7 @@ impl ScriptingObject for InventoryWrapper {
                 "set_client_property",
                 move |inventory: &InventoryWrapper, id: &ImmutableString, value: &Variant| {
                     inventory.get_inventory().set_client_property(
-                        &Identifier::parse(id.as_ref()).unwrap(),
+                        id.as_ref(),
                         value.clone(),
                         &server.upgrade().unwrap(),
                     );
