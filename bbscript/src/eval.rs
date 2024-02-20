@@ -1,6 +1,6 @@
 use crate::ast::{Expression, Statement, StatementBlock};
 use crate::eval::ControlFlow::Normal;
-use crate::eval::ScriptError::{BreakOutsideLoop, NonVectorIterated};
+use crate::eval::ScriptError::{BreakOutsideLoop, InvalidIterator};
 use crate::variant::{
     Array, FromVariant, FunctionType, FunctionVariant, IntoVariant, Primitive, TypeName, Variant,
 };
@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
+use std::ops::Range;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -33,7 +34,7 @@ pub enum ScriptError {
     RuntimeError {
         error: String,
     },
-    NonVectorIterated,
+    InvalidIterator,
 }
 enum ControlFlow {
     Normal(ScriptResult),
@@ -258,12 +259,19 @@ impl Function {
                         };
                     let stack = stack.push();
                     let array = match Array::from_variant(&expression) {
-                        Some(array) => array,
-                        None => {
-                            return ControlFlow::Normal(Err(NonVectorIterated));
-                        }
+                        Some(array) => array.lock().clone(),
+                        None => match Range::<i64>::from_variant(&expression) {
+                            Some(range) => range
+                                .clone()
+                                .into_iter()
+                                .map(|i| i.into_variant())
+                                .collect(),
+                            None => {
+                                return ControlFlow::Normal(Err(InvalidIterator));
+                            }
+                        },
                     };
-                    for value in array.lock().iter().cloned().collect::<Vec<_>>() {
+                    for value in array {
                         stack.set_variable(name.clone(), value, true).unwrap();
                         match Function::execute_block(&stack, body, environment) {
                             Normal(Ok(_)) => {}

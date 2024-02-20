@@ -15,6 +15,18 @@ impl TokenReader {
             if i >= text.len() {
                 break;
             }
+            if text[i] == '/' && text[i + 1] == '/' {
+                while text[i] != '\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            if text[i] == '/' && text[i + 1] == '*' {
+                while text[i] != '*' && text[i + 1] != '/' {
+                    i += 1;
+                }
+                continue;
+            }
             let char = CharacterType::from_char(text[i]);
             match char {
                 CharacterType::Alpha(char) => {
@@ -33,6 +45,10 @@ impl TokenReader {
                         "for" => Token::For,
                         "if" => Token::If,
                         "in" => Token::In,
+                        "let" => Token::Let,
+                        "else" => Token::Else,
+                        "return" => Token::Return,
+                        "break" => Token::Break,
                         identifier => Token::Identifier(identifier.into()),
                     });
                 }
@@ -78,20 +94,23 @@ impl TokenReader {
                     }
                 }
                 CharacterType::Operator(op) => {
-                    let mut operator = String::new();
-                    operator.push(op);
-                    if (op == '>' || op == '<') && text[i + 1] == '=' {
-                        operator.push('=');
+                    if text[i + 1] == '=' {
                         i += 1;
+                        if op == '!' || op == '<' || op == '>' {
+                            tokens.push(Token::Operator(format!("{op}=").into()));
+                        } else {
+                            tokens.push(Token::Assign(Some(format!("{op}").into())));
+                        }
+                    } else {
+                        tokens.push(Token::Operator(format!("{op}").into()));
                     }
-                    tokens.push(Token::Operator(operator.into()));
                 }
                 CharacterType::Equal => {
                     if text[i + 1] == '=' {
                         i += 1;
                         tokens.push(Token::Operator("==".into()));
                     } else {
-                        tokens.push(Token::Assign);
+                        tokens.push(Token::Assign(None));
                     }
                 }
                 CharacterType::Empty => {}
@@ -147,7 +166,7 @@ impl Debug for TokenReader {
         )
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Token {
     EOF,
     Int(i64),
@@ -166,8 +185,12 @@ pub enum Token {
     If,
     Fn,
     In,
+    Let,
+    Else,
+    Return,
+    Break,
     Range(bool),
-    Assign,
+    Assign(Option<ImmutableString>),
 }
 #[derive(Copy, Clone)]
 pub enum CharacterType {
@@ -198,7 +221,7 @@ impl CharacterType {
             ';' => CharacterType::SemiColon,
             ' ' | '\t' | '\n' => CharacterType::Empty,
             '0'..='9' => CharacterType::Number(char as u8 - '0' as u8),
-            '+' | '-' | '*' | '/' | '%' | '<' | '>' => CharacterType::Operator(char),
+            '+' | '-' | '*' | '/' | '%' | '<' | '>' | '!' => CharacterType::Operator(char),
             '=' => CharacterType::Equal,
             _ => CharacterType::Alpha(char),
         }

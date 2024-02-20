@@ -59,7 +59,7 @@ impl Variant {
         option.map(|e| e.into_variant()).unwrap_or(Variant::NULL())
     }
     pub fn into_option<T: FromVariant>(variant: &Variant) -> Result<Option<&T>, ScriptError> {
-        if variant.0.as_any().type_id() == TypeId::of::<()>() {
+        if (*variant.0).as_any().type_id() == TypeId::of::<()>() {
             return Ok(None);
         }
         T::from_variant_error(variant).map(|variant| Some(variant))

@@ -2,7 +2,7 @@
 fn(){
     let player = this.player;
     let key = this.key;
-    if !this.pressed {
+    if !(this.pressed) {
         return;
     }
     if key == KeyboardKey::Tab{
@@ -22,7 +22,7 @@ fn(){
                 i += 1;
             }
             player.open_inventory(creative_inventory, 0..27, "core:layout_creative", fn(viewer,id,value,old_value){
-                            if id == "core:page"{
+                            if id == "page"{
                                 viewer.set_text("page", "page: " + value);
                             }
                         }, fn(viewer, view, id, btn, shift){
@@ -40,7 +40,7 @@ fn(){
                                                          user_data.page = page;
                                                          view.get_inventory().set_client_property("page", page);
                                                          for i in 0..27{
-                                                             creative_inventory.full_view().set_item(i, null);
+                                                            view.set_item(i, null);
                                                          }
                                                          let i = 0;
                                                          for item in list_items(){

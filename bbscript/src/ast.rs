@@ -90,8 +90,20 @@ pub fn parse_expression(tokens: &mut TokenReader) -> Option<Expression> {
         }
         _ => {}
     }
+    if let Some(function) = parse_function(tokens) && left_side.is_none(){
+        left_side = Some(Expression::FunctionLiteral {function: Arc::new(function)});
+    }
     loop {
         match (&mut left_side, tokens.peek().clone()) {
+            (None, Token::LParan) => {
+                tokens.pop();
+                let expression = parse_expression(tokens).unwrap();
+                match tokens.pop() {
+                    Token::RParan => {}
+                    _ => panic!(),
+                }
+                left_side = Some(expression);
+            }
             (None, Token::Operator(operator)) => {
                 tokens.pop();
                 left_side = Some(Expression::UnaryOperator {
@@ -164,4 +176,136 @@ pub fn parse_expression(tokens: &mut TokenReader) -> Option<Expression> {
             _ => return left_side,
         }
     }
+}
+pub fn parse_statement(tokens: &mut TokenReader) -> Option<Statement> {
+    match tokens.peek().clone() {
+        Token::If => {
+            tokens.pop();
+            let condition = parse_expression(tokens).unwrap();
+            let satisfied = parse_statement_block(tokens);
+            let unsatisfied = if tokens.peek() == &Token::Else {
+                tokens.pop();
+                Some(parse_statement_block(tokens))
+            } else {
+                None
+            };
+            Some(Statement::If {
+                condition,
+                satisfied,
+                unsatisfied,
+            })
+        }
+        Token::For => {
+            tokens.pop();
+            let name = match tokens.pop() {
+                Token::Identifier(name) => name,
+                _ => panic!(),
+            };
+            match tokens.pop() {
+                Token::In => {}
+                _ => panic!(),
+            }
+            let expression = parse_expression(tokens).unwrap();
+            let body = parse_statement_block(tokens);
+            Some(Statement::For {
+                name,
+                expression,
+                body,
+            })
+        }
+        Token::Return | Token::Break => {
+            let token = tokens.pop();
+            let expression = parse_expression(tokens);
+            match tokens.pop() {
+                Token::SemiColon => {}
+                _ => panic!(),
+            }
+            Some(match token {
+                Token::Return => Statement::Return { expression },
+                Token::Break => Statement::Break { expression },
+                _ => unreachable!(),
+            })
+        }
+        _ => {
+            let is_let = tokens.peek() == &Token::Let;
+            if is_let {
+                tokens.pop();
+            }
+            let left = parse_expression(tokens)?;
+            let operator = match tokens.pop() {
+                Token::Assign(operator) => operator,
+                Token::SemiColon => return Some(Statement::Eval { expression: left }),
+                _ => panic!(),
+            };
+            let right = parse_expression(tokens).unwrap();
+            match tokens.pop() {
+                Token::SemiColon => {}
+                _ => panic!(),
+            }
+            Some(Statement::Assign {
+                is_let,
+                left,
+                value: right,
+                operator,
+            })
+        }
+    }
+}
+pub fn parse_statement_block(tokens: &mut TokenReader) -> StatementBlock {
+    match tokens.pop() {
+        Token::LBrace => {}
+        _ => panic!(),
+    }
+    let mut statements = Vec::new();
+    while let Some(statement) = parse_statement(tokens) {
+        statements.push(statement);
+    }
+    match tokens.pop() {
+        Token::RBrace => {}
+        _ => panic!(),
+    }
+    StatementBlock { statements }
+}
+pub fn parse_function(tokens: &mut TokenReader) -> Option<Function> {
+    match tokens.peek() {
+        Token::Fn => {
+            tokens.pop();
+        }
+        _ => return None,
+    }
+    let name = match tokens.peek().clone() {
+        Token::Identifier(name) => {
+            tokens.pop();
+            name
+        }
+        _ => "anon".into(),
+    };
+    match tokens.peek() {
+        Token::LParan => {
+            tokens.pop();
+        }
+        _ => panic!(),
+    }
+    let mut parameter_names = Vec::new();
+    loop {
+        match tokens.pop() {
+            Token::Identifier(arg) => {
+                parameter_names.push(arg);
+                match tokens.pop() {
+                    Token::RParan => break,
+                    Token::Comma => {}
+                    _ => panic!(),
+                }
+            }
+            Token::RParan => break,
+            _ => panic!(),
+        }
+    }
+    let body = parse_statement_block(tokens);
+
+    Some(Function {
+        name,
+        parameter_names,
+        body,
+    })
 }

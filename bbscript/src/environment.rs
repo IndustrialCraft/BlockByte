@@ -139,4 +139,9 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
         println!("{}", text);
         Ok(())
     });
+    environment.register_function("min", |n1: &i64, n2: &i64| Ok(*n1.min(n2)));
+    environment.register_function("max", |n1: &i64, n2: &i64| Ok(*n1.max(n2)));
+    environment.register_function("clamp", |value: &i64, min: &i64, max: &i64| {
+        Ok(*value.max(min).min(max))
+    });
 }
