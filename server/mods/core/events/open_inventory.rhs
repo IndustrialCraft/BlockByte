@@ -61,13 +61,12 @@ fn(){
                                                  }, fn(player, view, id, x, y, shift){
                                                                               if type_of(id) == "i64" {
                                                                                   let item = player.get_hand_item();
-                                                                                  if item != () {
-                                                                                      item.count += y;
-                                                                                      player.set_hand_item(item);
+                                                                                  if item {
+                                                                                      player.set_hand_item(item.with_count(item.count + y));
                                                                                   } else {
                                                                                       if y > 0{
                                                                                           let item = view.get_item(id);
-                                                                                          if item != (){
+                                                                                          if item {
                                                                                               player.set_hand_item(item.with_count(1));
                                                                                           }
                                                                                       }

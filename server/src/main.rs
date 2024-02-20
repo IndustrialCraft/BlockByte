@@ -60,6 +60,14 @@ use world::{Entity, Structure, World};
 use worldgen::{BasicWorldGenerator, Biome};
 
 fn main() {
+    println!(
+        "{:?}",
+        bbscript::ast::parse_expression(&mut bbscript::lex::TokenReader::lex(
+            "aaa.add(0..=1,lol+10) / sus.amo.gus"
+        ))
+        .unwrap()
+    );
+
     let running = Arc::new(AtomicBool::new(true));
     {
         let ctrlc_running = running.clone();

@@ -41,7 +41,7 @@ pub Expression: Expression = {
     #[precedence(level="2")]
     #[assoc(side="left")]
     <e1:Expression> <op:Operator> <e2:Expression> => Expression::Operator{first:Box::new(e1),second:Box::new(e2),operator:op},
-    ! => Expression::Error,
+    ! => { errors.push(<>); Expression::Error },
 };
 
 pub Statement: Statement = {

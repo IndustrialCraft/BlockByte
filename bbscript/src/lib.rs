@@ -1,8 +1,10 @@
 #![feature(trait_upcasting)]
+#![feature(iter_intersperse)]
 
 pub mod ast;
 pub mod environment;
 pub mod eval;
+pub mod lex;
 pub mod variant;
 
 use crate::eval::Function;
