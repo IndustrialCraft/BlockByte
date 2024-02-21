@@ -428,7 +428,6 @@ impl Server {
             content.push("content.zip");
             fs::write(content, &client_content.0).unwrap();
         }
-        println!("{:?}", item_registry);
         Arc::new_cyclic(|this| Server {
             this: this.clone(),
             new_players: Mutex::new(Server::create_listener_thread(this.clone(), port)),

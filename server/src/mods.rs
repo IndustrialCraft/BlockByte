@@ -676,9 +676,7 @@ impl ScriptCallback {
         if let Some(function) = &self.function {
             let stack = ScopeStack::new();
             if let Some(this) = this {
-                stack
-                    .set_variable("this".into(), this, true, &FilePosition::INVALID)
-                    .unwrap();
+                stack.set_variable_top("this".into(), this);
             }
             function.run(Some(&stack), args, env)
         } else {

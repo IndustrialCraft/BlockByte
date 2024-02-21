@@ -110,26 +110,25 @@ impl<'a> ScopeStack<'a> {
         &self,
         name: ImmutableString,
         value: Variant,
-        top: bool,
         position: &FilePosition,
     ) -> Result<(), ScriptError> {
-        if top {
-            self.variables.lock().insert(name, value);
+        if let Some(variable) = self.variables.lock().get_mut(name.as_ref()) {
+            *variable = value;
         } else {
-            if let Some(variable) = self.variables.lock().get_mut(name.as_ref()) {
-                *variable = value;
+            return if let Some(previous) = &self.previous {
+                previous.set_variable(name, value, position)
             } else {
-                return if let Some(previous) = &self.previous {
-                    previous.set_variable(name, value, false, position)
-                } else {
-                    Err(ScriptError::VariableNotDefined {
-                        variable: name.to_string(),
-                        position: position.clone(),
-                    })
-                };
-            }
+                Err(ScriptError::VariableNotDefined {
+                    variable: name.to_string(),
+                    position: position.clone(),
+                })
+            };
         }
+
         Ok(())
+    }
+    pub fn set_variable_top(&self, name: ImmutableString, value: Variant) {
+        self.variables.lock().insert(name, value);
     }
 }
 
@@ -150,9 +149,7 @@ impl Function {
         let stack = ScopeStack::new();
         let mut stack = parent_stack.unwrap_or(&stack);
         for (name, global) in &environment.globals {
-            stack
-                .set_variable(name.clone(), global.clone(), true, &FilePosition::INVALID)
-                .unwrap();
+            stack.set_variable_top(name.clone(), global.clone());
         }
         if parameters.len() != self.parameter_names.len() {
             return Err(ScriptError::MismatchedParameterCount {
@@ -170,9 +167,7 @@ impl Function {
             });
         }
         for (value, name) in parameters.into_iter().zip(self.parameter_names.iter()) {
-            stack
-                .set_variable(name.clone(), value, true, &FilePosition::INVALID)
-                .unwrap();
+            stack.set_variable_top(name.clone(), value);
         }
         match Function::execute_block(&mut stack, &self.body, environment) {
             ScriptControlFlow::Value(val) => Ok(val),
@@ -273,10 +268,14 @@ impl Function {
                             environment.assign_member(&left, name, &value);
                         }
                         Expression::ScopedVariable { name, position } => {
-                            if let Err(error) =
-                                stack.set_variable(name.clone(), value, *is_let, position)
-                            {
-                                return ScriptControlFlow::Err(error);
+                            if *is_let {
+                                stack.set_variable_top(name.clone(), value);
+                            } else {
+                                if let Err(error) =
+                                    stack.set_variable(name.clone(), value, position)
+                                {
+                                    return ScriptControlFlow::Err(error);
+                                }
                             }
                         }
                         _ => panic!(),
@@ -340,9 +339,7 @@ impl Function {
                         },
                     };
                     for value in array {
-                        stack
-                            .set_variable(name.clone(), value, true, position)
-                            .unwrap();
+                        stack.set_variable_top(name.clone(), value);
                         match Function::execute_block(&stack, body, environment) {
                             ScriptControlFlow::Break(_) => {
                                 break;

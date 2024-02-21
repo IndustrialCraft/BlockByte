@@ -78,14 +78,7 @@ impl Variant {
             Some(function_variant) => match &function_variant.function {
                 FunctionType::ScriptFunction(function) => {
                     let scope = ScopeStack::new();
-                    scope
-                        .set_variable(
-                            "this".into(),
-                            function_variant.this.clone(),
-                            true,
-                            &FilePosition::INVALID,
-                        )
-                        .unwrap();
+                    scope.set_variable_top("this".into(), function_variant.this.clone());
                     function.run(Some(&scope), args, environment)
                 }
                 FunctionType::RustFunction(function) => {
