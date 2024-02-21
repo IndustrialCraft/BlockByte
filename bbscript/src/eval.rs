@@ -1,6 +1,7 @@
 use crate::ast::{Expression, Statement, StatementBlock};
 use crate::eval::ControlFlow::Normal;
-use crate::eval::ScriptError::{BreakOutsideLoop, InvalidIterator};
+use crate::eval::ScriptError::{BreakOutsideLoop, InvalidIterator, MemberNotFound};
+use crate::lex::FilePosition;
 use crate::variant::{
     Array, FromVariant, FunctionType, FunctionVariant, IntoVariant, Primitive, TypeName, Variant,
 };
@@ -15,26 +16,35 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub enum ScriptError {
     MismatchedParameterCount {
+        position: FilePosition,
         function_name: String,
         expected: Vec<String>,
         got: Vec<TypeName>,
     },
     MismatchedType {
+        position: FilePosition,
         expected: TypeName,
         got: TypeName,
     },
     VariableNotDefined {
+        position: FilePosition,
         variable: String,
     },
     BreakOutsideLoop,
     MemberNotFound {
+        position: FilePosition,
         member: String,
     },
-    NonFunctionCalled,
+    NonFunctionCalled {
+        position: FilePosition,
+    },
     RuntimeError {
+        position: FilePosition,
         error: String,
     },
-    InvalidIterator,
+    InvalidIterator {
+        position: FilePosition,
+    },
 }
 enum ControlFlow {
     Normal(ScriptResult),
@@ -42,9 +52,10 @@ enum ControlFlow {
     Break(ScriptResult),
 }
 impl ScriptError {
-    pub fn runtime(text: &str) -> Self {
+    pub fn runtime(text: &str, position: FilePosition) -> Self {
         ScriptError::RuntimeError {
             error: text.to_string(),
+            position,
         }
     }
 }
@@ -81,6 +92,7 @@ impl<'a> ScopeStack<'a> {
         name: ImmutableString,
         value: Variant,
         top: bool,
+        position: &FilePosition,
     ) -> Result<(), ScriptError> {
         if top {
             self.variables.lock().insert(name, value);
@@ -89,10 +101,11 @@ impl<'a> ScopeStack<'a> {
                 *variable = value;
             } else {
                 return if let Some(previous) = &self.previous {
-                    previous.set_variable(name, value, false)
+                    previous.set_variable(name, value, false, position)
                 } else {
                     Err(ScriptError::VariableNotDefined {
                         variable: name.to_string(),
+                        position: position.clone(),
                     })
                 };
             }
@@ -119,7 +132,7 @@ impl Function {
         let mut stack = parent_stack.unwrap_or(&stack);
         for (name, global) in &environment.globals {
             stack
-                .set_variable(name.clone(), global.clone(), true)
+                .set_variable(name.clone(), global.clone(), true, &FilePosition::INVALID)
                 .unwrap();
         }
         if parameters.len() != self.parameter_names.len() {
@@ -134,10 +147,13 @@ impl Function {
                     .into_iter()
                     .map(|variant| (*variant.0).type_name())
                     .collect(),
+                position: FilePosition::INVALID,
             });
         }
         for (value, name) in parameters.into_iter().zip(self.parameter_names.iter()) {
-            stack.set_variable(name.clone(), value, true).unwrap();
+            stack
+                .set_variable(name.clone(), value, true, &FilePosition::INVALID)
+                .unwrap();
         }
         match Function::execute_block(&mut stack, &self.body, environment) {
             ControlFlow::Break(_) => Err(BreakOutsideLoop),
@@ -166,7 +182,11 @@ impl Function {
                     let value = match operator {
                         Some(operator) => {
                             let first = match left {
-                                Expression::MemberAccess { expression, name } => {
+                                Expression::MemberAccess {
+                                    expression,
+                                    name,
+                                    position,
+                                } => {
                                     let left = match Function::eval_expression(
                                         &stack,
                                         expression,
@@ -175,22 +195,44 @@ impl Function {
                                         Ok(val) => val,
                                         Err(error) => return Normal(Err(error)),
                                     };
-                                    environment.access_member(&left, name).unwrap()
+                                    match environment.access_member(&left, name) {
+                                        Some(value) => value,
+                                        None => {
+                                            return Normal(Err(MemberNotFound {
+                                                member: name.to_string(),
+                                                position: position.clone(),
+                                            }))
+                                        }
+                                    }
                                 }
-                                Expression::ScopedVariable { name } => {
-                                    stack.get_variable(name.as_ref()).unwrap()
+                                Expression::ScopedVariable { name, position } => {
+                                    match stack.get_variable(name.as_ref()) {
+                                        Some(value) => value,
+                                        None => {
+                                            return Normal(Err(MemberNotFound {
+                                                member: name.to_string(),
+                                                position: position.clone(),
+                                            }))
+                                        }
+                                    }
                                 }
                                 _ => panic!(),
                             };
                             let operator = format!("operator{operator}");
                             let operator_call = match environment
                                 .access_member(&first, &operator.clone().into())
-                                .ok_or(ScriptError::MemberNotFound { member: operator })
-                            {
+                                .ok_or(ScriptError::MemberNotFound {
+                                    member: operator,
+                                    position: left.get_file_position().clone(),
+                                }) {
                                 Ok(call) => call,
                                 Err(error) => return ControlFlow::Normal(Err(error)),
                             };
-                            match operator_call.call(vec![value], environment) {
+                            match operator_call.call(
+                                vec![value],
+                                environment,
+                                left.get_file_position(),
+                            ) {
                                 Ok(value) => value,
                                 Err(error) => return ControlFlow::Normal(Err(error)),
                             }
@@ -198,7 +240,11 @@ impl Function {
                         None => value,
                     };
                     match left {
-                        Expression::MemberAccess { expression, name } => {
+                        Expression::MemberAccess {
+                            expression,
+                            name,
+                            position,
+                        } => {
                             let left =
                                 match Function::eval_expression(&stack, expression, environment) {
                                     Ok(val) => val,
@@ -206,8 +252,10 @@ impl Function {
                                 };
                             environment.assign_member(&left, name, &value);
                         }
-                        Expression::ScopedVariable { name } => {
-                            if let Err(error) = stack.set_variable(name.clone(), value, *is_let) {
+                        Expression::ScopedVariable { name, position } => {
+                            if let Err(error) =
+                                stack.set_variable(name.clone(), value, *is_let, position)
+                            {
                                 return Normal(Err(error));
                             }
                         }
@@ -252,6 +300,7 @@ impl Function {
                     name,
                     body,
                 } => {
+                    let position = expression.get_file_position();
                     let expression =
                         match Function::eval_expression(&stack, expression, environment) {
                             Ok(val) => val,
@@ -267,12 +316,16 @@ impl Function {
                                 .map(|i| i.into_variant())
                                 .collect(),
                             None => {
-                                return ControlFlow::Normal(Err(InvalidIterator));
+                                return ControlFlow::Normal(Err(InvalidIterator {
+                                    position: position.clone(),
+                                }));
                             }
                         },
                     };
                     for value in array {
-                        stack.set_variable(name.clone(), value, true).unwrap();
+                        stack
+                            .set_variable(name.clone(), value, true, position)
+                            .unwrap();
                         match Function::execute_block(&stack, body, environment) {
                             Normal(Ok(_)) => {}
                             Normal(result) => return ControlFlow::Normal(result),
@@ -307,22 +360,24 @@ impl Function {
         environment: &ExecutionEnvironment,
     ) -> ScriptResult {
         match expression {
-            Expression::StringLiteral { literal } => Ok(literal.clone().into_variant()),
-            Expression::IntLiteral { literal } => Ok((*literal).into_variant()),
-            Expression::FloatLiteral { literal } => Ok((*literal).into_variant()),
-            Expression::FunctionLiteral { function } => {
+            Expression::StringLiteral { literal, .. } => Ok(literal.clone().into_variant()),
+            Expression::IntLiteral { literal, .. } => Ok((*literal).into_variant()),
+            Expression::FloatLiteral { literal, .. } => Ok((*literal).into_variant()),
+            Expression::FunctionLiteral { function, .. } => {
                 Ok(FunctionType::ScriptFunction(function.clone()).into_variant())
             }
             Expression::RangeLiteral {
                 start,
                 end,
                 inclusive,
+                ..
             } => Ok((*start..(*end + if *inclusive { 1 } else { 0 })).into_variant()),
-            Expression::ScopedVariable { name } => {
+            Expression::ScopedVariable { name, position } => {
                 let variable = stack
                     .get_variable(name.as_ref())
                     .or_else(|| environment.globals.get(name).cloned())
                     .ok_or(ScriptError::VariableNotDefined {
+                        position: position.clone(),
                         variable: name.to_string(),
                     });
                 variable
@@ -330,26 +385,33 @@ impl Function {
             Expression::Call {
                 expression,
                 parameters,
+                position,
             } => {
                 let expression = Function::eval_expression(stack, expression, environment)?;
                 let parameters = parameters
                     .iter()
                     .map(|parameter| Function::eval_expression(stack, parameter, environment))
                     .collect::<Result<Vec<_>, ScriptError>>()?;
-                Ok(expression.call(parameters, environment)?)
+                Ok(expression.call(parameters, environment, position)?)
             }
-            Expression::MemberAccess { expression, name } => {
+            Expression::MemberAccess {
+                expression,
+                name,
+                position,
+            } => {
                 let value = Function::eval_expression(stack, expression, environment)?;
                 environment
                     .access_member(&value, name)
                     .ok_or(ScriptError::MemberNotFound {
                         member: name.to_string(),
+                        position: position.clone(),
                     })
             }
             Expression::Operator {
                 first,
                 second,
                 operator,
+                position,
             } => {
                 let first = Function::eval_expression(stack, first, environment)?;
                 let second = Function::eval_expression(stack, second, environment)?;
@@ -358,31 +420,39 @@ impl Function {
                         .access_member(&first, &"operator==".into())
                         .ok_or(ScriptError::MemberNotFound {
                             member: "operator==".to_string(),
+                            position: position.clone(),
                         })?;
                     Ok((!*(bool::from_variant_error(
-                        &operator_call.call(vec![second], environment)?,
+                        &operator_call.call(vec![second], environment, position)?,
+                        position,
                     )?))
                     .into_variant())
                 } else {
                     let operator = format!("operator{operator}");
                     let operator_call = environment
                         .access_member(&first, &operator.clone().into())
-                        .ok_or(ScriptError::MemberNotFound { member: operator })?;
-                    Ok(operator_call.call(vec![second], environment)?)
+                        .ok_or(ScriptError::MemberNotFound {
+                            member: operator,
+                            position: position.clone(),
+                        })?;
+                    Ok(operator_call.call(vec![second], environment, position)?)
                 }
             }
             Expression::UnaryOperator {
                 expression,
                 operator,
+                position,
             } => {
                 let expression = Function::eval_expression(stack, expression, environment)?;
                 let operator = format!("uoperator{operator}");
                 let operator_call = environment
                     .access_member(&expression, &operator.clone().into())
-                    .ok_or(ScriptError::MemberNotFound { member: operator })?;
-                Ok(operator_call.call(vec![], environment)?)
+                    .ok_or(ScriptError::MemberNotFound {
+                        member: operator,
+                        position: position.clone(),
+                    })?;
+                Ok(operator_call.call(vec![], environment, position)?)
             }
-            Expression::Error => unreachable!(),
         }
     }
 }
@@ -605,7 +675,7 @@ macro_rules! register_into_function {
                         return Err(ScriptError::MismatchedParameterCount);
                     }*/
                     //todo
-                    self($($i::from_variant_error(&args.remove(0))?,)*).into_script_result()
+                    self($($i::from_variant_error(&args.remove(0), &FilePosition::INVALID)?,)*).into_script_result()
                 })
             }
         }
@@ -627,7 +697,7 @@ macro_rules! register_into_method {
                         return Err(ScriptError::MismatchedParameterCount);
                     }*/
                     //todo
-                    self(this,$($i::from_variant_error(&args.remove(0))?,)*).into_script_result()
+                    self(this,$($i::from_variant_error(&args.remove(0), &FilePosition::INVALID)?,)*).into_script_result()
                 })
             }
         }};
@@ -644,6 +714,7 @@ where
                     function_name: "rust_defined".to_string(),
                     got: Vec::new(),
                     expected: Vec::new(),
+                    position: FilePosition::INVALID,
                 });
             }
             self().into_script_result()

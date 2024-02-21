@@ -379,7 +379,9 @@ impl Server {
                 events.register(
                     Identifier::parse(&id[1..]).unwrap(),
                     ScriptCallback::new(Arc::new(
-                        bbscript::parse_source_file(event, 1).unwrap().remove(0),
+                        bbscript::parse_source_file(event, None, 1)
+                            .unwrap()
+                            .remove(0),
                     )),
                 );
             }

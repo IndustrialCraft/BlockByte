@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use bbscript::eval::{ExecutionEnvironment, Function, ScopeStack, ScriptError, ScriptResult};
+use bbscript::lex::FilePosition;
 use bbscript::variant::{
     Array, FromVariant, FunctionType, FunctionVariant, IntoVariant, Map, Variant,
 };
@@ -102,9 +103,12 @@ impl Mod {
             let module_name = module_path.replace("/", "::");
             let module_name = module_name.replace(".rhs", "");
             let module_name = format!("{}{}", id, module_name);
-            for function in
-                bbscript::parse_source_file(std::fs::read_to_string(path).unwrap().as_str(), 0)
-                    .unwrap()
+            for function in bbscript::parse_source_file(
+                std::fs::read_to_string(path).unwrap().as_str(),
+                Some(module_name.clone().into()),
+                0,
+            )
+            .unwrap()
             {
                 functions.push((format!("{}::{}", module_name, function.name), function));
             }
@@ -672,7 +676,9 @@ impl ScriptCallback {
         if let Some(function) = &self.function {
             let stack = ScopeStack::new();
             if let Some(this) = this {
-                stack.set_variable("this".into(), this, true).unwrap();
+                stack
+                    .set_variable("this".into(), this, true, &FilePosition::INVALID)
+                    .unwrap();
             }
             function.run(Some(&stack), args, env)
         } else {
@@ -819,7 +825,7 @@ pub fn json_to_variant(json: JsonValue) -> Variant {
         return if string.starts_with("!") {
             //engine.eval(&string[1..]).unwrap()
             FunctionType::ScriptFunction(Arc::new(
-                bbscript::parse_source_file(&string[1..], 0)
+                bbscript::parse_source_file(&string[1..], None, 0)
                     .expect(&string[1..])
                     .remove(0),
             ))

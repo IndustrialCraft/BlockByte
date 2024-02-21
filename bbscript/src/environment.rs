@@ -1,4 +1,5 @@
 use crate::eval::{ExecutionEnvironment, ScriptError};
+use crate::lex::FilePosition;
 use crate::variant::{Array, FromVariant, IntoVariant, Map, Primitive, Variant};
 use immutable_string::ImmutableString;
 use std::any::TypeId;
@@ -71,8 +72,18 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
             );
         };
     }
-
+    macro_rules! register_to_string {
+        ($operator_type:ty) => {
+            environment.register_method("to_string", move |this: &$operator_type| {
+                Ok(ImmutableString::from(this.to_string()))
+            });
+        };
+    }
     environment.register_custom_name::<ImmutableString, _>("String");
+
+    register_to_string!(i64);
+    register_to_string!(f64);
+    register_to_string!(bool);
 
     register_operators!(i64);
     register_operators!(f64);
@@ -81,6 +92,13 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
     register_comparison!(f64, true);
     register_comparison!(bool, false);
     register_comparison!(ImmutableString, false);
+
+    environment.register_method(
+        "operator+",
+        |this: &ImmutableString, other: &ImmutableString| {
+            Ok(ImmutableString::from(format!("{}{}", this, other)))
+        },
+    );
 
     environment.register_method(
         "operator%",
@@ -101,6 +119,7 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
                     *index,
                     this.len()
                 ),
+                position: FilePosition::INVALID,
             })
     });
     environment.register_method("set", |this: &Array, index: &i64, value: &Variant| {
@@ -112,6 +131,7 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
                     *index,
                     this.len()
                 ),
+                position: FilePosition::INVALID,
             });
         }
         this.insert(*index as usize, value.clone());

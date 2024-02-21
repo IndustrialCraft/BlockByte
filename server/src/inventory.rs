@@ -5,6 +5,7 @@ use std::{
 };
 
 use bbscript::eval::{ExecutionEnvironment, ScriptError};
+use bbscript::lex::FilePosition;
 use bbscript::variant::{FromVariant, IntoVariant, Variant};
 use block_byte_common::gui::{
     GUIComponent, GUIComponentEdit, GUIElement, GUIElementEdit, PositionAnchor,
@@ -139,20 +140,24 @@ impl Inventory {
             .remove(id)
             .unwrap_or(Variant::NULL());
         for viewer in self.viewers.lock().iter() {
-            let _ = viewer.1.client_property_listener.call_function(
-                &server.script_environment,
-                None,
-                vec![
-                    ModGuiViewer {
-                        viewer: viewer.1.viewer.clone(),
-                        id: viewer.1.id.clone(),
-                    }
-                    .into_variant(),
-                    Variant::from_str(id),
-                    value.clone(),
-                    previous.clone(),
-                ],
-            );
+            viewer
+                .1
+                .client_property_listener
+                .call_function(
+                    &server.script_environment,
+                    None,
+                    vec![
+                        ModGuiViewer {
+                            viewer: viewer.1.viewer.clone(),
+                            id: viewer.1.id.clone(),
+                        }
+                        .into_variant(),
+                        Variant::from_str(id),
+                        value.clone(),
+                        previous.clone(),
+                    ],
+                )
+                .unwrap();
         }
         self.client_properties.lock().0.insert(id.into(), value);
     }
@@ -585,8 +590,16 @@ impl ScriptingObject for OwnedInventoryView {
             "set_item",
             |view: &OwnedInventoryView, index: &i64, item: &Variant| {
                 view.view()
-                    .set_item(*index as u32, Variant::into_option(item)?.cloned())
-                    .map_err(|_| ScriptError::runtime("inventory view access out of bounds"))?;
+                    .set_item(
+                        *index as u32,
+                        Variant::into_option(item, &FilePosition::INVALID)?.cloned(),
+                    )
+                    .map_err(|_| {
+                        ScriptError::runtime(
+                            "inventory view access out of bounds",
+                            FilePosition::INVALID,
+                        )
+                    })?;
                 Ok(())
             },
         );

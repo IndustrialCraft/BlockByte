@@ -1,6 +1,7 @@
 use crate::eval::{
     ExecutionEnvironment, Function, ScopeStack, ScriptError, ScriptResult, TypeNameResolver,
 };
+use crate::lex::FilePosition;
 use dyn_clone::DynClone;
 use immutable_string::ImmutableString;
 use parking_lot::Mutex;
@@ -58,19 +59,32 @@ impl Variant {
     pub fn from_option<T: IntoVariant>(option: Option<T>) -> Variant {
         option.map(|e| e.into_variant()).unwrap_or(Variant::NULL())
     }
-    pub fn into_option<T: FromVariant>(variant: &Variant) -> Result<Option<&T>, ScriptError> {
+    pub fn into_option<'a, T: FromVariant>(
+        variant: &'a Variant,
+        position: &FilePosition,
+    ) -> Result<Option<&'a T>, ScriptError> {
         if (*variant.0).as_any().type_id() == TypeId::of::<()>() {
             return Ok(None);
         }
-        T::from_variant_error(variant).map(|variant| Some(variant))
+        T::from_variant_error(variant, position).map(|variant| Some(variant))
     }
-    pub fn call(&self, args: Vec<Variant>, environment: &ExecutionEnvironment) -> ScriptResult {
+    pub fn call(
+        &self,
+        args: Vec<Variant>,
+        environment: &ExecutionEnvironment,
+        position: &FilePosition,
+    ) -> ScriptResult {
         match FunctionVariant::from_variant(self) {
             Some(function_variant) => match &function_variant.function {
                 FunctionType::ScriptFunction(function) => {
                     let scope = ScopeStack::new();
                     scope
-                        .set_variable("this".into(), function_variant.this.clone(), true)
+                        .set_variable(
+                            "this".into(),
+                            function_variant.this.clone(),
+                            true,
+                            &FilePosition::INVALID,
+                        )
                         .unwrap();
                     function.run(Some(&scope), args, environment)
                 }
@@ -78,7 +92,9 @@ impl Variant {
                     function(function_variant.this.clone(), args)
                 }
             },
-            None => Err(ScriptError::NonFunctionCalled),
+            None => Err(ScriptError::NonFunctionCalled {
+                position: position.clone(),
+            }),
         }
     }
     #[allow(non_snake_case)]
@@ -102,7 +118,10 @@ impl<T: Primitive> IntoVariant for T {
 
 pub trait FromVariant {
     fn from_variant(variant: &Variant) -> Option<&Self>;
-    fn from_variant_error(variant: &Variant) -> Result<&Self, ScriptError>;
+    fn from_variant_error<'a>(
+        variant: &'a Variant,
+        position: &FilePosition,
+    ) -> Result<&'a Self, ScriptError>;
 }
 impl<T: Primitive> FromVariant for T {
     fn from_variant(variant: &Variant) -> Option<&Self> {
@@ -112,10 +131,14 @@ impl<T: Primitive> FromVariant for T {
         }
         (&*variant.0).as_any().downcast_ref()
     }
-    fn from_variant_error(variant: &Variant) -> Result<&Self, ScriptError> {
+    fn from_variant_error<'a>(
+        variant: &'a Variant,
+        position: &FilePosition,
+    ) -> Result<&'a Self, ScriptError> {
         Self::from_variant(variant).ok_or(ScriptError::MismatchedType {
             expected: TypeName::new::<T>(),
             got: (*variant.0).type_name(),
+            position: position.clone(),
         })
     }
 }

@@ -17,6 +17,7 @@ use std::{
 use array_init::array_init;
 use atomic_counter::{AtomicCounter, RelaxedCounter};
 use bbscript::eval::ExecutionEnvironment;
+use bbscript::lex::FilePosition;
 use bbscript::variant::{FromVariant, FunctionType, IntoVariant, Primitive, Variant};
 use bitcode::__private::Serialize;
 use block_byte_common::gui::{GUIComponent, GUIElement, GUIElementEdit, PositionAnchor};
@@ -1234,7 +1235,9 @@ impl ScriptingObject for PlayerData {
         env.register_method(
             "set_hand_item",
             |player: &Arc<PlayerData>, item: &Variant| {
-                player.set_inventory_hand(Variant::into_option(item)?.cloned());
+                player.set_inventory_hand(
+                    Variant::into_option(item, &FilePosition::INVALID)?.cloned(),
+                );
                 Ok(())
             },
         );
