@@ -381,9 +381,11 @@ impl Function {
             Expression::StringLiteral { literal, .. } => Ok(literal.clone().into_variant()),
             Expression::IntLiteral { literal, .. } => Ok((*literal).into_variant()),
             Expression::FloatLiteral { literal, .. } => Ok((*literal).into_variant()),
-            Expression::FunctionLiteral { function, .. } => {
-                Ok(FunctionType::ScriptFunction(function.clone()).into_variant())
+            Expression::FunctionLiteral { function, .. } => Ok(FunctionVariant {
+                function: FunctionType::ScriptFunction(function.clone()),
+                this: Variant::NULL(),
             }
+            .into_variant()),
             Expression::RangeLiteral {
                 start,
                 end,
@@ -565,6 +567,9 @@ impl ExecutionEnvironment {
     pub fn register_global<N: Into<ImmutableString>>(&mut self, name: N, value: Variant) {
         self.globals.insert(name.into(), value);
     }
+    pub fn get_global(&self, name: &ImmutableString) -> Option<&Variant> {
+        self.globals.get(name)
+    }
     pub fn register_function<F: IntoScriptFunction<A>, N: Into<ImmutableString>, A: 'static>(
         &mut self,
         name: N,
@@ -646,11 +651,11 @@ impl TypeInfo {
                     .and_then(|function| function(value, name.clone()))
             };
         if let Some(variant) = &variant {
-            if let Some(function) = FunctionType::from_variant(variant) {
+            if let Some(function) = FunctionVariant::from_variant(variant) {
                 return Some(
                     FunctionVariant {
                         this: value.clone(),
-                        function: function.clone(),
+                        function: function.function.clone(),
                     }
                     .into_variant(),
                 );

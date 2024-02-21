@@ -157,7 +157,7 @@ impl Server {
 
         let static_data_from_json = |json: JsonValue| StaticData {
             data: {
-                Map::from_variant(&mods::json_to_variant(json))
+                Map::from_variant(&mods::json_to_variant(json, &engine))
                     .unwrap()
                     .lock()
                     .iter()

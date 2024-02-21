@@ -583,7 +583,24 @@ impl UserDataWrapper {
 impl ScriptingObject for UserDataWrapper {
     fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
         env.register_custom_name::<UserDataWrapper, _>("UserData");
-        env.register_default_accessor::<UserDataWrapper, _>(|this, name| {
+        env.register_method("get", |this: &UserDataWrapper, key: &ImmutableString| {
+            Ok(Variant::from_option(
+                this.get_user_data()
+                    .0
+                    .get(&Identifier::parse(key.clone()).unwrap())
+                    .cloned(),
+            ))
+        });
+        env.register_method(
+            "set",
+            |this: &UserDataWrapper, key: &ImmutableString, value: &Variant| {
+                this.get_user_data()
+                    .0
+                    .insert(Identifier::parse(key.clone()).unwrap(), value.clone());
+                Ok(())
+            },
+        );
+        /*env.register_default_accessor::<UserDataWrapper, _>(|this, name| {
             UserDataWrapper::from_variant(this)
                 .unwrap()
                 .get_user_data()
@@ -597,7 +614,7 @@ impl ScriptingObject for UserDataWrapper {
                 .get_user_data()
                 .0
                 .insert(name, value.clone());
-        });
+        });*/
         /*env.register_indexer_get_set(
             |user_data: &mut UserDataWrapper, id: &str| {
                 user_data
@@ -656,8 +673,8 @@ impl ScriptCallback {
             function: Some(function),
         }
     }
-    pub fn from_function_type(function: &FunctionType) -> Self {
-        match function {
+    pub fn from_function_variant(function: &FunctionVariant) -> Self {
+        match &function.function {
             FunctionType::ScriptFunction(function) => Self {
                 function: Some(function.clone()),
             },
@@ -818,16 +835,24 @@ fn patch_up_json(base: JsonValue, patch: JsonValue) -> JsonValue {
         (_base, patch) => patch,
     }
 }
-pub fn json_to_variant(json: JsonValue) -> Variant {
+pub fn json_to_variant(json: JsonValue, script_environment: &ExecutionEnvironment) -> Variant {
     if let Some(string) = json.as_str() {
         return if string.starts_with("!") {
             //engine.eval(&string[1..]).unwrap()
-            FunctionType::ScriptFunction(Arc::new(
-                bbscript::parse_source_file(&string[1..], None, 0)
-                    .expect(&string[1..])
-                    .remove(0),
-            ))
+            FunctionVariant {
+                function: FunctionType::ScriptFunction(Arc::new(
+                    bbscript::parse_source_file(&string[1..], None, 0)
+                        .expect(&string[1..])
+                        .remove(0),
+                )),
+                this: Variant::NULL(),
+            }
             .into_variant()
+        } else if string.starts_with("@") {
+            script_environment
+                .get_global(&string[1..].into())
+                .cloned()
+                .unwrap()
         } else {
             Variant::from_str(string)
         };
@@ -839,13 +864,16 @@ pub fn json_to_variant(json: JsonValue) -> Variant {
         JsonValue::Object(object) => {
             let mut output: HashMap<ImmutableString, _> = HashMap::new();
             for (name, property) in object.iter() {
-                output.insert(name.into(), json_to_variant(property.clone()));
+                output.insert(
+                    name.into(),
+                    json_to_variant(property.clone(), script_environment),
+                );
             }
             Arc::new(Mutex::new(output)).into_variant()
         }
         JsonValue::Array(array) => array
             .into_iter()
-            .map(|entry| json_to_variant(entry))
+            .map(|entry| json_to_variant(entry, script_environment))
             .collect::<Array>()
             .into_variant(),
         _ => unreachable!(),

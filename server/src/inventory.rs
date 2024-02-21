@@ -105,7 +105,7 @@ pub struct Inventory {
     viewers: Mutex<FxHashMap<Uuid, Arc<GuiInventoryViewer>>>,
     pub user_data: Mutex<UserData>,
     set_item_handler: Option<InventorySetItemHandler>,
-    client_properties: Mutex<UserData>,
+    client_properties: Mutex<HashMap<ImmutableString, Variant>>,
 }
 impl Inventory {
     pub fn new_owned(size: u32, set_item_handler: Option<InventorySetItemHandler>) -> Arc<Self> {
@@ -115,7 +115,7 @@ impl Inventory {
             user_data: Mutex::new(UserData::new()),
             set_item_handler,
             owner: WeakInventoryWrapper::Own(this.clone()),
-            client_properties: Mutex::new(UserData::new()),
+            client_properties: Mutex::new(HashMap::new()),
         });
         inventory
     }
@@ -129,14 +129,13 @@ impl Inventory {
             user_data: Mutex::new(UserData::new()),
             set_item_handler,
             owner: owner.into(),
-            client_properties: Mutex::new(UserData::new()),
+            client_properties: Mutex::new(HashMap::new()),
         }
     }
     pub fn set_client_property(&self, id: &str, value: Variant, server: &Server) {
         let previous = self
             .client_properties
             .lock()
-            .0
             .remove(id)
             .unwrap_or(Variant::NULL());
         for viewer in self.viewers.lock().iter() {
@@ -159,7 +158,7 @@ impl Inventory {
                 )
                 .unwrap();
         }
-        self.client_properties.lock().0.insert(id.into(), value);
+        self.client_properties.lock().insert(id.into(), value);
     }
     pub fn get_user_data(&self) -> MutexGuard<UserData> {
         self.user_data.lock()
@@ -276,7 +275,7 @@ impl Inventory {
                     },
                 ));
         }
-        for property in self.client_properties.lock().0.iter() {
+        for property in self.client_properties.lock().iter() {
             let _ = viewer.client_property_listener.call_function(
                 &viewer.viewer.server.script_environment,
                 None,

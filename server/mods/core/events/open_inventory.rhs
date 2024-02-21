@@ -10,7 +10,7 @@ fn(){
             player.close_inventory();
         } else {
             let creative_inventory = create_inventory(27);
-            creative_inventory.user_data.page = 0;
+            creative_inventory.user_data.set("core:page", 0);
             creative_inventory.set_client_property("page", 0);
             let i = 0;
             for item in list_items(){
@@ -28,7 +28,7 @@ fn(){
                         }, fn(viewer, view, id, btn, shift){
                                                      if type_of(id) == "String" {
                                                          let user_data = view.get_inventory().user_data;
-                                                         let page = user_data.page;
+                                                         let page = user_data.get("core:page");
                                                          if id == "next"{
                                                              page += 1;
                                                          } else {
@@ -37,7 +37,7 @@ fn(){
                                                              }
                                                          }
                                                          let page = max(page,0);
-                                                         user_data.page = page;
+                                                         user_data.set("core:page", page);
                                                          view.get_inventory().set_client_property("page", page);
                                                          for i in 0..27{
                                                             view.set_item(i, null);

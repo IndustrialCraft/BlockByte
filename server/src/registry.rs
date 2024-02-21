@@ -11,7 +11,7 @@ use std::{
 };
 
 use bbscript::eval::ExecutionEnvironment;
-use bbscript::variant::{FromVariant, FunctionType, IntoVariant, Variant};
+use bbscript::variant::{FromVariant, FunctionType, FunctionVariant, IntoVariant, Variant};
 use block_byte_common::content::{
     ClientBlockData, ClientBlockRenderDataType, ClientContent, ClientEntityData, ClientItemData,
 };
@@ -47,9 +47,12 @@ impl StaticData {
             function: match self
                 .data
                 .get(id)
-                .and_then(|variant| FunctionType::from_variant(variant))
+                .and_then(|variant| FunctionVariant::from_variant(variant))
             {
-                Some(FunctionType::ScriptFunction(function)) => Some(function.clone()),
+                Some(function) => match &function.function {
+                    FunctionType::ScriptFunction(function) => Some(function.clone()),
+                    FunctionType::RustFunction(_) => None,
+                },
                 _ => None,
             },
         }

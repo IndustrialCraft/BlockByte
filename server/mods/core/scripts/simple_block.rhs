@@ -1,0 +1,9 @@
+fn block_left_click(player){
+    return 0.;
+}
+fn item_right_click(player,position,face){
+    let position = position.offset_by_face(face);
+    if position.get_block().to_string() == "bb:air"{
+        position.set_block(BlockState(this.id));
+    }
+}

@@ -18,7 +18,9 @@ use array_init::array_init;
 use atomic_counter::{AtomicCounter, RelaxedCounter};
 use bbscript::eval::ExecutionEnvironment;
 use bbscript::lex::FilePosition;
-use bbscript::variant::{FromVariant, FunctionType, IntoVariant, Primitive, Variant};
+use bbscript::variant::{
+    FromVariant, FunctionType, FunctionVariant, IntoVariant, Primitive, Variant,
+};
 use bitcode::__private::Serialize;
 use block_byte_common::gui::{GUIComponent, GUIElement, GUIElementEdit, PositionAnchor};
 use block_byte_common::messages::{
@@ -934,7 +936,7 @@ impl PartialEq for ChunkViewer {
 impl Eq for ChunkViewer {}
 
 #[derive(Clone)]
-pub struct UserData(pub HashMap<ImmutableString, Variant>);
+pub struct UserData(pub HashMap<Identifier, Variant>);
 impl UserData {
     pub fn new() -> Self {
         UserData(HashMap::new())
@@ -1195,9 +1197,9 @@ impl ScriptingObject for PlayerData {
                       inventory: &InventoryWrapper,
                       range: &Range<i64>,
                       layout: &ImmutableString,
-                      client_property_listener: &FunctionType,
-                      on_click: &FunctionType,
-                      on_scroll: &FunctionType| {
+                      client_property_listener: &FunctionVariant,
+                      on_click: &FunctionVariant,
+                      on_scroll: &FunctionVariant| {
                     player.set_open_inventory(Some((
                         inventory.clone(),
                         GuiInventoryData {
@@ -1212,11 +1214,11 @@ impl ScriptingObject for PlayerData {
                                 .get(&Identifier::parse(layout.as_ref()).unwrap())
                                 .unwrap()
                                 .clone(),
-                            client_property_listener: ScriptCallback::from_function_type(
+                            client_property_listener: ScriptCallback::from_function_variant(
                                 client_property_listener,
                             ),
-                            on_click: ScriptCallback::from_function_type(on_click),
-                            on_scroll: ScriptCallback::from_function_type(on_scroll),
+                            on_click: ScriptCallback::from_function_variant(on_click),
+                            on_scroll: ScriptCallback::from_function_variant(on_scroll),
                         },
                     )));
                     Ok(())

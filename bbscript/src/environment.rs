@@ -155,6 +155,13 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
         let map = Map::from_variant(this)?;
         map.lock().get(&key).cloned()
     });
+    environment.register_setter::<Map, _>(
+        |this: &Variant, key: ImmutableString, value: &Variant| {
+            if let Some(map) = Map::from_variant(this) {
+                map.lock().insert(key, value.clone());
+            }
+        },
+    );
     environment.register_function("print", |text: &ImmutableString| {
         println!("{}", text);
         Ok(())
