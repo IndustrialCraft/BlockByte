@@ -1,5 +1,4 @@
 use crate::ast::{Expression, Statement, StatementBlock};
-use crate::eval::ControlFlow::Normal;
 use crate::eval::ScriptError::{BreakOutsideLoop, InvalidIterator, MemberNotFound};
 use crate::lex::FilePosition;
 use crate::variant::{
@@ -10,7 +9,7 @@ use parking_lot::Mutex;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::ops::Range;
+use std::ops::{ControlFlow, FromResidual, Range, Try};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -46,10 +45,30 @@ pub enum ScriptError {
         position: FilePosition,
     },
 }
-enum ControlFlow {
-    Normal(ScriptResult),
-    Return(ScriptResult),
-    Break(ScriptResult),
+enum ScriptControlFlow {
+    Value(Variant),
+    Return(Variant),
+    Break(Variant),
+    Err(ScriptError),
+}
+
+impl FromResidual for ScriptControlFlow {
+    fn from_residual(residual: <Self as Try>::Residual) -> Self {
+        residual
+    }
+}
+impl Try for ScriptControlFlow {
+    type Output = Variant;
+    type Residual = ScriptControlFlow;
+    fn from_output(output: Self::Output) -> Self {
+        ScriptControlFlow::Value(output)
+    }
+    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
+        match self {
+            ScriptControlFlow::Value(value) => ControlFlow::Continue(value),
+            residual => ControlFlow::Break(residual),
+        }
+    }
 }
 impl ScriptError {
     pub fn runtime(text: &str, position: FilePosition) -> Self {
@@ -156,16 +175,17 @@ impl Function {
                 .unwrap();
         }
         match Function::execute_block(&mut stack, &self.body, environment) {
-            ControlFlow::Break(_) => Err(BreakOutsideLoop),
-            ControlFlow::Normal(val) => val,
-            ControlFlow::Return(val) => val,
+            ScriptControlFlow::Value(val) => Ok(val),
+            ScriptControlFlow::Return(val) => Ok(val),
+            ScriptControlFlow::Break(_) => Err(BreakOutsideLoop),
+            ScriptControlFlow::Err(error) => Err(error),
         }
     }
     fn execute_block(
         stack: &ScopeStack,
         block: &StatementBlock,
         environment: &ExecutionEnvironment,
-    ) -> ControlFlow {
+    ) -> ScriptControlFlow {
         let stack = stack.push();
         for statement in &block.statements {
             match statement {
@@ -177,7 +197,7 @@ impl Function {
                 } => {
                     let value = match Function::eval_expression(&stack, value, environment) {
                         Ok(val) => val,
-                        Err(error) => return Normal(Err(error)),
+                        Err(error) => return ScriptControlFlow::Err(error),
                     };
                     let value = match operator {
                         Some(operator) => {
@@ -193,15 +213,15 @@ impl Function {
                                         environment,
                                     ) {
                                         Ok(val) => val,
-                                        Err(error) => return Normal(Err(error)),
+                                        Err(error) => return ScriptControlFlow::Err(error),
                                     };
                                     match environment.access_member(&left, name) {
                                         Some(value) => value,
                                         None => {
-                                            return Normal(Err(MemberNotFound {
+                                            return ScriptControlFlow::Err(MemberNotFound {
                                                 member: name.to_string(),
                                                 position: position.clone(),
-                                            }))
+                                            })
                                         }
                                     }
                                 }
@@ -209,10 +229,10 @@ impl Function {
                                     match stack.get_variable(name.as_ref()) {
                                         Some(value) => value,
                                         None => {
-                                            return Normal(Err(MemberNotFound {
+                                            return ScriptControlFlow::Err(MemberNotFound {
                                                 member: name.to_string(),
                                                 position: position.clone(),
-                                            }))
+                                            })
                                         }
                                     }
                                 }
@@ -226,7 +246,7 @@ impl Function {
                                     position: left.get_file_position().clone(),
                                 }) {
                                 Ok(call) => call,
-                                Err(error) => return ControlFlow::Normal(Err(error)),
+                                Err(error) => return ScriptControlFlow::Err(error),
                             };
                             match operator_call.call(
                                 vec![value],
@@ -234,7 +254,7 @@ impl Function {
                                 left.get_file_position(),
                             ) {
                                 Ok(value) => value,
-                                Err(error) => return ControlFlow::Normal(Err(error)),
+                                Err(error) => return ScriptControlFlow::Err(error),
                             }
                         }
                         None => value,
@@ -248,7 +268,7 @@ impl Function {
                             let left =
                                 match Function::eval_expression(&stack, expression, environment) {
                                     Ok(val) => val,
-                                    Err(error) => return Normal(Err(error)),
+                                    Err(error) => return ScriptControlFlow::Err(error),
                                 };
                             environment.assign_member(&left, name, &value);
                         }
@@ -256,7 +276,7 @@ impl Function {
                             if let Err(error) =
                                 stack.set_variable(name.clone(), value, *is_let, position)
                             {
-                                return Normal(Err(error));
+                                return ScriptControlFlow::Err(error);
                             }
                         }
                         _ => panic!(),
@@ -265,7 +285,7 @@ impl Function {
                 Statement::Eval { expression } => {
                     match Function::eval_expression(&stack, expression, environment) {
                         Ok(val) => {}
-                        Err(error) => return Normal(Err(error)),
+                        Err(error) => return ScriptControlFlow::Err(error),
                     }
                 }
                 Statement::If {
@@ -276,7 +296,7 @@ impl Function {
                     let expression = match Function::eval_expression(&stack, condition, environment)
                     {
                         Ok(val) => val,
-                        Err(error) => return Normal(Err(error)),
+                        Err(error) => return ScriptControlFlow::Err(error),
                     };
                     let sat = match bool::from_variant(&expression) {
                         Some(bool) => *bool,
@@ -289,10 +309,7 @@ impl Function {
                     };
 
                     if let Some(statement) = statement {
-                        match Function::execute_block(&stack, statement, environment) {
-                            Normal(Ok(_)) => {}
-                            ret => return ret,
-                        }
+                        Function::execute_block(&stack, statement, environment)?;
                     }
                 }
                 Statement::For {
@@ -304,7 +321,7 @@ impl Function {
                     let expression =
                         match Function::eval_expression(&stack, expression, environment) {
                             Ok(val) => val,
-                            Err(error) => return Normal(Err(error)),
+                            Err(error) => return ScriptControlFlow::Err(error),
                         };
                     let stack = stack.push();
                     let array = match Array::from_variant(&expression) {
@@ -316,9 +333,9 @@ impl Function {
                                 .map(|i| i.into_variant())
                                 .collect(),
                             None => {
-                                return ControlFlow::Normal(Err(InvalidIterator {
+                                return ScriptControlFlow::Err(InvalidIterator {
                                     position: position.clone(),
-                                }));
+                                });
                             }
                         },
                     };
@@ -327,32 +344,36 @@ impl Function {
                             .set_variable(name.clone(), value, true, position)
                             .unwrap();
                         match Function::execute_block(&stack, body, environment) {
-                            Normal(Ok(_)) => {}
-                            Normal(result) => return ControlFlow::Normal(result),
-                            ControlFlow::Return(result) => return ControlFlow::Return(result),
-                            ControlFlow::Break(_) => {
+                            ScriptControlFlow::Break(_) => {
                                 break;
                             }
-                        }
+                            other => other,
+                        }?;
                     }
                 }
                 Statement::Return { expression } => {
-                    return ControlFlow::Return(if let Some(expression) = expression {
-                        Function::eval_expression(&stack, expression, environment)
+                    return ScriptControlFlow::Return(if let Some(expression) = expression {
+                        match Function::eval_expression(&stack, expression, environment) {
+                            Ok(value) => value,
+                            Err(error) => return ScriptControlFlow::Err(error),
+                        }
                     } else {
-                        Ok(Variant::NULL())
+                        Variant::NULL()
                     });
                 }
                 Statement::Break { expression } => {
-                    return ControlFlow::Break(if let Some(expression) = expression {
-                        Function::eval_expression(&stack, expression, environment)
+                    return ScriptControlFlow::Break(if let Some(expression) = expression {
+                        match Function::eval_expression(&stack, expression, environment) {
+                            Ok(value) => value,
+                            Err(error) => return ScriptControlFlow::Err(error),
+                        }
                     } else {
-                        Ok(Variant::NULL())
+                        Variant::NULL()
                     });
                 }
             };
         }
-        Normal(Ok(Variant::NULL()))
+        ScriptControlFlow::Value(Variant::NULL())
     }
     fn eval_expression(
         stack: &ScopeStack,
