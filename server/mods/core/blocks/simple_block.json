@@ -2,6 +2,7 @@
   "abstract": true,
   "on_left_click": "!fn(player){return 0.0;}",
   "item": {
-    "stack_size": 20
+    "stack_size": 20,
+    "on_right_click_block": "!fn(player,position,face){let position = position.offset_by_face(face);if position.get_block().to_string() == \"bb:air\"{position.set_block(BlockState(this.id));}}"
   }
 }

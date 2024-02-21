@@ -1798,7 +1798,15 @@ impl Entity {
                                         stack.item_type.clone().on_right_click_block(
                                             stack,
                                             player.clone(),
-                                            block_position,
+                                            BlockLocation {
+                                                position: block_position,
+                                                world: player
+                                                    .get_entity()
+                                                    .get_location()
+                                                    .chunk
+                                                    .world
+                                                    .clone(),
+                                            },
                                             face,
                                         );
                                 }

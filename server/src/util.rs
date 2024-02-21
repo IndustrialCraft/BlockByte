@@ -185,7 +185,10 @@ impl ScriptingObject for BlockLocation {
         });
         env.register_method("get_block", |location: &BlockLocation| {
             Ok(Variant::from_option(
-                location.world.get_block(&location.position),
+                location
+                    .world
+                    .get_block(&location.position)
+                    .map(|block| block.get_block_state()),
             ))
         });
         env.register_method("get_block_data_load", |location: &BlockLocation| {

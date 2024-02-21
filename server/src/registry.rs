@@ -657,7 +657,7 @@ impl Item {
         &self,
         item: &mut ItemStack,
         player: Arc<PlayerData>,
-        block_position: BlockPosition,
+        block_location: BlockLocation,
         block_face: Face,
     ) -> InteractionResult {
         let new_item = item.clone().into_variant();
@@ -670,7 +670,7 @@ impl Item {
                     Some(new_item),
                     vec![
                         player.into_variant(),
-                        block_position.into_variant(),
+                        block_location.into_variant(),
                         block_face.into_variant(),
                     ],
                 )
