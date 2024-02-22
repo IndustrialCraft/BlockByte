@@ -179,10 +179,10 @@ impl ScriptingObject for BlockLocation {
         );
         env.register_method(
             "set_block",
-            |location: &BlockLocation, block: &BlockStateRef| {
+            |location: &BlockLocation, block: &BlockStateRef, data: &Variant| {
                 location
                     .world
-                    .set_block(location.position, *block, true, None);
+                    .set_block(location.position, *block, true, data.clone());
                 Ok(())
             },
         );

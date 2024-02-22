@@ -3,6 +3,8 @@ use crate::lex::FilePosition;
 use crate::variant::{Array, FromVariant, IntoVariant, Map, Primitive, Variant};
 use immutable_string::ImmutableString;
 use std::any::TypeId;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 pub fn register_defaults(environment: &mut ExecutionEnvironment) {
     environment.register_global("null", Variant::NULL());
@@ -113,6 +115,7 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
     environment.register_method("uoperator-", |this: &i64| Ok(-*this));
     environment.register_method("uoperator-", |this: &f64| Ok(-*this));
 
+    environment.register_function("Array", || Ok(Arc::new(Mutex::new(Vec::<Variant>::new()))));
     environment.register_method("get", |this: &Array, index: &i64| {
         let this = this.lock();
         this.get(*index as usize)
@@ -145,6 +148,11 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
         let mut this = this.lock();
         this.push(value.clone());
         Ok(Variant::NULL())
+    });
+    environment.register_function("Map", || {
+        Ok(Arc::new(Mutex::new(
+            HashMap::<ImmutableString, Variant>::new(),
+        )))
     });
     environment.register_method("get", |this: &Map, key: &ImmutableString| {
         Ok(Variant::from_option(this.lock().get(key).cloned()))

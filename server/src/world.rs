@@ -237,7 +237,7 @@ impl World {
         position: BlockPosition,
         block: BlockStateRef,
         update_neighbors: bool,
-        player: Option<Arc<PlayerData>>,
+        data: Variant,
     ) {
         let chunk_offset = position.chunk_offset();
         self.load_chunk(position.to_chunk_pos()).set_block(
@@ -246,7 +246,7 @@ impl World {
             chunk_offset.2,
             block,
             update_neighbors,
-            player,
+            data,
         );
     }
     pub fn get_block_load(&self, position: BlockPosition) -> BlockData {
@@ -268,7 +268,7 @@ impl World {
         position: BlockPosition,
         replacer: F,
         update_neighbors: bool,
-        player: Option<Arc<PlayerData>>,
+        data: Variant,
     ) where
         F: FnOnce(BlockData) -> Option<BlockStateRef>,
     {
@@ -283,7 +283,7 @@ impl World {
                 chunk_offset.2,
                 new_block,
                 update_neighbors,
-                player,
+                data,
             );
         }
     }
@@ -599,7 +599,7 @@ impl Chunk {
             |block_position, block| {
                 if block_position.to_chunk_pos() == self.position {
                     let offset = block_position.chunk_offset();
-                    self.set_block(offset.0, offset.1, offset.2, block, false, None);
+                    self.set_block(offset.0, offset.1, offset.2, block, false, Variant::NULL());
                 }
             },
             position,
@@ -612,7 +612,7 @@ impl Chunk {
         offset_z: u8,
         block: BlockStateRef,
         update_neighbors: bool,
-        player: Option<Arc<PlayerData>>,
+        data: Variant,
     ) {
         match self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize] {
             BlockData::Simple(id) => {
@@ -645,28 +645,13 @@ impl Chunk {
             .block_registry
             .state_by_ref(previous_block.get_block_state())
             .parent;
-        if let Some(player) = &player {
-            if let Some(loottable) = &self.world.server.loot_tables.get(&previous_block.id) {
-                self.world.scatter_items(
-                    Position {
-                        x: block_position.x as f64 + 0.5,
-                        y: block_position.y as f64 + 0.5,
-                        z: block_position.z as f64 + 0.5,
-                    },
-                    loottable.generate_items(LootTableGenerationParameters {
-                        item: player.get_entity().get_hand_item().as_ref(),
-                    }),
-                    true,
-                );
-            }
-        }
         let _ = previous_block
             .static_data
             .get_function("on_destroy")
             .call_function(
                 &self.world.server.script_environment,
                 Some(block_location.clone().into_variant()),
-                vec![player.clone().into_variant()],
+                vec![data.clone()],
             );
         let new_block = &self.world.server.block_registry.state_by_ref(block).parent;
         let block = block.create_block_data(&self.this.upgrade().unwrap(), block_position);
@@ -686,7 +671,7 @@ impl Chunk {
         let _ = new_block.static_data.get_function("on_set").call_function(
             &self.world.server.script_environment,
             Some(block_location.into_variant()),
-            vec![player.into_variant()],
+            vec![data],
         );
         if let Some(new_block_data) = new_block_data {
             new_block_data.update_to_clients();
@@ -1777,7 +1762,7 @@ impl Entity {
                             block_position,
                             BlockStateRef::AIR,
                             true,
-                            self.get_player(),
+                            self.get_player().into_variant(),
                         );
                     }
                     NetworkMessageC2S::RightClickBlock(block_position, face, shifting) => {
