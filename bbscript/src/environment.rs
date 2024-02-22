@@ -82,6 +82,8 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
         };
     }
     environment.register_custom_name::<ImmutableString, _>("String");
+    environment.register_custom_name::<Map, _>("Map");
+    environment.register_custom_name::<Array, _>("Array");
 
     register_to_string!(i64);
     register_to_string!(f64);

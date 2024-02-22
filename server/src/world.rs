@@ -485,9 +485,32 @@ impl Chunk {
                 for x in 0..16 {
                     for y in 0..16 {
                         for z in 0..16 {
-                            match gen_chunk.get_block(x, y, z) {
-                                BlockData::Simple(_) => {}
-                                BlockData::Data(data) => data.on_place(),
+                            let block_state = gen_chunk.get_block(x, y, z).get_block_state();
+                            let function = world
+                                .server
+                                .block_registry
+                                .state_by_ref(block_state)
+                                .parent
+                                .static_data
+                                .get_function("on_set");
+                            if !function.is_empty() {
+                                function
+                                    .call_function(
+                                        &world.server.script_environment,
+                                        Some(
+                                            BlockLocation {
+                                                world: world.clone(),
+                                                position: BlockPosition {
+                                                    x: (gen_chunk.position.x * 16) + x as i32,
+                                                    y: (gen_chunk.position.y * 16) + y as i32,
+                                                    z: (gen_chunk.position.z * 16) + z as i32,
+                                                },
+                                            }
+                                            .into_variant(),
+                                        ),
+                                        vec![Variant::NULL()],
+                                    )
+                                    .unwrap();
                             }
                         }
                     }
@@ -666,7 +689,6 @@ impl Chunk {
             vec![player.into_variant()],
         );
         if let Some(new_block_data) = new_block_data {
-            new_block_data.on_place();
             new_block_data.update_to_clients();
         }
         if update_neighbors {
@@ -2579,35 +2601,7 @@ impl WorldBlock {
             this: this.clone(),
         })
     }
-    pub fn on_place(&self) {
-        for (id, connector) in &self.block.networks {
-            let connections: Vec<BlockLocation> = Vec::new(); /*connector
-                                                              .call_function(
-                                                                  &self.chunk().world.server.engine,
-                                                                  Some(
-                                                                      &BlockLocation {
-                                                                          world: self.chunk().world.clone(),
-                                                                          position: self.position,
-                                                                      }
-                                                                      .into_variant(),
-                                                                  ),
-                                                                  vec![],
-                                                              )
-                                                              .cast::<Array>()
-                                                              .into_iter()
-                                                              .map(|position| position.cast::<BlockLocation>())
-                                                              .collect();*/
-            let network = BlockNetwork::new(id.clone());
-            self.set_network(network.clone());
-            for connection in connections {
-                if let Some(block_data) = connection.get_data() {
-                    if let Some(other) = block_data.get_network(id) {
-                        network.merge(other);
-                    }
-                }
-            }
-        }
-    }
+
     pub fn get_location(&self) -> BlockLocation {
         BlockLocation {
             position: self.position,
