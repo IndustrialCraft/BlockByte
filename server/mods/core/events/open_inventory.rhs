@@ -21,11 +21,7 @@ fn(){
                 creative_inventory.full_view().set_item(i, item.with_count(item.stack_size));
                 i += 1;
             }
-            player.open_inventory(creative_inventory, 0..27, "core:layout_creative", fn(viewer,id,value,old_value){
-                            if id == "page"{
-                                viewer.set_text("page", "page: " + value.to_string());
-                            }
-                        }, fn(viewer, view, id, btn, shift){
+            player.open_inventory(creative_inventory, 0..27, "core:layout_creative", fn(viewer, view, id, btn, shift){
                                                      if type_of(id) == "String" {
                                                          let user_data = view.get_inventory().user_data;
                                                          let page = user_data.get("core:page");

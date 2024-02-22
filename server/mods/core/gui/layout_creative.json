@@ -1,4 +1,5 @@
 {
+  "on_client_property": "!fn(viewer,id,value,old_value){if id == \"page\"{viewer.set_text(\"page\", \"page: \" + value.to_string());}}",
   "elements": {
     "page": {
       "component_type": {

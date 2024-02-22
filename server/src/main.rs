@@ -359,10 +359,7 @@ impl Server {
         });
         mod_manager.load_resource_type("gui", |id, content| match content {
             ContentType::Json(json) => {
-                gui_layouts.insert(
-                    id,
-                    Arc::new(serde_json::from_str(json.to_string().as_str()).unwrap()),
-                );
+                gui_layouts.insert(id, Arc::new(GUILayout::from_json(json, &engine)));
             }
             ContentType::Binary(_) => {}
         });

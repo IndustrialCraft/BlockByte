@@ -1197,7 +1197,6 @@ impl ScriptingObject for PlayerData {
                       inventory: &InventoryWrapper,
                       range: &Range<i64>,
                       layout: &ImmutableString,
-                      client_property_listener: &FunctionVariant,
                       on_click: &FunctionVariant,
                       on_scroll: &FunctionVariant| {
                     player.set_open_inventory(Some((
@@ -1214,9 +1213,6 @@ impl ScriptingObject for PlayerData {
                                 .get(&Identifier::parse(layout.as_ref()).unwrap())
                                 .unwrap()
                                 .clone(),
-                            client_property_listener: ScriptCallback::from_function_variant(
-                                client_property_listener,
-                            ),
                             on_click: ScriptCallback::from_function_variant(on_click),
                             on_scroll: ScriptCallback::from_function_variant(on_scroll),
                         },
@@ -1363,7 +1359,6 @@ impl Entity {
                 .clone(),
             id: self.get_id().clone(),
             viewer: player.clone(),
-            client_property_listener: ScriptCallback::empty(),
             on_click: ScriptCallback::empty(),
             on_scroll: ScriptCallback::empty(),
         });

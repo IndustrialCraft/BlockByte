@@ -6,7 +6,7 @@ use std::{
 
 use bbscript::eval::{ExecutionEnvironment, ScriptError};
 use bbscript::lex::FilePosition;
-use bbscript::variant::{FromVariant, IntoVariant, Variant};
+use bbscript::variant::{FromVariant, FunctionVariant, IntoVariant, Variant};
 use block_byte_common::gui::{
     GUIComponent, GUIComponentEdit, GUIElement, GUIElementEdit, PositionAnchor,
 };
@@ -17,13 +17,14 @@ use immutable_string::ImmutableString;
 use json::{object, JsonValue};
 use parking_lot::{Mutex, MutexGuard};
 use rand::{thread_rng, Rng};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
 use crate::mods::{ScriptCallback, ScriptingObject, UserDataWrapper};
 use crate::world::{PlayerData, UserData};
 use crate::worldgen::Spline;
 use crate::{
+    mods,
     registry::{InteractionResult, Item, ItemRegistry},
     util::Identifier,
     world::{Entity, WorldBlock},
@@ -141,7 +142,8 @@ impl Inventory {
         for viewer in self.viewers.lock().iter() {
             viewer
                 .1
-                .client_property_listener
+                .layout
+                .on_client_property
                 .call_function(
                     &server.script_environment,
                     None,
@@ -276,7 +278,7 @@ impl Inventory {
                 ));
         }
         for property in self.client_properties.lock().iter() {
-            let _ = viewer.client_property_listener.call_function(
+            let _ = viewer.layout.on_client_property.call_function(
                 &viewer.viewer.server.script_environment,
                 None,
                 vec![
@@ -609,7 +611,6 @@ impl ScriptingObject for OwnedInventoryView {
 }
 pub struct GuiInventoryData {
     pub slot_range: Range<u32>,
-    pub client_property_listener: ScriptCallback,
     pub layout: Arc<GUILayout>,
     pub on_click: ScriptCallback,
     pub on_scroll: ScriptCallback,
@@ -620,7 +621,6 @@ impl GuiInventoryData {
             slot_range: self.slot_range,
             viewer,
             id: Uuid::new_v4(),
-            client_property_listener: self.client_property_listener,
             layout: self.layout,
             on_click: self.on_click,
             on_scroll: self.on_scroll,
@@ -711,7 +711,6 @@ pub struct GuiInventoryViewer {
     pub slot_range: Range<u32>,
     pub viewer: Arc<PlayerData>,
     pub id: Uuid,
-    pub client_property_listener: ScriptCallback,
     pub layout: Arc<GUILayout>,
     pub on_click: ScriptCallback,
     pub on_scroll: ScriptCallback,
@@ -1124,11 +1123,36 @@ impl LootTable {
         items
     }
 }
-#[derive(Serialize, Deserialize)]
 pub struct GUILayout {
     elements: HashMap<String, GUIElement>,
+    on_client_property: ScriptCallback,
 }
 impl GUILayout {
+    pub fn from_json(mut json: JsonValue, environment: &ExecutionEnvironment) -> GUILayout {
+        let on_client_property = json.remove("on_client_property");
+        let on_client_property = if on_client_property.is_null() {
+            ScriptCallback::empty()
+        } else {
+            ScriptCallback::from_function_variant(
+                FunctionVariant::from_variant(&mods::json_to_variant(
+                    on_client_property,
+                    environment,
+                ))
+                .unwrap(),
+            )
+        };
+        let mut elements = HashMap::new();
+        for (key, element) in json["elements"].entries() {
+            elements.insert(
+                key.to_string(),
+                serde_json::from_str(element.to_string().as_str()).unwrap(),
+            );
+        }
+        GUILayout {
+            on_client_property,
+            elements,
+        }
+    }
     pub fn send_to_player(&self, player: &PlayerData, container_id: &str) {
         for element in &self.elements {
             player.send_message(&NetworkMessageS2C::GuiSetElement(
@@ -1137,7 +1161,7 @@ impl GUILayout {
             ));
         }
     }
-    pub fn create_9x(rows: u32) -> GUILayout {
+    /*pub fn create_9x(rows: u32) -> GUILayout {
         let mut elements = HashMap::new();
         for y in 0..rows {
             for x in 0..9 {
@@ -1160,9 +1184,12 @@ impl GUILayout {
                 );
             }
         }
-        GUILayout { elements }
+        GUILayout {
+            elements,
+            on_client_property: ScriptCallback::empty(),
+        }
     }
     pub fn export_to_json(&self) -> String {
         serde_json::to_string(self).unwrap()
-    }
+    }*/
 }
