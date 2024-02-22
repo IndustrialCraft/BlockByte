@@ -8,6 +8,7 @@ use block_byte_common::content::Transformation;
 use block_byte_common::gui::PositionAnchor;
 use block_byte_common::messages::MovementType;
 use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, KeyboardKey, Position};
+use hex_color::HexColor;
 use image::io::Reader;
 use image::{ImageOutputFormat, Rgba, RgbaImage};
 use immutable_string::ImmutableString;
@@ -197,6 +198,17 @@ impl Mod {
             .with_context(|| format!("resource {} not found", id))
             .and_then(|data| json::parse(&data).map_err(|_| anyhow!("malformed json")))
     }
+    fn read_image_resource(&self, id: &str) -> Result<ModImage> {
+        let mut full_path = self.path.clone();
+        full_path.push("images");
+        for path_part in id.split("/") {
+            full_path.push(path_part);
+        }
+        Ok(ModImage::load(
+            fs::read(&format!("{}.png", full_path.to_str().unwrap())).unwrap(),
+            full_path.to_str().unwrap(),
+        ))
+    }
 }
 
 pub struct ModManager {
@@ -265,6 +277,12 @@ impl ModManager {
                     })
             })
         }
+    }
+    pub fn load_image(&self, id: Identifier) -> Result<ModImage> {
+        self.mods
+            .get(id.get_namespace())
+            .ok_or(anyhow!("mod {} not found", id.get_namespace()))
+            .and_then(|mod_data| mod_data.read_image_resource(id.get_key()))
     }
     pub fn runtime_engine_load(env: &mut ExecutionEnvironment, server: Weak<Server>) {
         bbscript::environment::register_defaults(env);
@@ -753,6 +771,21 @@ impl ModImage {
                 .expect(format!("couldn't load {}", name).as_str())
                 .into_rgba8(),
         }
+    }
+    pub fn from_json<F: Fn(Identifier) -> ModImage>(json: JsonValue, loader: &F) -> ModImage {
+        let image = json["image"].as_str().unwrap();
+        let mut image = loader(Identifier::parse(image).unwrap());
+        let color = json["color"].as_str();
+        if let Some(color) = color {
+            let color = HexColor::parse(color).unwrap();
+            image = image.color(Color {
+                r: color.r,
+                g: color.g,
+                b: color.b,
+                a: color.a,
+            });
+        }
+        image
     }
     pub fn color(&self, color: Color) -> ModImage {
         let mut image = self.image.clone();

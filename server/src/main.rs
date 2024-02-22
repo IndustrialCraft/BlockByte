@@ -33,7 +33,8 @@ use std::{
 
 use crate::inventory::{GUILayout, Recipe};
 use crate::mods::{
-    ClientContentData, ContentType, EventManager, IdentifierTag, ScriptCallback, ScriptingObject,
+    ClientContentData, ContentType, EventManager, IdentifierTag, ModImage, ScriptCallback,
+    ScriptingObject,
 };
 use crate::registry::{BlockStateProperty, BlockStatePropertyStorage, RecipeManager, StaticData};
 use crate::world::PlayerData;
@@ -392,7 +393,12 @@ impl Server {
             models: HashMap::new(),
         };
         mod_manager.load_resource_type("images", |id, content| match content {
-            ContentType::Json(_) => todo!(),
+            ContentType::Json(json) => {
+                client_content_data.images.insert(
+                    id,
+                    ModImage::from_json(json, &|id| mod_manager.load_image(id).unwrap()).export(),
+                );
+            }
             ContentType::Binary(data) => {
                 client_content_data.images.insert(id, data);
             }

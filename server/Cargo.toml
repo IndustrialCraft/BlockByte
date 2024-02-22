@@ -38,4 +38,6 @@ pathfinding = "4.3.2"
 strum = "0.26.1"
 strum_macros = "0.26.1"
 immutable_string = "0.1.1"
+hex_color = "3"
+
 bbscript = { path = "../bbscript" }
