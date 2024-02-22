@@ -169,6 +169,15 @@ impl ScriptingObject for BlockLocation {
             Some(location.world.clone())
         });
         env.register_method(
+            "set_ticking_enabled",
+            |location: &BlockLocation, enabled: &bool| {
+                if let Some(chunk) = location.world.get_chunk(location.position.to_chunk_pos()) {
+                    chunk.set_ticking_enabled(location.position.chunk_offset(), *enabled);
+                }
+                Ok(())
+            },
+        );
+        env.register_method(
             "set_block",
             |location: &BlockLocation, block: &BlockStateRef| {
                 location

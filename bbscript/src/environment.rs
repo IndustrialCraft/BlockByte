@@ -6,6 +6,8 @@ use std::any::TypeId;
 
 pub fn register_defaults(environment: &mut ExecutionEnvironment) {
     environment.register_global("null", Variant::NULL());
+    environment.register_global("false", false.into_variant());
+    environment.register_global("true", true.into_variant());
 
     let type_name_resolver = environment.get_type_name_resolver();
     environment.register_function("type_of", move |variant: &Variant| {

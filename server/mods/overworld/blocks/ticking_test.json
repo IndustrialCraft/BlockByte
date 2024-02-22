@@ -1,0 +1,21 @@
+{
+  "base": "core:simple_block",
+  "client": {
+    "block_type": {
+      "type": "Cube",
+      "front": {"id":"core:animation_test", "stages": 4, "time": 60},
+      "back": {"id":"core:animation_test", "stages": 4, "time": 60},
+      "left": {"id":"core:animation_test", "stages": 4, "time": 60},
+      "right": {"id":"core:animation_test", "stages": 4, "time": 60},
+      "up": {"id":"core:animation_test", "stages": 4, "time": 60},
+      "down": {"id":"core:animation_test", "stages": 4, "time": 60}
+    },
+    "fluid": false,
+    "render_data": 0,
+    "transparent": false,
+    "selectable": true,
+    "no_collide": false
+  },
+  "on_set": "!fn(data){this.set_ticking_enabled(true);}",
+  "on_tick": "!fn(){print(\"tick\");this.set_ticking_enabled(false);}"
+}

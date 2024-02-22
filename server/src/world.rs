@@ -517,6 +517,13 @@ impl Chunk {
     pub fn schedule_update(&self, block: (u8, u8, u8)) {
         self.scheduled_updates.lock().insert(block);
     }
+    pub fn set_ticking_enabled(&self, block: (u8, u8, u8), enabled: bool) {
+        if enabled {
+            self.ticking_blocks.lock().insert(block);
+        } else {
+            self.ticking_blocks.lock().remove(&block);
+        }
+    }
     pub fn load_from_save(
         &self,
         save_path: PathBuf,
@@ -653,14 +660,11 @@ impl Chunk {
             BlockData::Data(data) => Some(data.clone()),
         };
         self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize] = block;
-        let _ = new_block
-            .static_data
-            .get_function("on_player")
-            .call_function(
-                &self.world.server.script_environment,
-                Some(block_location.into_variant()),
-                vec![player.into_variant()],
-            );
+        let _ = new_block.static_data.get_function("on_set").call_function(
+            &self.world.server.script_environment,
+            Some(block_location.into_variant()),
+            vec![player.into_variant()],
+        );
         if let Some(new_block_data) = new_block_data {
             new_block_data.on_place();
             new_block_data.update_to_clients();
