@@ -1,0 +1,20 @@
+{
+  "base": "core:simple_block",
+  "name": "Grass Block",
+  "client": {
+    "block_type": {
+      "type": "Cube",
+      "front": "overworld:grass_side",
+      "back": "overworld:grass_side",
+      "left": "overworld:grass_side",
+      "right": "overworld:grass_side",
+      "up": "overworld:grass_block",
+      "down": "overworld:dirt"
+    },
+    "fluid": false,
+    "render_data": 0,
+    "transparent": false,
+    "selectable": true,
+    "no_collide": false
+  }
+}

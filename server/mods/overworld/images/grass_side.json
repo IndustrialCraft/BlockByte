@@ -1,0 +1,9 @@
+{
+  "image": "overworld:dirt",
+  "overlays": [
+    {
+      "image": "overworld:grass_block",
+      "mask": "overworld:grass_mask"
+    }
+  ]
+}

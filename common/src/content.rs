@@ -42,14 +42,20 @@ pub enum ClientBlockRenderDataType {
         down: ClientTexture,
     },
     Static {
-        models: Vec<(String, ClientTexture, Transformation)>,
+        models: Vec<ClientModel>,
     },
     Foliage {
-        texture_1: ClientTexture,
-        texture_2: ClientTexture,
-        texture_3: ClientTexture,
-        texture_4: ClientTexture,
+        sides: Option<ClientTexture>,
+        cross: Option<ClientTexture>,
+        bottom: Option<ClientTexture>,
     },
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ClientModel {
+    pub model: String,
+    pub texture: ClientTexture,
+    #[serde(default = "Default::default")]
+    pub transform: Transformation,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -69,6 +75,11 @@ pub struct Transformation {
     pub rotation: Vec3,
     pub scale: Vec3,
     pub origin: Vec3,
+}
+impl Default for Transformation {
+    fn default() -> Self {
+        Transformation::identity()
+    }
 }
 impl Transformation {
     pub fn identity() -> Self {

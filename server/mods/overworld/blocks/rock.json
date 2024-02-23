@@ -1,0 +1,20 @@
+{
+  "base": "core:simple_block",
+  "name": "Rock Block",
+  "client": {
+    "block_type": {
+      "type": "Static",
+      "models": [
+        {
+          "model": "overworld:rock",
+          "texture": "overworld:stone"
+        }
+      ]
+    },
+    "fluid": false,
+    "render_data": 0,
+    "transparent": false,
+    "selectable": true,
+    "no_collide": true
+  }
+}

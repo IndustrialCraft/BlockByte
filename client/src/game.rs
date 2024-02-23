@@ -391,35 +391,53 @@ impl Chunk {
                             }
                         }
                         BlockRenderDataType::Foliage(foliage) => {
-                            for face in &[Face::Front, Face::Back, Face::Left, Face::Right] {
-                                let texture = match face {
-                                    Face::Front => foliage.texture_1,
-                                    Face::Back => foliage.texture_2,
-                                    Face::Left => foliage.texture_3,
-                                    Face::Right => foliage.texture_4,
-                                    _ => unreachable!(),
-                                };
-                                face.add_vertices(
-                                    texture.get_first_coords(),
-                                    &mut |position, coords| {
-                                        let position_flags = ((position.x > 0.5) as u32)
-                                            | (((position.y > 0.5) as u32) << 1)
-                                            | (((position.z > 0.5) as u32) << 2);
-                                        let shift = face.opposite().get_offset();
-                                        foliage_vertices.push(ChunkVertex::new(
-                                            base_position
-                                                + position
-                                                + Position {
-                                                    x: shift.x as f64 * 0.3,
-                                                    y: 0.,
-                                                    z: shift.z as f64 * 0.3,
-                                                },
-                                            [coords.0, coords.1],
-                                            block.render_data as u32 | (position_flags << 8),
-                                            texture,
-                                        ));
-                                    },
-                                );
+                            if let Some(texture) = foliage.sides {
+                                for face in &[Face::Front, Face::Back, Face::Left, Face::Right] {
+                                    face.add_vertices(
+                                        texture.get_first_coords(),
+                                        &mut |position, coords| {
+                                            let position_flags = ((position.x > 0.5) as u32)
+                                                | (((position.y > 0.5) as u32) << 1)
+                                                | (((position.z > 0.5) as u32) << 2);
+                                            let shift = face.opposite().get_offset();
+                                            foliage_vertices.push(ChunkVertex::new(
+                                                base_position
+                                                    + position
+                                                    + Position {
+                                                        x: shift.x as f64 * 0.3,
+                                                        y: 0.,
+                                                        z: shift.z as f64 * 0.3,
+                                                    },
+                                                [coords.0, coords.1],
+                                                block.render_data as u32 | (position_flags << 8),
+                                                texture,
+                                            ));
+                                        },
+                                    );
+                                }
+                            }
+                            if let Some(texture) = foliage.cross {
+                                for shift in &[0., 1.] {
+                                    Face::Front.add_vertices(
+                                        texture.get_first_coords(),
+                                        &mut |position, coords| {
+                                            let position_flags = ((position.x > 0.5) as u32)
+                                                | (((position.y > 0.5) as u32) << 1)
+                                                | (((position.z > 0.5) as u32) << 2);
+                                            foliage_vertices.push(ChunkVertex::new(
+                                                base_position
+                                                    + Position {
+                                                        x: (shift - position.x).abs(),
+                                                        y: position.y,
+                                                        z: (1. - position.x).abs(),
+                                                    },
+                                                [coords.0, coords.1],
+                                                block.render_data as u32 | (position_flags << 8),
+                                                texture,
+                                            ));
+                                        },
+                                    );
+                                }
                             }
                         }
                     }

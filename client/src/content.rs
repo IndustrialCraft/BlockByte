@@ -146,29 +146,27 @@ impl BlockRegistry {
                             (
                                 Model::new(
                                     models
-                                        .get(static_data.0.as_str())
+                                        .get(static_data.model.as_str())
                                         .unwrap_or(models.get("missing").unwrap())
                                         .clone(),
-                                    Texture::from_common(static_data.1, texture_atlas),
+                                    Texture::from_common(static_data.texture, texture_atlas),
                                     Vec::new(),
                                     Vec::new(),
                                 ),
-                                static_data.2,
+                                static_data.transform,
                             )
                         })
                         .collect(),
                 }),
 
                 ClientBlockRenderDataType::Foliage {
-                    texture_1,
-                    texture_2,
-                    texture_3,
-                    texture_4,
+                    sides,
+                    cross,
+                    bottom,
                 } => BlockRenderDataType::Foliage(BlockFoliageRenderData {
-                    texture_1: Texture::from_common(texture_1, texture_atlas),
-                    texture_2: Texture::from_common(texture_2, texture_atlas),
-                    texture_3: Texture::from_common(texture_3, texture_atlas),
-                    texture_4: Texture::from_common(texture_4, texture_atlas),
+                    sides: sides.map(|texture| Texture::from_common(texture, texture_atlas)),
+                    cross: cross.map(|texture| Texture::from_common(texture, texture_atlas)),
+                    bottom: bottom.map(|texture| Texture::from_common(texture, texture_atlas)),
                 }),
             },
             dynamic: block_data.dynamic.map(|dynamic| {
@@ -245,10 +243,9 @@ pub struct BlockStaticRenderData {
     pub models: Vec<(Model, Transformation)>,
 }
 pub struct BlockFoliageRenderData {
-    pub texture_1: Texture,
-    pub texture_2: Texture,
-    pub texture_3: Texture,
-    pub texture_4: Texture,
+    pub sides: Option<Texture>,
+    pub cross: Option<Texture>,
+    pub bottom: Option<Texture>,
 }
 
 pub struct ItemData {

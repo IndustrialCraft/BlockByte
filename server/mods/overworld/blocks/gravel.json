@@ -1,0 +1,20 @@
+{
+  "base": "core:simple_block",
+  "name": "Gravel Block",
+  "client": {
+    "block_type": {
+      "type": "Cube",
+      "front": "overworld:gravel",
+      "back": "overworld:gravel",
+      "left": "overworld:gravel",
+      "right": "overworld:gravel",
+      "up": "overworld:gravel",
+      "down": "overworld:gravel"
+    },
+    "fluid": false,
+    "render_data": 0,
+    "transparent": false,
+    "selectable": true,
+    "no_collide": false
+  }
+}

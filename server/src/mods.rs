@@ -775,6 +775,10 @@ impl ModImage {
     pub fn from_json<F: Fn(Identifier) -> ModImage>(json: JsonValue, loader: &F) -> ModImage {
         let image = json["image"].as_str().unwrap();
         let mut image = loader(Identifier::parse(image).unwrap());
+        for overlay in json["overlays"].members() {
+            image = image.overlay(&ModImage::from_json(overlay.clone(), loader));
+        }
+
         let color = json["color"].as_str();
         if let Some(color) = color {
             let color = HexColor::parse(color).unwrap();
@@ -784,6 +788,10 @@ impl ModImage {
                 b: color.b,
                 a: color.a,
             });
+        }
+        let mask = json["mask"].as_str();
+        if let Some(mask) = mask {
+            image = image.multiply(&loader(Identifier::parse(mask).unwrap()));
         }
         image
     }

@@ -1,0 +1,20 @@
+{
+  "base": "core:simple_block",
+  "name": "Oak Log Block",
+  "client": {
+    "block_type": {
+      "type": "Cube",
+      "front": "overworld:log",
+      "back": "overworld:log",
+      "left": "overworld:log",
+      "right": "overworld:log",
+      "up": "overworld:log_base",
+      "down": "overworld:log_base"
+    },
+    "fluid": false,
+    "render_data": 0,
+    "transparent": false,
+    "selectable": true,
+    "no_collide": false
+  }
+}

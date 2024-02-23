@@ -1,5 +1,6 @@
 {
   "base": "core:simple_block",
+  "name": "Stone Block",
   "client": {
     "block_type": {
       "type": "Cube",

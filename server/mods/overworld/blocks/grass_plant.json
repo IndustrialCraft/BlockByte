@@ -1,0 +1,15 @@
+{
+  "base": "core:simple_block",
+  "name": "Grass Plant",
+  "client": {
+    "block_type": {
+      "type": "Foliage",
+      "cross": "overworld:grass_plant"
+    },
+    "fluid": false,
+    "render_data": 2,
+    "transparent": false,
+    "selectable": true,
+    "no_collide": true
+  }
+}

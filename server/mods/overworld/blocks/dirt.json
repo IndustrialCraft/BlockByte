@@ -1,0 +1,20 @@
+{
+  "base": "core:simple_block",
+  "name": "Dirt Block",
+  "client": {
+    "block_type": {
+      "type": "Cube",
+      "front": "overworld:dirt",
+      "back": "overworld:dirt",
+      "left": "overworld:dirt",
+      "right": "overworld:dirt",
+      "up": "overworld:dirt",
+      "down": "overworld:dirt"
+    },
+    "fluid": false,
+    "render_data": 0,
+    "transparent": false,
+    "selectable": true,
+    "no_collide": false
+  }
+}
