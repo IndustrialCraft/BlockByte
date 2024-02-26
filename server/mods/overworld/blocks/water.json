@@ -1,0 +1,20 @@
+{
+  "base": "core:simple_block",
+  "name": "Water Block",
+  "client": {
+    "block_type": {
+      "type": "Cube",
+      "front": "overworld:water",
+      "back": "overworld:water",
+      "left": "overworld:water",
+      "right": "overworld:water",
+      "up": "overworld:water",
+      "down": "overworld:water"
+    },
+    "fluid": true,
+    "render_data": 1,
+    "transparent": true,
+    "selectable": true,
+    "no_collide": false
+  }
+}

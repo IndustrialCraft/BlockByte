@@ -1,6 +1,9 @@
 {
   "base": "core:simple_block",
   "name": "Rock Block",
+  "properties": {
+    "rotated": "bool"
+  },
   "client": {
     "block_type": {
       "type": "Static",

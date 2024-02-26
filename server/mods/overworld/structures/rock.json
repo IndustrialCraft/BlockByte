@@ -1,0 +1,14 @@
+{"blocks":[
+    {
+        "x":0,
+        "y":0,
+        "z":0,
+        "id":"overworld:rock{rotated=false}"
+    },{
+        "x":0,
+        "y":0,
+        "z":0,
+        "id":"overworld:rock{rotated=true}",
+        "chance": 0.5
+    }
+]}

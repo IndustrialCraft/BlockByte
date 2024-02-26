@@ -1,0 +1,20 @@
+{
+  "base": "core:simple_block",
+  "name": "Leaves Block",
+  "client": {
+    "block_type": {
+      "type": "Cube",
+      "front": "overworld:leaves",
+      "back": "overworld:leaves",
+      "left": "overworld:leaves",
+      "right": "overworld:leaves",
+      "up": "overworld:leaves",
+      "down": "overworld:leaves"
+    },
+    "fluid": false,
+    "render_data": 0,
+    "transparent": true,
+    "selectable": true,
+    "no_collide": false
+  }
+}

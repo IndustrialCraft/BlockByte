@@ -1,0 +1,13 @@
+{
+  "top": "overworld:sand",
+  "middle": "overworld:sand",
+  "bottom": "overworld:stone",
+  "water": "overworld:water",
+  "height": [
+    {
+      "key": 0.0,
+      "left": 1.0,
+      "right": 0.0
+    }
+  ]
+}

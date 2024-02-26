@@ -1,0 +1,27 @@
+{
+  "top": "overworld:grass",
+  "middle": "overworld:dirt",
+  "bottom": "overworld:stone",
+  "water": "overworld:water",
+  "structures": [
+    {
+      "id": "overworld:grass_foliage",
+      "chance": 0.1
+    },
+    {
+      "id": "overworld:rock",
+      "chance": 0.02
+    },
+    {
+      "id": "overworld:tree",
+      "chance": 0.02
+    }
+  ],
+  "height": [
+    {
+      "key": 0.0,
+      "left": 0.0,
+      "right": 1.0
+    }
+  ]
+}
