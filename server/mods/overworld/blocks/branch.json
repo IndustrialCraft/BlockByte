@@ -1,0 +1,23 @@
+{
+  "base": "core:simple_block",
+  "name": "Branch Block",
+  "properties": {
+    "rotated": "bool"
+  },
+  "client": {
+    "block_type": {
+      "type": "Static",
+      "models": [
+        {
+          "model": "overworld:branch",
+          "texture": "overworld:log"
+        }
+      ]
+    },
+    "fluid": false,
+    "render_data": 0,
+    "transparent": false,
+    "selectable": true,
+    "no_collide": true
+  }
+}

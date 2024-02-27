@@ -10,11 +10,15 @@
     },
     {
       "id": "overworld:rock",
-      "chance": 0.02
+      "chance": 0.01
+    },
+    {
+      "id": "overworld:branch",
+      "chance": 0.01
     },
     {
       "id": "overworld:tree",
-      "chance": 0.02
+      "chance": 0.03
     }
   ],
   "height": [
