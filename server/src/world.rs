@@ -41,8 +41,7 @@ use serde::{Deserialize, Deserializer, Serializer};
 use uuid::Uuid;
 
 use crate::inventory::{
-    GUILayout, GuiInventoryData, GuiInventoryViewer, InventorySaveData, InventoryView,
-    LootTableGenerationParameters, ModGuiViewer,
+    GUILayout, GuiInventoryData, GuiInventoryViewer, InventorySaveData, InventoryView, ModGuiViewer,
 };
 use crate::mods::{ScriptCallback, ScriptingObject, UserDataWrapper};
 use crate::registry::{Block, BlockState};

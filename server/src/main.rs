@@ -353,7 +353,10 @@ impl Server {
         });
         mod_manager.load_resource_type("loot_tables", |id, content| match content {
             ContentType::Json(json) => {
-                loot_tables.insert(id, Arc::new(LootTable::from_json(json, &item_registry)));
+                loot_tables.insert(
+                    id,
+                    Arc::new(LootTable::from_json(json, &item_registry, &engine)),
+                );
             }
             ContentType::Binary(_) => {}
         });

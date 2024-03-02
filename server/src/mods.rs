@@ -26,7 +26,7 @@ use strum::IntoEnumIterator;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-use crate::inventory::{InventoryWrapper, ItemStack, ModGuiViewer, OwnedInventoryView};
+use crate::inventory::{InventoryWrapper, ItemStack, LootTable, ModGuiViewer, OwnedInventoryView};
 use crate::registry::{BlockState, BlockStateRef, InteractionResult};
 use crate::util::BlockLocation;
 use crate::world::{BlockNetwork, PlayerData, UserData, World, WorldBlock};
@@ -333,6 +333,7 @@ impl ModManager {
         Self::load_scripting_object::<Server>(env, &server);
         Self::load_scripting_object::<OwnedInventoryView>(env, &server);
         Self::load_scripting_object::<BlockNetwork>(env, &server);
+        Self::load_scripting_object::<LootTable>(env, &server);
     }
     fn load_scripting_object<T>(env: &mut ExecutionEnvironment, server: &Weak<Server>)
     where

@@ -1080,22 +1080,21 @@ impl ScriptingObject for Recipe {
 }
 
 pub struct LootTable {
-    tables: Vec<(Arc<Item>, Spline, Conditions)>,
-}
-#[derive(Default)]
-pub struct Conditions {}
-pub struct LootTableGenerationParameters<'a> {
-    pub item: Option<&'a ItemStack>,
+    tables: Vec<(Arc<Item>, Spline, Variant)>,
 }
 impl LootTable {
-    pub fn from_json(json: JsonValue, item_registry: &ItemRegistry) -> Self {
+    pub fn from_json(
+        json: JsonValue,
+        item_registry: &ItemRegistry,
+        environment: &ExecutionEnvironment,
+    ) -> Self {
         let mut tables = Vec::new();
         for table in json["tables"].members() {
-            let conditions = &table["conditions"];
-            let conditions = if !conditions.is_null() {
-                Conditions {}
+            let condition = &table["condition"];
+            let conditions = if !condition.is_null() {
+                mods::json_to_variant(condition.clone(), environment)
             } else {
-                Default::default()
+                Variant::NULL()
             };
             tables.push((
                 item_registry
@@ -1108,9 +1107,21 @@ impl LootTable {
         }
         Self { tables }
     }
-    pub fn generate_items(&self, parameters: LootTableGenerationParameters) -> Vec<ItemStack> {
+    pub fn generate_items(
+        &self,
+        data: Variant,
+        environment: &ExecutionEnvironment,
+    ) -> Vec<ItemStack> {
         let mut items = Vec::new();
         for table in &self.tables {
+            if !table
+                .2
+                .call(vec![data.clone()], environment, &FilePosition::INVALID)
+                .map(|variant| *bool::from_variant(&variant).unwrap_or(&false))
+                .unwrap_or(false)
+            {
+                continue;
+            }
             let count = table
                 .1
                 .sample(thread_rng().gen_range((0.)..(1.)))
@@ -1121,6 +1132,35 @@ impl LootTable {
             }
         }
         items
+    }
+}
+impl ScriptingObject for LootTable {
+    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+        env.register_custom_name::<Arc<LootTable>, _>("LootTable");
+        {
+            let server = server.clone();
+            env.register_function("LootTable", move |id: &ImmutableString| {
+                Ok(Variant::from_option(
+                    server
+                        .upgrade()
+                        .unwrap()
+                        .loot_tables
+                        .get(&Identifier::parse(id.as_ref()).unwrap())
+                        .cloned(),
+                ))
+            });
+        }
+        {
+            let server = server.clone();
+            env.register_method("generate", move |this: &Arc<LootTable>, data: &Variant| {
+                Ok(
+                    this.generate_items(
+                        data.clone(),
+                        &server.upgrade().unwrap().script_environment,
+                    ),
+                )
+            });
+        }
     }
 }
 pub struct GUILayout {
