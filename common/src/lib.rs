@@ -11,6 +11,21 @@ use std::ops;
 use std::ops::Neg;
 use strum_macros::{Display, EnumIter};
 
+#[derive(Copy, Clone, Serialize, Deserialize)]
+pub struct Direction {
+    pitch: f64,
+    yaw: f64,
+}
+impl Direction {
+    pub fn to_vector(self) -> Position {
+        Position {
+            x: self.yaw.sin() * self.pitch.cos(),
+            y: self.pitch.sin(),
+            z: self.yaw.cos() * self.pitch.cos(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumIter)]
 pub enum HorizontalFace {
     Front,

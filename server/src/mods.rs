@@ -14,8 +14,10 @@ use image::{ImageOutputFormat, Rgba, RgbaImage};
 use immutable_string::ImmutableString;
 use json::{object, JsonValue};
 use parking_lot::{Mutex, MutexGuard};
+use rand::{thread_rng, Rng};
 use std::collections::HashSet;
 use std::fmt::Display;
+use std::ops::Range;
 use std::{
     collections::HashMap,
     fs,
@@ -308,6 +310,10 @@ impl ModManager {
 
         env.register_function("random_uuid", || {
             Ok(Variant::from_str(Uuid::new_v4().to_string().as_str()))
+        });
+        env.register_function("random_float", || Ok(thread_rng().gen_range((0.)..1.)));
+        env.register_function("random_int", |range: &Range<i64>| {
+            Ok(thread_rng().gen_range(range.clone()))
         });
 
         Self::load_scripting_object::<PlayerData>(env, &server);

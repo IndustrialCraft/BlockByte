@@ -1,0 +1,18 @@
+fn spawn(location,item){
+    Entity("core:item", location).inventory.full_view().set_item(0, item);
+}
+fn scatter(location,items){
+    for item in items{
+        core::item_entity::spawn(location, item);
+    }
+}
+
+fn on_right_click(player){
+    let inventory_view = this.inventory.full_view();
+    let item_stack = inventory_view.get_item(0);
+    let overflow = player.inventory.full_view().add_item(item_stack);
+    if is_null(overflow) {
+        this.remove();
+    }
+    inventory_view.set_item(0, overflow);
+}

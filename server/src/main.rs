@@ -284,6 +284,14 @@ impl Server {
             ContentType::Json(mut json) => {
                 let client_data: ClientEntityData =
                     serde_json::from_str(json.remove("client").to_string().as_str()).unwrap();
+                let item_model_mapping = {
+                    let mut item_model_mapping = HashMap::new();
+                    let json_mapping = json.remove("item_model_mapping");
+                    for (from, to) in json_mapping.entries() {
+                        item_model_mapping.insert(from.parse().unwrap(), to.as_u32().unwrap());
+                    }
+                    item_model_mapping
+                };
                 let static_data = static_data_from_json(json);
                 entity_registry
                     .register(id.clone(), move |client_id| {
@@ -292,7 +300,7 @@ impl Server {
                             client_id,
                             client_data,
                             item_model_mapping: ItemModelMapping {
-                                mapping: HashMap::new(),
+                                mapping: item_model_mapping,
                             },
                             static_data,
                         })
@@ -301,35 +309,6 @@ impl Server {
             }
             ContentType::Binary(_) => unimplemented!(),
         });
-        entity_registry
-            .register(Identifier::new("bb", "item"), |client_id| {
-                Arc::new(EntityType {
-                    id: Identifier::new("bb", "item"),
-                    client_id,
-                    client_data: ClientEntityData {
-                        model: "bb:item".to_string(),
-                        texture: ClientTexture::String("".to_string()),
-                        hitbox_w: 0.5,
-                        hitbox_h: 0.1,
-                        hitbox_d: 0.5,
-                        hitbox_h_shifting: 0.1,
-                        animations: vec![],
-                        items: vec!["main".to_string()],
-                        viewmodel: None,
-                    },
-                    item_model_mapping: ItemModelMapping {
-                        mapping: {
-                            let mut mapping = HashMap::new();
-                            mapping.insert(0, 0);
-                            mapping
-                        },
-                    },
-                    static_data: StaticData {
-                        data: HashMap::new(),
-                    },
-                })
-            })
-            .unwrap();
         mod_manager.load_resource_type("structures", |id, content| match content {
             ContentType::Json(json) => {
                 structures.insert(id, Arc::new(Structure::from_json(json, &block_registry)));
@@ -415,10 +394,6 @@ impl Server {
                 client_content_data.models.insert(id, data);
             }
         });
-        client_content_data.models.insert(
-            Identifier::new("bb", "item"),
-            include_bytes!("assets/item_model.bbm").to_vec(),
-        );
         let client_content = {
             let client_content = registry::ClientContentGenerator::generate_zip(
                 &block_registry,
@@ -540,7 +515,7 @@ impl Server {
                 let mut event_data = HashMap::new();
                 event_data.insert("player".into(), player.into_variant());
                 let event_data: Map = Arc::new(Mutex::new(event_data));
-                let _ = self.call_event(
+                self.call_event(
                     Identifier::new("bb", "post_player_join"),
                     event_data.into_variant(),
                 );

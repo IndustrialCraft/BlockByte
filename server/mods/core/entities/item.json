@@ -1,0 +1,16 @@
+{
+  "client": {
+    "model": "core:item_entity",
+    "texture": "",
+    "hitbox_w": 0.5,
+    "hitbox_h": 0.1,
+    "hitbox_d": 0.5,
+    "hitbox_h_shifting": 0.1,
+    "animations": [],
+    "items": ["main"]
+  },
+  "item_model_mapping": {
+    "0": 0
+  },
+  "on_right_click": "@core::item_entity::on_right_click"
+}

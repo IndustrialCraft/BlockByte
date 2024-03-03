@@ -93,6 +93,12 @@ impl ScriptingObject for Location {
                 world: world.clone(),
             })
         });
+        env.register_method("operator+", |location: &Location, other: &Position| {
+            Ok(Location {
+                position: location.position + *other,
+                world: location.world.clone(),
+            })
+        });
         env.register_member("position", |location: &Location| Some(location.position));
         env.register_member("world", |location: &Location| Some(location.world.clone()));
     }
@@ -219,6 +225,12 @@ impl ScriptingObject for BlockLocation {
         env.register_method("offset_by_face", |location: &BlockLocation, face: &Face| {
             Ok(BlockLocation {
                 position: location.position.offset_by_face(*face),
+                world: location.world.clone(),
+            })
+        });
+        env.register_method("get_location", |location: &BlockLocation| {
+            Ok(Location {
+                position: location.position.to_position(),
                 world: location.world.clone(),
             })
         });

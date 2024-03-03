@@ -604,6 +604,9 @@ impl ScriptingObject for OwnedInventoryView {
                 Ok(())
             },
         );
+        env.register_method("add_item", |view: &OwnedInventoryView, item: &ItemStack| {
+            Ok(Variant::from_option(view.view().add_item(item)))
+        });
         env.register_method("get_inventory", |view: &OwnedInventoryView| {
             Ok(view.inventory.clone())
         });

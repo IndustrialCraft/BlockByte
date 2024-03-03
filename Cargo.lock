@@ -437,6 +437,7 @@ dependencies = [
  "tungstenite",
  "twox-hash",
  "uuid",
+ "voxel-tile-raycast",
  "walkdir",
  "zip",
 ]

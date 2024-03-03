@@ -184,7 +184,7 @@ pub fn parse_expression(tokens: &mut TokenReader) -> Result<Option<Expression>, 
                             skip = true;
                             break;
                         }
-                        _ => panic!(),
+                        token => panic!("{:?}", token),
                     }
                 }
                 if !skip {

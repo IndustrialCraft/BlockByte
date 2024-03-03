@@ -27,7 +27,8 @@ use block_byte_common::messages::{
     ClientModelTarget, MovementType, NetworkMessageC2S, NetworkMessageS2C,
 };
 use block_byte_common::{
-    BlockPosition, ChunkPosition, Color, Face, KeyboardKey, KeyboardModifier, Position, Vec2, AABB,
+    BlockPosition, ChunkPosition, Color, Direction, Face, KeyboardKey, KeyboardModifier, Position,
+    Vec2, AABB,
 };
 use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
@@ -319,6 +320,113 @@ impl World {
             self.unload_timer.inc();
         }
     }
+    pub fn raycast(
+        &self,
+        max_distance: f64,
+        start_position: Position,
+        direction: Direction,
+        predicate: Variant,
+    ) -> RaycastResult {
+        let direction = direction.to_vector();
+        let mut closest_entity: Option<(f64, Arc<Entity>)> = None;
+        /*for (id, entity) in &self.entities {
+            let entity_data = self.entity_registry.get_entity(entity.type_id);
+            let aabb = AABB {
+                x: entity.position.x,
+                y: entity.position.y,
+                z: entity.position.z,
+                w: entity_data.hitbox_w,
+                h: entity_data.hitbox_h,
+                d: entity_data.hitbox_d,
+            };
+            if let Some(distance) = aabb.raycast(
+                start_position,
+                Vec3 {
+                    x: direction.x,
+                    y: direction.y,
+                    z: direction.z,
+                },
+            ) {
+                if distance <= max_distance
+                    && distance < closest_entity.map(|e| e.0).unwrap_or(f64::INFINITY)
+                {
+                    closest_entity = Some((distance, *id));
+                }
+            }
+        }*/
+        let entity_hit_position = match &closest_entity {
+            Some((distance, _)) => {
+                let mut entity_hit_position = start_position;
+                entity_hit_position.x += direction.x * distance;
+                entity_hit_position.y += direction.y * distance;
+                entity_hit_position.z += direction.z * distance;
+                Some(entity_hit_position.to_block_pos())
+            }
+            None => None,
+        };
+        let mut output = None;
+        voxel_tile_raycast::voxel_raycast(
+            voxel_tile_raycast::na::Vector3::new(
+                start_position.x,
+                start_position.y,
+                start_position.z,
+            ),
+            voxel_tile_raycast::na::Vector3::new(direction.x, direction.y, direction.z),
+            closest_entity
+                .as_ref()
+                .map(|entity| entity.0)
+                .unwrap_or(max_distance),
+            |index, _hit_pos, hit_normal| {
+                let block_position = BlockPosition {
+                    x: index.x,
+                    y: index.y,
+                    z: index.z,
+                };
+                if *bool::from_variant(
+                    &predicate
+                        .call(
+                            vec![BlockLocation {
+                                world: self.ptr(),
+                                position: block_position,
+                            }
+                            .into_variant()],
+                            &self.server.script_environment,
+                            &FilePosition::INVALID,
+                        )
+                        .unwrap(),
+                )
+                .unwrap()
+                {
+                    output = Some((
+                        block_position,
+                        Face::all()
+                            .iter()
+                            .find(|face| {
+                                let offset = face.get_offset();
+                                offset.x == hit_normal.x
+                                    && offset.y == hit_normal.y
+                                    && offset.z == hit_normal.z
+                            })
+                            .cloned()
+                            .unwrap_or(Face::Up),
+                    ));
+                    true
+                } else {
+                    false
+                }
+            },
+        );
+        let mut result = RaycastResult::Miss;
+        if let Some(block) = output {
+            result = RaycastResult::Block(block.0, block.1);
+        } else {
+            if let Some(entity) = closest_entity {
+                result = RaycastResult::Entity(entity.1);
+            }
+        }
+
+        result
+    }
     pub fn ptr(&self) -> Arc<World> {
         self.this.upgrade().unwrap()
     }
@@ -330,6 +438,11 @@ impl World {
             chunk.1.destroy();
         }
     }
+}
+pub enum RaycastResult {
+    Miss,
+    Block(BlockPosition, Face),
+    Entity(Arc<Entity>),
 }
 impl ScriptingObject for World {
     fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
@@ -644,14 +757,15 @@ impl Chunk {
             .block_registry
             .state_by_ref(previous_block.get_block_state())
             .parent;
-        let _ = previous_block
+        previous_block
             .static_data
             .get_function("on_destroy")
             .call_function(
                 &self.world.server.script_environment,
                 Some(block_location.clone().into_variant()),
                 vec![data.clone()],
-            );
+            )
+            .unwrap();
         let new_block = &self.world.server.block_registry.state_by_ref(block).parent;
         let block = block.create_block_data(&self.this.upgrade().unwrap(), block_position);
         if self.loading_stage.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
@@ -667,11 +781,15 @@ impl Chunk {
             BlockData::Data(data) => Some(data.clone()),
         };
         self.blocks.lock()[offset_x as usize][offset_y as usize][offset_z as usize] = block;
-        let _ = new_block.static_data.get_function("on_set").call_function(
-            &self.world.server.script_environment,
-            Some(block_location.into_variant()),
-            vec![data],
-        );
+        new_block
+            .static_data
+            .get_function("on_set")
+            .call_function(
+                &self.world.server.script_environment,
+                Some(block_location.into_variant()),
+                vec![data],
+            )
+            .unwrap();
         if let Some(new_block_data) = new_block_data {
             new_block_data.update_to_clients();
         }
@@ -794,11 +912,16 @@ impl Chunk {
                     entity.tick();
                 }
                 for block in blocks {
-                    let _ = block.0.static_data.get_function("on_tick").call_function(
-                        &chunk.world.server.script_environment,
-                        Some(block.1.into_variant()),
-                        vec![],
-                    );
+                    block
+                        .0
+                        .static_data
+                        .get_function("on_tick")
+                        .call_function(
+                            &chunk.world.server.script_environment,
+                            Some(block.1.into_variant()),
+                            vec![],
+                        )
+                        .unwrap();
                 }
                 for block_update in block_updates {
                     let state = chunk.world.server.block_registry.state_by_ref(
@@ -1605,15 +1728,15 @@ impl Entity {
         {
             *self.teleport.lock() = None;
         }
-        let _ = self
-            .entity_type
+        self.entity_type
             .static_data
             .get_function("on_tick")
             .call_function(
                 &self.server.script_environment,
                 None,
                 vec![self.this.upgrade().unwrap().into_variant()],
-            );
+            )
+            .unwrap();
 
         if let Some(player) = self.get_player() {
             let messages = player.connection.lock().receive_messages();
@@ -1624,7 +1747,7 @@ impl Entity {
                         keyboard_event.insert("key".into(), key.into_variant());
                         keyboard_event.insert("pressed".into(), pressed.into_variant());
                         keyboard_event.insert("player".into(), player.ptr().into_variant());
-                        let _ = self.server.call_event(
+                        self.server.call_event(
                             Identifier::new("bb", "keyboard"),
                             Arc::new(Mutex::new(keyboard_event)).into_variant(),
                         );
@@ -1761,7 +1884,7 @@ impl Entity {
                             block_position,
                             BlockStateRef::AIR,
                             true,
-                            self.get_player().into_variant(),
+                            self.get_player().unwrap().into_variant(),
                         );
                     }
                     NetworkMessageC2S::RightClickBlock(block_position, face, shifting) => {
@@ -1914,20 +2037,27 @@ impl Entity {
             )),
         );
     }
-    pub fn on_attack(&self, _player: &Entity) {}
+    pub fn on_attack(&self, player: &Entity) {
+        self.entity_type
+            .static_data
+            .get_function("on_attack")
+            .call_function(
+                &self.server.script_environment,
+                Some(self.ptr().into_variant()),
+                vec![player.ptr().into_variant()],
+            )
+            .unwrap();
+    }
     pub fn on_right_click(&self, player: &Entity) {
-        if self.entity_type.client_data.model == "bb:item" {
-            let inventory_view = self.inventory.get_full_view();
-            let item_stack = inventory_view.get_item(0).unwrap();
-            let overflow = match item_stack {
-                Some(item_stack) => player.inventory.get_full_view().add_item(&item_stack),
-                None => None,
-            };
-            if overflow.is_none() {
-                self.remove();
-            }
-            inventory_view.set_item(0, overflow).unwrap();
-        }
+        self.entity_type
+            .static_data
+            .get_function("on_right_click")
+            .call_function(
+                &self.server.script_environment,
+                Some(self.ptr().into_variant()),
+                vec![player.ptr().into_variant()],
+            )
+            .unwrap();
     }
     pub fn get_hand_item(&self) -> Option<ItemStack> {
         let inventory = self.inventory.get_full_view();
@@ -1989,25 +2119,29 @@ impl ScriptingObject for Entity {
                 },
             );
         }
+        env.register_member("inventory", |entity: &Arc<Entity>| {
+            Some(InventoryWrapper::Entity(entity.ptr()))
+        });
+        env.register_member("user_data", |entity: &Arc<Entity>| {
+            Some(UserDataWrapper::Entity(entity.ptr()))
+        });
+        env.register_member("location", |entity: &Arc<Entity>| {
+            Some(Location::from(&entity.get_location()))
+        });
+        env.register_member("shifting", |entity: &Arc<Entity>| {
+            Some(entity.is_shifting())
+        });
+        env.register_method("remove", |entity: &Arc<Entity>| {
+            entity.remove();
+            Ok(())
+        });
         /*
-        engine.register_fn("is_shifting", |entity: &mut Arc<Entity>| {
-            entity.is_shifting()
-        });
-        engine.register_fn("get_location", |entity: &mut Arc<Entity>| {
-            Into::<Location>::into(&entity.get_location())
-        });
         engine.register_fn(
             "teleport",
             |entity: &mut Arc<Entity>, location: Location| {
                 entity.teleport(&location, None);
             },
         );
-        engine.register_get("user_data", |entity: &mut Arc<Entity>| {
-            UserDataWrapper::Entity(entity.ptr())
-        });
-        engine.register_get("inventory", |entity: &mut Arc<Entity>| {
-            InventoryWrapper::Entity(entity.ptr())
-        });
         engine.register_fn("get_hand_item", |entity: &mut Arc<Entity>| {
             entity
                 .get_hand_item()

@@ -1,6 +1,7 @@
 {
   "abstract": true,
   "on_left_click": "@core::simple_block::block_left_click",
+  "on_destroy": "@core::simple_block::on_destroy",
   "item": {
     "stack_size": 20,
     "on_right_click_block": "@core::simple_block::item_right_click"

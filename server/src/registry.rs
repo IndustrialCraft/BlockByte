@@ -516,15 +516,15 @@ impl BlockState {
         }
     }
     pub fn on_block_update(&self, location: ChunkBlockLocation) {
-        let _ = self
-            .parent
+        self.parent
             .static_data
             .get_function("on_neighbor_update")
             .call_function(
                 &location.chunk.world.server.script_environment,
                 Some(Into::<BlockLocation>::into(&location).into_variant()),
                 vec![],
-            );
+            )
+            .unwrap();
     }
     pub fn with_property(&self, property: &str, value: Variant) -> Result<BlockStateRef, ()> {
         self.parent
@@ -599,6 +599,22 @@ impl ScriptingObject for BlockState {
                         .unwrap()
                         .block_registry
                         .state_by_ref(*state)
+                        .to_string()
+                        .as_str(),
+                ))
+            });
+        }
+        {
+            let server = server.clone();
+            env.register_method("get_block_id", move |state: &BlockStateRef| {
+                Ok(Variant::from_str(
+                    server
+                        .upgrade()
+                        .unwrap()
+                        .block_registry
+                        .state_by_ref(*state)
+                        .parent
+                        .id
                         .to_string()
                         .as_str(),
                 ))

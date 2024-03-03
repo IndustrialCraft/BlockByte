@@ -19,6 +19,14 @@
     {
       "id": "overworld:tree",
       "chance": 0.03
+    },
+    {
+      "id": "overworld:gravel_patch",
+      "chance": 0.001
+    },
+    {
+      "id": "overworld:stone_patch",
+      "chance": 0.001
     }
   ],
   "height": [
