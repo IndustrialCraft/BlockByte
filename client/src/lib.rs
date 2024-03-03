@@ -11,7 +11,9 @@ mod texture;
 
 use array_init::array_init;
 use block_byte_common::messages::{ClientModelTarget, NetworkMessageC2S, NetworkMessageS2C};
-use block_byte_common::{BlockPosition, Face, KeyboardKey, KeyboardModifier, Position, AABB};
+use block_byte_common::{
+    BlockPosition, Direction, Face, KeyboardKey, KeyboardModifier, Position, AABB,
+};
 use cgmath::Point3;
 use std::collections::{HashMap, HashSet};
 use std::env::args;
@@ -400,7 +402,10 @@ pub async fn run() {
                         z: camera.position.z as f64,
                     },
                     camera.is_shifting(),
-                    camera.yaw_deg,
+                    Direction {
+                        pitch: camera.pitch_deg.to_radians() as f64,
+                        yaw: camera.yaw_deg.to_radians() as f64,
+                    },
                     camera.last_moved,
                 ));
             }
@@ -499,7 +504,8 @@ pub async fn run() {
                     NetworkMessageS2C::TeleportPlayer(position, rotation) => {
                         camera.position =
                             Point3::new(position.x as f32, position.y as f32, position.z as f32);
-                        camera.pitch_deg = rotation;
+                        camera.pitch_deg = rotation.pitch as f32;
+                        camera.yaw_deg = rotation.yaw as f32;
                         first_teleport = true;
                     }
                     NetworkMessageS2C::ModelAnimation(target, animation) => {

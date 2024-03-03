@@ -11,10 +11,10 @@ use std::ops;
 use std::ops::Neg;
 use strum_macros::{Display, EnumIter};
 
-#[derive(Copy, Clone, Serialize, Deserialize)]
+#[derive(Copy, Clone, Serialize, Deserialize, Default)]
 pub struct Direction {
-    pitch: f64,
-    yaw: f64,
+    pub pitch: f64,
+    pub yaw: f64,
 }
 impl Direction {
     pub fn to_vector(self) -> Position {

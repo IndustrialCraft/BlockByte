@@ -1,5 +1,5 @@
 use crate::gui::{GUIElement, GUIElementEdit};
-use crate::{BlockPosition, ChunkPosition, Face, KeyboardKey, Position};
+use crate::{BlockPosition, ChunkPosition, Direction, Face, KeyboardKey, Position};
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumIter};
 
@@ -9,8 +9,8 @@ pub enum NetworkMessageS2C {
     SetBlock(BlockPosition, u32),
     LoadChunk(ChunkPosition, Vec<u32>, Vec<u8>),
     UnloadChunk(ChunkPosition),
-    AddEntity(u32, u32, Position, f32, u32, f32),
-    MoveEntity(u32, Position, f32),
+    AddEntity(u32, u32, Position, Direction, u32, f32),
+    MoveEntity(u32, Position, Direction),
     DeleteEntity(u32),
     GuiSetElement(String, GUIElement),
     GuiRemoveElements(String),
@@ -22,7 +22,7 @@ pub enum NetworkMessageS2C {
     PlaySound(String, Position, f32, f32, bool),
     ChatMessage(String),
     PlayerAbilities(f32, MovementType),
-    TeleportPlayer(Position, f32),
+    TeleportPlayer(Position, Direction),
     ModelItem(ClientModelTarget, u32, Option<u32>),
     ModelAnimation(ClientModelTarget, u32),
     ControllingEntity(u32),
@@ -43,7 +43,7 @@ pub enum MovementType {
 pub enum NetworkMessageC2S {
     BreakBlock(BlockPosition),
     RightClickBlock(BlockPosition, Face, bool),
-    PlayerPosition(Position, bool, f32, bool),
+    PlayerPosition(Position, bool, Direction, bool),
     MouseScroll(i32, i32),
     Keyboard(KeyboardKey, u8, bool, bool),
     GuiClick(String, MouseButton, bool),

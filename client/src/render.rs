@@ -7,6 +7,7 @@ use crate::texture::GPUTexture;
 use block_byte_common::{Face, Position, TexCoords, Vec3, AABB};
 use cgmath::{Matrix4, SquareMatrix};
 use image::RgbaImage;
+use std::f64::consts::PI;
 use std::iter;
 use std::mem::size_of;
 use std::sync::atomic::AtomicBool;
@@ -584,7 +585,7 @@ impl RenderState {
                         },
                         &Vec3 {
                             x: 0.,
-                            y: (entity.rotation + 180.).to_radians(),
+                            y: (entity.rotation.yaw + PI) as f32,
                             z: 0.,
                         },
                         &Vec3::ZERO,

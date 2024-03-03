@@ -90,63 +90,6 @@ impl World {
         std::fs::create_dir_all(world.get_world_path()).unwrap();
         world
     }
-    pub fn drop_item_on_ground(
-        &self,
-        position: Position,
-        item: ItemStack,
-        rotation: Option<f32>,
-        velocity: Option<(f64, f64, f64)>,
-    ) {
-        let item_entity = Entity::new(
-            &Location {
-                world: self.ptr(),
-                position,
-            },
-            self.server
-                .entity_registry
-                .entity_by_identifier(&Identifier::new("bb", "item"))
-                .unwrap(),
-        );
-        item_entity
-            .inventory
-            .get_full_view()
-            .set_item(0, Some(item))
-            .unwrap();
-
-        if let Some(velocity) = velocity {
-            item_entity.apply_knockback(velocity.0, velocity.1, velocity.2);
-        }
-        if let Some(rotation) = rotation {
-            *item_entity.rotation_shifting.lock() = (rotation, false);
-        }
-    }
-    pub fn scatter_items(&self, position: Position, items: Vec<ItemStack>, one_by_one: bool) {
-        for item in items {
-            for _ in 0..item.get_count() {
-                let rotation: f32 = thread_rng().gen_range((0.)..(360.));
-                let rotation_radians = rotation.to_radians();
-                let vertical_strength = 0.4;
-                let horizontal_strength = 0.2;
-                self.drop_item_on_ground(
-                    position,
-                    if one_by_one {
-                        item.copy(1)
-                    } else {
-                        item.clone()
-                    },
-                    Some(rotation),
-                    Some((
-                        rotation_radians.sin() as f64 * horizontal_strength,
-                        vertical_strength,
-                        rotation_radians.cos() as f64 * horizontal_strength,
-                    )),
-                );
-                if !one_by_one {
-                    break;
-                }
-            }
-        }
-    }
     pub fn get_world_path(&self) -> PathBuf {
         let mut path = self.server.save_directory.clone();
         path.push("worlds");
@@ -1043,7 +986,7 @@ pub struct BlockSaveData {
 #[derive(Serialize, Deserialize)]
 pub struct EntitySaveData {
     position: Position,
-    rotation: f32,
+    rotation: Direction,
     entity_type: Identifier,
     inventory: InventorySaveData,
     velocity: (f64, f64, f64),
@@ -1234,7 +1177,8 @@ impl PlayerData {
             Some(id)
         } else {
             if let Some(inventory_hand) = &*self.hand_item.lock() {
-                self.get_entity().throw_item(inventory_hand.clone());
+                //todo: drop item
+                //self.get_entity().throw_item(inventory_hand.clone());
             }
             self.set_inventory_hand(None);
             Inventory::set_cursor(self, &None);
@@ -1424,7 +1368,7 @@ impl ScriptingObject for PlayerData {
 pub struct Entity {
     this: Weak<Self>,
     location: Mutex<ChunkLocation>,
-    pub rotation_shifting: Mutex<(f32, bool)>,
+    pub rotation_shifting: Mutex<(Direction, bool)>,
     teleport: Mutex<Option<ChunkLocation>>,
     pub entity_type: Arc<EntityType>,
     removed: AtomicBool,
@@ -1455,7 +1399,7 @@ impl Entity {
             client_id: ENTITY_CLIENT_ID_GENERATOR.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
             id: Uuid::new_v4(),
             teleport: Mutex::new(None),
-            rotation_shifting: Mutex::new((0., false)),
+            rotation_shifting: Mutex::new((Direction::default(), false)),
             animation_controller: Mutex::new(AnimationController::new(weak.clone(), 1)),
             inventory: Inventory::new(WeakInventoryWrapper::Entity(weak.clone()), 18, None),
             velocity: Mutex::new((0., 0., 0.)),
@@ -1477,7 +1421,7 @@ impl Entity {
     pub fn set_player(&self, player: Arc<PlayerData>) {
         player.send_message(&NetworkMessageS2C::TeleportPlayer(
             self.get_location().position,
-            0.,
+            Direction::default(),
         ));
         player.send_message(&NetworkMessageS2C::ControllingEntity(
             self.entity_type.client_id,
@@ -1542,7 +1486,7 @@ impl Entity {
             d: self.entity_type.client_data.hitbox_d,
         }
     }
-    pub fn get_rotation(&self) -> f32 {
+    pub fn get_rotation(&self) -> Direction {
         self.rotation_shifting.lock().0
     }
     pub fn is_shifting(&self) -> bool {
@@ -1585,7 +1529,7 @@ impl Entity {
     pub fn teleport<T: Into<ChunkLocation>>(
         &self,
         location: T,
-        rotation_shifting: Option<(f32, bool)>,
+        rotation_shifting: Option<(Direction, bool)>,
     ) {
         let location: ChunkLocation = location.into();
         let position = location.position.clone();
@@ -1595,14 +1539,14 @@ impl Entity {
                 position,
                 rotation_shifting
                     .map(|rotation_shifting| rotation_shifting.0)
-                    .unwrap_or(f32::NAN),
+                    .unwrap_or(Direction::default()),
             ));
         }
     }
     pub fn move_to<T: Into<ChunkLocation>>(
         &self,
         location: T,
-        rotation_shifting: Option<(f32, bool)>,
+        rotation_shifting: Option<(Direction, bool)>,
     ) {
         {
             *self.teleport.lock() = Some(location.into());
@@ -1752,30 +1696,6 @@ impl Entity {
                             Arc::new(Mutex::new(keyboard_event)).into_variant(),
                         );
                         match key {
-                            KeyboardKey::Q => {
-                                if pressed {
-                                    let slot = { *self.slot.lock() };
-                                    self.inventory
-                                        .get_full_view()
-                                        .modify_item(slot, |item| {
-                                            let item = item.as_mut();
-                                            if let Some(item) = item {
-                                                let count = if key_mod & KeyboardModifier::CTRL != 0
-                                                {
-                                                    item.get_count()
-                                                } else {
-                                                    1
-                                                };
-                                                let item_stack = item.copy(count);
-
-                                                item.add_count(-(count as i32));
-
-                                                self.throw_item(item_stack);
-                                            }
-                                        })
-                                        .unwrap();
-                                }
-                            }
                             KeyboardKey::Escape => {
                                 player.set_open_inventory(None);
                             }
@@ -2021,22 +1941,6 @@ impl Entity {
             }
         }
     }
-    pub fn throw_item(&self, item: ItemStack) {
-        let mut location = self.get_location();
-        location.position.y += 1.7;
-        let rotation = { *self.rotation_shifting.lock() };
-        let rotation_radians = rotation.0.to_radians();
-        location.chunk.world.drop_item_on_ground(
-            location.position,
-            item,
-            Some(rotation.0),
-            Some((
-                rotation_radians.sin() as f64,
-                0.,
-                rotation_radians.cos() as f64,
-            )),
-        );
-    }
     pub fn on_attack(&self, player: &Entity) {
         self.entity_type
             .static_data
@@ -2095,6 +1999,9 @@ impl Entity {
             }
         }
     }
+    pub fn get_direction(&self) -> Direction {
+        self.rotation_shifting.lock().0
+    }
     pub fn ptr(&self) -> Arc<Entity> {
         self.this.upgrade().unwrap()
     }
@@ -2131,8 +2038,15 @@ impl ScriptingObject for Entity {
         env.register_member("shifting", |entity: &Arc<Entity>| {
             Some(entity.is_shifting())
         });
+        env.register_member("direction", |entity: &Arc<Entity>| {
+            Some(entity.get_direction())
+        });
         env.register_method("remove", |entity: &Arc<Entity>| {
             entity.remove();
+            Ok(())
+        });
+        env.register_method("knockback", |entity: &Arc<Entity>, position: &Position| {
+            entity.apply_knockback(position.x, position.y, position.z);
             Ok(())
         });
         /*

@@ -3,7 +3,9 @@ use crate::game::RaycastResult::{Block, Entity};
 use crate::model::{ModelInstanceData, TransformationExt};
 use crate::render::{ChunkVertex, FaceVerticesExtension};
 use block_byte_common::messages::MovementType;
-use block_byte_common::{BlockPosition, ChunkPosition, Face, FaceStorage, Position, Vec3, AABB};
+use block_byte_common::{
+    BlockPosition, ChunkPosition, Direction, Face, FaceStorage, Position, Vec3, AABB,
+};
 use cgmath::{point3, ElementWise, InnerSpace, Matrix4, Point3, Vector3};
 use log::warn;
 use std::collections::{HashMap, HashSet};
@@ -710,6 +712,6 @@ pub enum RaycastResult {
 pub struct EntityData {
     pub type_id: u32,
     pub position: Position,
-    pub rotation: f32,
+    pub rotation: Direction,
     pub model_instance: ModelInstanceData,
 }
