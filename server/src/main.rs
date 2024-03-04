@@ -47,7 +47,6 @@ use block_byte_common::Position;
 use crossbeam_channel::Receiver;
 use fxhash::FxHashMap;
 use immutable_string::ImmutableString;
-use inventory::LootTable;
 use json::{object, JsonValue};
 use mods::ModManager;
 use net::PlayerConnection;
@@ -129,7 +128,6 @@ pub struct Server {
     script_environment: ExecutionEnvironment,
     save_directory: PathBuf,
     settings: ServerSettings,
-    loot_tables: HashMap<Identifier, Arc<LootTable>>,
     players: Mutex<Vec<Arc<PlayerData>>>,
     gui_layouts: HashMap<Identifier, Arc<GUILayout>>,
     tags: HashMap<Identifier, Arc<IdentifierTag>>,
@@ -152,7 +150,6 @@ impl Server {
         let mut structures = HashMap::new();
         let mut events = EventManager::new();
         let mut recipes = HashMap::new();
-        let mut loot_tables = HashMap::new();
         let mut gui_layouts = HashMap::new();
         let mut tags = HashMap::new();
 
@@ -330,15 +327,6 @@ impl Server {
             }
             ContentType::Binary(_) => {}
         });
-        mod_manager.load_resource_type("loot_tables", |id, content| match content {
-            ContentType::Json(json) => {
-                loot_tables.insert(
-                    id,
-                    Arc::new(LootTable::from_json(json, &item_registry, &engine)),
-                );
-            }
-            ContentType::Binary(_) => {}
-        });
         mod_manager.load_resource_type("gui", |id, content| match content {
             ContentType::Json(json) => {
                 gui_layouts.insert(id, Arc::new(GUILayout::from_json(json, &engine)));
@@ -440,7 +428,6 @@ impl Server {
                 }
             },
             save_directory,
-            loot_tables,
             players: Mutex::new(Vec::new()),
             gui_layouts,
             tags,

@@ -7,7 +7,9 @@ use bbscript::variant::{
 use block_byte_common::content::Transformation;
 use block_byte_common::gui::PositionAnchor;
 use block_byte_common::messages::MovementType;
-use block_byte_common::{BlockPosition, Color, Face, HorizontalFace, KeyboardKey, Position};
+use block_byte_common::{
+    BlockPosition, Color, Direction, Face, HorizontalFace, KeyboardKey, Position,
+};
 use hex_color::HexColor;
 use image::io::Reader;
 use image::{ImageOutputFormat, Rgba, RgbaImage};
@@ -28,7 +30,7 @@ use strum::IntoEnumIterator;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-use crate::inventory::{InventoryWrapper, ItemStack, LootTable, ModGuiViewer, OwnedInventoryView};
+use crate::inventory::{InventoryWrapper, ItemStack, ModGuiViewer, OwnedInventoryView};
 use crate::registry::{BlockState, BlockStateRef, InteractionResult};
 use crate::util::BlockLocation;
 use crate::world::{BlockNetwork, PlayerData, UserData, World, WorldBlock};
@@ -339,7 +341,7 @@ impl ModManager {
         Self::load_scripting_object::<Server>(env, &server);
         Self::load_scripting_object::<OwnedInventoryView>(env, &server);
         Self::load_scripting_object::<BlockNetwork>(env, &server);
-        Self::load_scripting_object::<LootTable>(env, &server);
+        Self::load_scripting_object::<Direction>(env, &server);
     }
     fn load_scripting_object<T>(env: &mut ExecutionEnvironment, server: &Weak<Server>)
     where
@@ -361,6 +363,25 @@ impl ModManager {
 }
 pub trait ScriptingObject {
     fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>);
+}
+impl ScriptingObject for Direction {
+    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+        env.register_custom_name::<Direction, _>("Direction");
+        env.register_function("Direction", |pitch: &f64, yaw: &f64| {
+            Ok(Direction {
+                pitch: *pitch,
+                yaw: *yaw,
+            })
+        });
+        env.register_member("pitch", |direction: &Direction| Some(direction.pitch));
+        env.register_member("yaw", |direction: &Direction| Some(direction.yaw));
+        env.register_method("operator+", |first: &Direction, other: &Direction| {
+            Ok(Direction {
+                pitch: first.pitch + other.pitch,
+                yaw: first.yaw + other.yaw,
+            })
+        });
+    }
 }
 impl ScriptingObject for Position {
     fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {

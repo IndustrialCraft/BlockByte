@@ -10,11 +10,6 @@ fn item_right_click(player,position,face){
 fn on_destroy(data){
     if type_of(data) == "Player"{
         let block_id = this.get_block().get_block_id();
-        let loot_table = LootTable(block_id);
-        if is_null(loot_table){
-            core::item_entity::spawn(this.get_location(), ItemStack(block_id, 1));
-        } else {
-
-        }
+        core::item_entity::spawn(this.get_location(), ItemStack(block_id, 1));
     }
 }
