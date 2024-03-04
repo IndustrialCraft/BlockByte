@@ -12,5 +12,6 @@
   "item_model_mapping": {
     "0": 0
   },
-  "on_right_click": "@core::item_entity::on_right_click"
+  "on_right_click": "@core::item_entity::on_right_click",
+  "inventory_size": 1
 }

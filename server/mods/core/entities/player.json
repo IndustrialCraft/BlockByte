@@ -8,5 +8,6 @@
     "hitbox_h_shifting": 1.5,
     "animations": [],
     "items": ["main_hand"]
-  }
+  },
+  "inventory_size": 18
 }

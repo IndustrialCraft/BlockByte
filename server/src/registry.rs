@@ -768,6 +768,7 @@ pub struct EntityType {
     pub client_data: ClientEntityData,
     pub item_model_mapping: ItemModelMapping,
     pub static_data: StaticData,
+    pub inventory_size: u32,
 }
 
 pub struct ClientContentGenerator {}

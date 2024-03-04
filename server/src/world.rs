@@ -426,19 +426,6 @@ impl PartialEq for World {
     }
 }
 
-pub struct BlockBreakParameters {
-    pub player: Option<Arc<Entity>>,
-    pub item: Option<ItemStack>,
-}
-impl BlockBreakParameters {
-    pub fn from_entity(entity: &Entity) -> Self {
-        BlockBreakParameters {
-            player: Some(entity.ptr()),
-            item: entity.get_hand_item(),
-        }
-    }
-}
-
 #[derive(Clone)]
 pub enum BlockData {
     Simple(u32),
@@ -1401,7 +1388,11 @@ impl Entity {
             teleport: Mutex::new(None),
             rotation_shifting: Mutex::new((Direction::default(), false)),
             animation_controller: Mutex::new(AnimationController::new(weak.clone(), 1)),
-            inventory: Inventory::new(WeakInventoryWrapper::Entity(weak.clone()), 18, None),
+            inventory: Inventory::new(
+                WeakInventoryWrapper::Entity(weak.clone()),
+                entity_type.inventory_size,
+                None,
+            ),
             velocity: Mutex::new((0., 0., 0.)),
             user_data: Mutex::new(UserData::new()),
             slot: Mutex::new(0),
@@ -1965,7 +1956,7 @@ impl Entity {
     }
     pub fn get_hand_item(&self) -> Option<ItemStack> {
         let inventory = self.inventory.get_full_view();
-        inventory.get_item(*self.slot.lock()).unwrap()
+        inventory.get_item(*self.slot.lock()).ok().flatten()
     }
     pub fn remove(&self) {
         self.removed
@@ -2045,23 +2036,30 @@ impl ScriptingObject for Entity {
             entity.remove();
             Ok(())
         });
+        env.register_member("removed", |entity: &Arc<Entity>| Some(entity.is_removed()));
         env.register_method("knockback", |entity: &Arc<Entity>, position: &Position| {
             entity.apply_knockback(position.x, position.y, position.z);
             Ok(())
         });
-        /*
-        engine.register_fn(
-            "teleport",
-            |entity: &mut Arc<Entity>, location: Location| {
-                entity.teleport(&location, None);
+        env.register_method("teleport", |entity: &Arc<Entity>, location: &Location| {
+            entity.teleport(location, None);
+            Ok(())
+        });
+        env.register_method(
+            "teleport_rotate",
+            |entity: &Arc<Entity>, location: &Location, rotation: &Direction| {
+                entity.teleport(location, Some((*rotation, false)));
+                Ok(())
             },
         );
-        engine.register_fn("get_hand_item", |entity: &mut Arc<Entity>| {
-            entity
-                .get_hand_item()
-                .map(|item| Dynamic::from(item))
-                .unwrap_or(Dynamic::UNIT)
-        });*/
+        env.register_method("set_slot", |entity: &Arc<Entity>, slot: &i64| {
+            entity.set_hand_slot(*slot as u32);
+            Ok(())
+        });
+        env.register_member("slot", |entity: &Arc<Entity>| Some(*entity.slot.lock()));
+        env.register_member("hand_item", |entity: &Arc<Entity>| {
+            Some(Variant::from_option(entity.get_hand_item()))
+        });
     }
 }
 impl Animatable for Entity {

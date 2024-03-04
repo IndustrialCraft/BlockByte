@@ -289,6 +289,7 @@ impl Server {
                     }
                     item_model_mapping
                 };
+                let inventory_size = json.remove("inventory_size").as_u32().unwrap_or(0);
                 let static_data = static_data_from_json(json);
                 entity_registry
                     .register(id.clone(), move |client_id| {
@@ -300,6 +301,7 @@ impl Server {
                                 mapping: item_model_mapping,
                             },
                             static_data,
+                            inventory_size,
                         })
                     })
                     .unwrap();
