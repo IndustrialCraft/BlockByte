@@ -7,122 +7,84 @@ use array_init::array_init;
 use block_byte_common::BlockPosition;
 use json::JsonValue;
 use moka::sync::Cache;
-use noise::{Fbm, NoiseFn, OpenSimplex};
+use noise::{Fbm, NoiseFn, OpenSimplex, Seedable};
 use parking_lot::Mutex;
 use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
 use std::sync::Arc;
 use thread_local::ThreadLocal;
 
-pub trait WorldGenerator {
-    fn generate(&self, chunk: &Arc<Chunk>) -> [[[BlockData; 16]; 16]; 16];
+pub struct WorldGeneratorType {
+    land: NoiseConfig,
+    terrain: NoiseConfig,
+    temperature: NoiseConfig,
+    moisture: NoiseConfig,
+    biomes: Vec<Biome>,
 }
-pub struct FlatWorldGenerator {
-    pub height: i32,
-    pub simple_id: u32,
-}
-impl WorldGenerator for FlatWorldGenerator {
-    fn generate(&self, chunk: &Arc<Chunk>) -> [[[BlockData; 16]; 16]; 16] {
-        array_init(|_| {
-            array_init(|i| {
-                array_init(|_| {
-                    BlockData::Simple(if i as i32 + chunk.position.y * 16 < self.height {
-                        self.simple_id
-                    } else {
-                        0
-                    })
-                })
-            })
+impl WorldGeneratorType {
+    pub fn new(biomes: Vec<Biome>) -> Arc<WorldGeneratorType> {
+        Arc::new(Self {
+            land: NoiseConfig::new(4561561, 5000., Spline::new(vec![])),
+            terrain: NoiseConfig::new(
+                24245,
+                500.,
+                Spline::new(vec![SplinePoint::new(-1., 0.), SplinePoint::new(1., 100.)]),
+            ),
+            temperature: NoiseConfig::new(
+                15618236,
+                1000.,
+                Spline::new(vec![SplinePoint::new(-1., 0.), SplinePoint::new(1., 100.)]),
+            ),
+            moisture: NoiseConfig::new(
+                7489223,
+                1000.,
+                Spline::new(vec![SplinePoint::new(-1., 0.), SplinePoint::new(1., 100.)]),
+            ),
+            biomes,
         })
     }
+    /*pub fn from_json(json: JsonValue) -> Arc<WorldGeneratorType> {
+        WorldGeneratorType::new(json["biomes"].members().map(|biome| biome.as_str()))
+    }*/
 }
 
-pub struct BasicWorldGenerator {
+pub struct WorldGenerator {
     seed: u64,
-    land_noise: NoiseWithSize,
-    land_height_spline: Spline,
-    land_small_terrain_spline: Spline,
-    small_terrain_noise: NoiseWithSize,
-    small_terrain_spline: Spline,
-    mountain_noise: NoiseWithSize,
-    mountain_spline: Spline,
-    land_mountain_spline: Spline,
-    temperature_noise: NoiseWithSize,
-    moisture_noise: NoiseWithSize,
-    biomes: Vec<Biome>,
+    generator_type: Arc<WorldGeneratorType>,
     column_cache: ThreadLocal<Cache<(i32, i32), [[(i32, usize); 16]; 16]>>,
     column_cache_common: Mutex<Cache<(i32, i32), [[(i32, usize); 16]; 16]>>,
+    land: NoiseProvider,
+    terrain: NoiseProvider,
+    temperature: NoiseProvider,
+    moisture: NoiseProvider,
 }
-impl BasicWorldGenerator {
-    pub fn new(seed: u64, biomes: Vec<Biome>) -> Self {
+impl WorldGenerator {
+    pub fn new(seed: u64, generator_type: Arc<WorldGeneratorType>) -> Self {
         Self {
             seed,
-            land_noise: NoiseWithSize::new((seed * 4561561) as u32, 5000.),
-            land_height_spline: Spline::new(vec![
-                SplinePoint::new(-1., -100.),
-                SplinePoint::new(-0.05, -30.),
-                SplinePoint::new(-0.005, -10.),
-                SplinePoint::new(0.005, 0.),
-                SplinePoint::new(1., 0.),
-            ]),
-            land_small_terrain_spline: Spline::new(vec![
-                SplinePoint::new(-1., 1.),
-                SplinePoint::new(-0.05, 1.),
-                SplinePoint::new(-0.005, 0.),
-                SplinePoint::new(0.005, 0.),
-                SplinePoint::new(0.05, 1.),
-                SplinePoint::new(1., 1.),
-            ]),
-            small_terrain_noise: NoiseWithSize::new((seed * 24245) as u32, 80.),
-            small_terrain_spline: Spline::new(vec![
-                SplinePoint::new(-1., 0.),
-                SplinePoint::new(-0.2, 4.),
-                SplinePoint::new(1., 10.),
-            ]),
-            mountain_noise: NoiseWithSize::new((seed * 38468) as u32, 600.),
-            mountain_spline: Spline::new(vec![
-                SplinePoint::new(0.0, 0.),
-                SplinePoint::new(0.1, 25.),
-                SplinePoint::new(0.4, 25.),
-                SplinePoint::new(0.6, 100.),
-                SplinePoint::new(1., 300.),
-            ]),
-            land_mountain_spline: Spline::new(vec![
-                SplinePoint::new(0.005, 0.),
-                SplinePoint::new(0.01, 0.3),
-                SplinePoint::new(0.05, 1.),
-                SplinePoint::new(1., 1.),
-            ]),
-            temperature_noise: NoiseWithSize::new((seed * 15618236) as u32, 1000.),
-            moisture_noise: NoiseWithSize::new((seed * 7489223) as u32, 1000.),
-            biomes,
             column_cache: ThreadLocal::new(),
             column_cache_common: Mutex::new(Cache::new(2048)),
+            land: generator_type.land.instantiate(seed as u32),
+            terrain: generator_type.terrain.instantiate(seed as u32),
+            temperature: generator_type.temperature.instantiate(seed as u32),
+            moisture: generator_type.moisture.instantiate(seed as u32),
+            generator_type,
         }
     }
     pub fn get_terrain_height_at(&self, x: i32, z: i32) -> i32 {
         let x = x as f64;
         let z = z as f64;
-        (self.land_noise.get_splined(x, z, &self.land_height_spline)
-            + (self
-                .land_noise
-                .get_splined(x, z, &self.land_small_terrain_spline)
-                * self
-                    .small_terrain_noise
-                    .get_splined(x, z, &self.small_terrain_spline))
-            + (self
-                .land_noise
-                .get_splined(x, z, &self.land_mountain_spline)
-                * self.mountain_noise.get_splined(x, z, &self.mountain_spline))) as i32
+        self.terrain.get(x, z) as i32
     }
     pub fn get_biome_at(&self, x: i32, z: i32, height: i32) -> usize {
         let height = height as f64;
         let x = x as f64;
         let z = z as f64;
-        let land = self.land_noise.get(x, z);
-        let temperature = (self.temperature_noise.get(x, z) + 1.) / 2.;
-        let moisture = (self.moisture_noise.get(x, z) + 1.) / 2.;
+        let land = self.land.get(x, z);
+        let temperature = self.temperature.get(x, z);
+        let moisture = self.moisture.get(x, z);
         let biome = self
+            .generator_type
             .biomes
             .iter()
             .enumerate()
@@ -131,9 +93,7 @@ impl BasicWorldGenerator {
             .unwrap();
         biome.0
     }
-}
-impl WorldGenerator for BasicWorldGenerator {
-    fn generate(&self, chunk: &Arc<Chunk>) -> [[[BlockData; 16]; 16]; 16] {
+    pub fn generate(&self, chunk: &Arc<Chunk>) -> [[[BlockData; 16]; 16]; 16] {
         let position = chunk.position;
         let cache = self
             .column_cache
@@ -164,7 +124,7 @@ impl WorldGenerator for BasicWorldGenerator {
                 array_init(|z| {
                     let y = i as i32 + position.y * 16;
                     let (height, biome) = column_data[x][z];
-                    let biome = self.biomes.get(biome).unwrap();
+                    let biome = self.generator_type.biomes.get(biome).unwrap();
                     if i == 0 {
                         for (chance, structure) in biome.get_structures() {
                             if height / 16 == position.y && structure_rng.gen_bool(*chance) {
@@ -211,25 +171,36 @@ impl WorldGenerator for BasicWorldGenerator {
         })
     }
 }
-
-struct NoiseWithSize {
-    noise: Fbm<OpenSimplex>,
+struct NoiseConfig {
+    spline: Spline,
+    seed_shift: u32,
     size: f64,
 }
-impl NoiseWithSize {
-    pub fn new(seed: u32, size: f64) -> Self {
+impl NoiseConfig {
+    pub fn new(seed_shift: u32, size: f64, spline: Spline) -> NoiseConfig {
         Self {
-            noise: Fbm::new(seed),
+            seed_shift,
             size,
+            spline,
         }
     }
-    pub fn get(&self, x: f64, z: f64) -> f64 {
-        self.noise.get([x / self.size, z / self.size])
+    pub fn instantiate(&self, seed: u32) -> NoiseProvider {
+        NoiseProvider {
+            size: self.size,
+            spline: self.spline.clone(),
+            noise: Fbm::new(seed ^ self.seed_shift),
+        }
     }
-    pub fn get_splined(&self, x: f64, z: f64, spline: &Spline) -> f64 {
-        spline
-            .sample(self.noise.get([x / self.size, z / self.size]))
-            .unwrap()
+}
+struct NoiseProvider {
+    noise: Fbm<OpenSimplex>,
+    size: f64,
+    spline: Spline,
+}
+impl NoiseProvider {
+    pub fn get(&self, x: f64, z: f64) -> f64 {
+        let noise = self.noise.get([x / self.size, z / self.size]);
+        self.spline.sample(noise).unwrap_or(noise)
     }
 }
 #[derive(Clone)]

@@ -1,0 +1,5 @@
+#bb:player_spawn_info
+fn(){
+    this.entity_type = "core:player";
+    this.location = Location(Position(0., 100., 0.), load_world("core:lobby", "overworld:overworld"));
+}

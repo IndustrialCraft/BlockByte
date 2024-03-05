@@ -61,7 +61,7 @@ pub struct World {
     this: Weak<Self>,
     chunks: Mutex<FxHashMap<ChunkPosition, Arc<Chunk>>>,
     unload_timer: RelaxedCounter,
-    world_generator: Box<dyn WorldGenerator + Send + Sync>,
+    world_generator: WorldGenerator,
     unloaded_structure_placements:
         Mutex<HashMap<ChunkPosition, Vec<(BlockPosition, Arc<Structure>)>>>,
     pub id: Identifier,
@@ -71,11 +71,7 @@ pub struct World {
 
 impl World {
     const UNLOAD_TIME: usize = 1000;
-    pub fn new(
-        server: Arc<Server>,
-        world_generator: Box<dyn WorldGenerator + Send + Sync>,
-        id: Identifier,
-    ) -> Arc<Self> {
+    pub fn new(server: Arc<Server>, world_generator: WorldGenerator, id: Identifier) -> Arc<Self> {
         let world = Arc::new_cyclic(|this| World {
             this: this.clone(),
             chunks: Mutex::new(FxHashMap::default()),
@@ -392,12 +388,15 @@ impl ScriptingObject for World {
         env.register_custom_name::<Arc<World>, _>("World");
         {
             let server = server.clone();
-            env.register_function("load_world", move |id: &ImmutableString| {
-                Ok(server
-                    .upgrade()
-                    .unwrap()
-                    .get_or_create_world(Identifier::parse(id.as_ref()).unwrap()))
-            });
+            env.register_function(
+                "load_world",
+                move |id: &ImmutableString, world_generator: &ImmutableString| {
+                    Ok(server.upgrade().unwrap().get_or_create_world(
+                        Identifier::parse(id.as_ref()).unwrap(),
+                        Identifier::parse(world_generator.as_ref()).unwrap(),
+                    ))
+                },
+            );
         }
         env.register_member("user_data", |world: &Arc<World>| {
             Some(UserDataWrapper::World(world.ptr()).into_variant())

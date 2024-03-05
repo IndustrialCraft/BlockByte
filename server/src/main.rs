@@ -38,6 +38,7 @@ use crate::mods::{
 };
 use crate::registry::{BlockStateProperty, BlockStatePropertyStorage, RecipeManager, StaticData};
 use crate::world::PlayerData;
+use crate::worldgen::{WorldGenerator, WorldGeneratorType};
 use bbscript::eval::ExecutionEnvironment;
 use bbscript::variant::{FromVariant, IntoVariant, Map, Variant};
 use block_byte_common::content::{
@@ -57,7 +58,7 @@ use registry::{
 use threadpool::ThreadPool;
 use util::{Identifier, Location};
 use world::{Entity, Structure, World};
-use worldgen::{BasicWorldGenerator, Biome};
+use worldgen::Biome;
 
 fn main() {
     let running = Arc::new(AtomicBool::new(true));
@@ -121,7 +122,6 @@ pub struct Server {
     mods: Mutex<ModManager>,
     client_content: (Vec<u8>, String),
     pub thread_pool: ThreadPool,
-    world_generator_template: (Vec<Biome>,),
     structures: HashMap<Identifier, Arc<Structure>>,
     recipes: RecipeManager,
     events: EventManager,
@@ -131,6 +131,7 @@ pub struct Server {
     players: Mutex<Vec<Arc<PlayerData>>>,
     gui_layouts: HashMap<Identifier, Arc<GUILayout>>,
     tags: HashMap<Identifier, Arc<IdentifierTag>>,
+    world_generators: HashMap<Identifier, Arc<WorldGeneratorType>>,
 }
 
 impl Server {
@@ -152,6 +153,7 @@ impl Server {
         let mut recipes = HashMap::new();
         let mut gui_layouts = HashMap::new();
         let mut tags = HashMap::new();
+        let mut world_generators = HashMap::new();
 
         let static_data_from_json = |json: JsonValue| StaticData {
             data: {
@@ -341,6 +343,13 @@ impl Server {
             }
             ContentType::Binary(_) => {}
         });
+        mod_manager.load_resource_type("world_generators", |id, content| match content {
+            ContentType::Json(json) => {
+                //world_generators.insert(id, WorldGeneratorType::from_json(json));
+                world_generators.insert(id, WorldGeneratorType::new(biomes.clone()));
+            }
+            ContentType::Binary(_) => {}
+        });
         mod_manager.load_resource_type("events", |_, content| match content {
             ContentType::Json(_) => {}
             ContentType::Binary(text) => {
@@ -408,7 +417,6 @@ impl Server {
             mods: Mutex::new(mod_manager),
             client_content,
             thread_pool: ThreadPool::new(4),
-            world_generator_template: (biomes,),
             block_registry,
             structures,
             recipes: RecipeManager::new(recipes),
@@ -433,6 +441,7 @@ impl Server {
             players: Mutex::new(Vec::new()),
             gui_layouts,
             tags,
+            world_generators,
         })
     }
     pub fn export_file(&self, filename: String, data: Vec<u8>) {
@@ -443,17 +452,21 @@ impl Server {
         };
         fs::write(path, data).unwrap();
     }
-    pub fn get_or_create_world(&self, identifier: Identifier) -> Arc<World> {
+    pub fn get_or_create_world(
+        &self,
+        identifier: Identifier,
+        world_generator: Identifier,
+    ) -> Arc<World> {
         let mut worlds = self.worlds.lock();
         if let Some(world) = worlds.get(&identifier) {
             return world.clone();
         }
         let world = World::new(
             self.this.upgrade().unwrap(),
-            Box::new(BasicWorldGenerator::new(
+            WorldGenerator::new(
                 1,
-                self.world_generator_template.0.clone(),
-            )),
+                self.world_generators.get(&world_generator).unwrap().clone(),
+            ),
             identifier.clone(),
         );
         worlds.insert(identifier, world.clone());
@@ -463,16 +476,6 @@ impl Server {
         let worlds = self.worlds.lock();
         worlds.get(&identifier).map(|world| world.clone())
     }
-    pub fn get_spawn_location(&self) -> Location {
-        Location {
-            position: Position {
-                x: 0.,
-                y: 0.,
-                z: 0.,
-            },
-            world: self.get_or_create_world(Identifier::new("bb", "lobby")),
-        }
-    }
     pub fn call_event(&self, id: Identifier, event_data: Variant) {
         self.events
             .call_event(id, event_data, &self.script_environment)
@@ -481,19 +484,30 @@ impl Server {
         while let Ok(connection) = self.new_players.lock().try_recv() {
             let player = {
                 let mut event_data: HashMap<ImmutableString, Variant> = HashMap::new();
-                event_data.insert("location".into(), self.get_spawn_location().into_variant());
                 let event_data = Arc::new(Mutex::new(event_data)).into_variant();
                 self.call_event(
-                    Identifier::new("bb", "resolve_spawn_location"),
+                    Identifier::new("bb", "player_spawn_info"),
                     event_data.clone(),
                 );
-                self.call_event(Identifier::new("bb", "player_join"), event_data.clone());
                 let event_data = Map::from_variant(&event_data).unwrap();
-                let entity = event_data
-                    .lock()
-                    .remove("entity")
-                    .and_then(|entity| Arc::<Entity>::from_variant(&entity).cloned())
-                    .expect("player entity not specified");
+                let entity_type = Identifier::parse(
+                    ImmutableString::from_variant(
+                        &event_data.lock().remove("entity_type").unwrap(),
+                    )
+                    .unwrap()
+                    .as_ref(),
+                )
+                .unwrap();
+                let location =
+                    Location::from_variant(&event_data.lock().remove("location").unwrap())
+                        .unwrap()
+                        .clone();
+                let entity = Entity::new(
+                    &location,
+                    self.entity_registry
+                        .entity_by_identifier(&entity_type)
+                        .unwrap(),
+                );
 
                 let player = PlayerData::new(connection, self.ptr(), entity);
                 self.players.lock().push(player.clone());
@@ -505,7 +519,7 @@ impl Server {
                 event_data.insert("player".into(), player.into_variant());
                 let event_data: Map = Arc::new(Mutex::new(event_data));
                 self.call_event(
-                    Identifier::new("bb", "post_player_join"),
+                    Identifier::new("bb", "player_join"),
                     event_data.into_variant(),
                 );
             }

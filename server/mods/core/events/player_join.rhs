@@ -1,4 +1,4 @@
 #bb:player_join
 fn(){
-    this.entity = Entity("core:player", this.get("location"));
+    this.player.user_data.set("core:creative", true);
 }
