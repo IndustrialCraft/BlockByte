@@ -1,8 +1,6 @@
 use crate::gui::TextRenderer;
 use crate::model::Model;
 use crate::texture::{pack_textures, TextureAtlas};
-use ambisonic::rodio::Source;
-use ambisonic::{Ambisonic, AmbisonicBuilder, StereoConfig};
 use block_byte_common::content::{
     ClientAnimatedTexture, ClientBlockData, ClientBlockRenderDataType, ClientContent,
     ClientEntityData, ClientItemData, ClientItemModel, ClientTexture, ModelData, Transformation,
@@ -440,22 +438,12 @@ impl Texture {
 }
 
 //todo: better audio
-pub struct SoundManager {
-    scene: Ambisonic,
-    //sources: HashMap<String, SamplesConverter<Decoder<Cursor<Vec<u8>>>, f32>>,
-    sources: HashMap<String, Sound>,
-}
+pub struct SoundManager {}
 impl SoundManager {
     pub fn new() -> Self {
-        let scene = AmbisonicBuilder::default().build();
-        SoundManager {
-            scene,
-            sources: HashMap::new(),
-        }
+        SoundManager {}
     }
-    pub fn load_sound(&mut self, id: String, data: Vec<u8>) {
-        self.sources.insert(id, Sound(Arc::new(data)));
-    }
+    pub fn load_sound(&mut self, id: String, data: Vec<u8>) {}
     pub fn play_sound(
         &mut self,
         id: &str,
@@ -464,22 +452,5 @@ impl SoundManager {
         pitch: f32,
         relative: bool,
     ) {
-        let controller = self.scene.play_at(
-            ambisonic::rodio::Decoder::new(self.sources.get(id).unwrap().cursor())
-                .unwrap()
-                .convert_samples(),
-            [position.x as f32, position.y as f32, position.z as f32],
-        );
-    }
-}
-pub struct Sound(Arc<Vec<u8>>);
-impl AsRef<[u8]> for Sound {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-impl Sound {
-    pub fn cursor(self: &Self) -> Cursor<Sound> {
-        Cursor::new(Sound(self.0.clone()))
     }
 }
