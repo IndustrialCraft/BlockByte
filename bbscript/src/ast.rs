@@ -119,8 +119,13 @@ pub fn parse_expression(tokens: &mut TokenReader) -> Result<Option<Expression>, 
     }
     {
         let position = tokens.get_position();
-        if let Some(function) = parse_function(tokens)? && left_side.is_none(){
-            left_side = Some(Expression::FunctionLiteral {position,function: Arc::new(function)});
+        if let Some(function) = parse_function(tokens)? {
+            if left_side.is_none() {
+                left_side = Some(Expression::FunctionLiteral {
+                    position,
+                    function: Arc::new(function),
+                });
+            }
         }
     }
     loop {

@@ -193,8 +193,7 @@ impl Debug for TokenReader {
             self.tokens
                 .iter()
                 .rev()
-                .map(|token| format!("{:?}", token))
-                .intersperse(",".to_string())
+                .map(|token| format!("{:?},", token))
                 .collect::<String>()
         )
     }

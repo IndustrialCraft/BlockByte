@@ -1,6 +1,3 @@
-#![feature(trait_upcasting)]
-#![feature(iter_intersperse)]
-#![feature(let_chains)]
 #![feature(try_trait_v2)]
 
 pub mod ast;
