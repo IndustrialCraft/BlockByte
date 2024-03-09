@@ -2,6 +2,7 @@
   "abstract": true,
   "on_left_click": "@core::simple_block::block_left_click",
   "on_destroy": "@core::simple_block::on_destroy",
+  "client_data_creator": "@core::simple_block::simple_client_data_creator",
   "item": {
     "stack_size": 20,
     "on_right_click_block": "@core::simple_block::item_right_click"

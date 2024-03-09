@@ -115,6 +115,7 @@ pub trait FromVariant {
         variant: &'a Variant,
         position: &FilePosition,
     ) -> Result<&'a Self, ScriptError>;
+    fn from_option_variant(variant: Option<&Variant>) -> Option<&Self>;
 }
 impl<T: Primitive> FromVariant for T {
     fn from_variant(variant: &Variant) -> Option<&Self> {
@@ -134,6 +135,9 @@ impl<T: Primitive> FromVariant for T {
             position: position.clone(),
         })
     }
+    fn from_option_variant(variant: Option<&Variant>) -> Option<&Self> {
+        T::from_variant(variant?)
+    }
 }
 
 #[derive(Clone)]
@@ -146,13 +150,21 @@ pub enum FunctionType {
     ScriptFunction(Arc<Function>),
     RustFunction(Arc<dyn Fn(Variant, Vec<Variant>) -> ScriptResult + Send + Sync>),
 }
-pub type Array = Arc<Mutex<Vec<Variant>>>;
-impl FromIterator<Variant> for Array {
+pub type SharedArray = Arc<Mutex<Vec<Variant>>>;
+impl FromIterator<Variant> for SharedArray {
     fn from_iter<T: IntoIterator<Item = Variant>>(iter: T) -> Self {
         Arc::new(Mutex::new(Vec::from_iter(iter)))
     }
 }
-pub type Map = Arc<Mutex<HashMap<ImmutableString, Variant>>>;
+pub type SharedMap = Arc<Mutex<HashMap<ImmutableString, Variant>>>;
+
+pub type Array = Arc<Vec<Variant>>;
+impl FromIterator<Variant> for Array {
+    fn from_iter<T: IntoIterator<Item = Variant>>(iter: T) -> Self {
+        Arc::new(Vec::from_iter(iter))
+    }
+}
+pub type Map = Arc<HashMap<ImmutableString, Variant>>;
 /*impl FromIterator<(ImmutableString, Variant)> for Map {
     fn from_iter<T: IntoIterator<Item = (ImmutableString, Variant)>>(iter: T) -> Self {
         Arc::new(Mutex::new(HashMap::from_iter(iter)))

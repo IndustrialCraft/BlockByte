@@ -33,14 +33,15 @@ use std::{
 
 use crate::inventory::{GUILayout, Recipe};
 use crate::mods::{
-    ClientContentData, ContentType, EventManager, IdentifierTag, ModImage, ScriptCallback,
-    ScriptingObject,
+    json_to_variant, ClientContentData, ContentType, EventManager, IdentifierTag, ModImage,
+    ScriptCallback, ScriptingObject,
 };
 use crate::registry::{BlockStateProperty, BlockStatePropertyStorage, RecipeManager, StaticData};
 use crate::world::PlayerData;
 use crate::worldgen::{WorldGenerator, WorldGeneratorType};
 use bbscript::eval::ExecutionEnvironment;
-use bbscript::variant::{FromVariant, IntoVariant, Map, Variant};
+use bbscript::lex::FilePosition;
+use bbscript::variant::{FromVariant, FunctionVariant, IntoVariant, Map, SharedMap, Variant};
 use block_byte_common::content::{
     ClientBlockData, ClientEntityData, ClientItemData, ClientItemModel, ClientTexture,
 };
@@ -137,6 +138,7 @@ pub struct Server {
 impl Server {
     fn new(port: u16, save_directory: PathBuf) -> Arc<Server> {
         let (mod_manager, errors, mut engine) = ModManager::load_mods(Path::new("mods"));
+        ModManager::init_engine_load(&mut engine);
         for error in &errors {
             println!("script error at {}: {:?}", error.0, error.1);
         }
@@ -159,7 +161,6 @@ impl Server {
             data: {
                 Map::from_variant(&mods::json_to_variant(json, &engine))
                     .unwrap()
-                    .lock()
                     .iter()
                     .map(|(name, value)| (name.to_string(), value.clone()))
                     .collect()
@@ -214,10 +215,17 @@ impl Server {
                     .as_str()
                     .map(|name| name.to_string())
                     .unwrap_or(id.to_string());
-                let client_block_data: ClientBlockData =
-                    serde_json::from_str(json.remove("client").to_string().as_str()).unwrap();
+
+                let client_data_creator = ScriptCallback::from_function_variant(
+                    FunctionVariant::from_variant(&json_to_variant(
+                        json.remove("client_data_creator"),
+                        &engine,
+                    ))
+                    .unwrap(),
+                );
 
                 let mut item = json.remove("item");
+                let client_state_creation_data = json_to_variant(json.clone(), &engine);
                 let static_data = static_data_from_json(json);
                 let state_id = block_registry
                     .register(
@@ -235,7 +243,19 @@ impl Server {
                                 static_data,
                             })
                         },
-                        |_id, _block| client_block_data.clone(), //todo: state function
+                        |id, block| {
+                            ClientBlockData::from_variant(
+                                &client_data_creator
+                                    .call_function(
+                                        &engine,
+                                        Some(client_state_creation_data.clone()),
+                                        vec![block.properties.dump_properties(id)],
+                                    )
+                                    .unwrap(),
+                            )
+                            .unwrap()
+                            .clone()
+                        },
                     )
                     .unwrap();
                 if !item.is_null() {
@@ -489,7 +509,7 @@ impl Server {
                     Identifier::new("bb", "player_spawn_info"),
                     event_data.clone(),
                 );
-                let event_data = Map::from_variant(&event_data).unwrap();
+                let event_data = SharedMap::from_variant(&event_data).unwrap();
                 let entity_type = Identifier::parse(
                     ImmutableString::from_variant(
                         &event_data.lock().remove("entity_type").unwrap(),
@@ -517,7 +537,7 @@ impl Server {
             {
                 let mut event_data = HashMap::new();
                 event_data.insert("player".into(), player.into_variant());
-                let event_data: Map = Arc::new(Mutex::new(event_data));
+                let event_data: SharedMap = Arc::new(Mutex::new(event_data));
                 self.call_event(
                     Identifier::new("bb", "player_join"),
                     event_data.into_variant(),
@@ -595,7 +615,7 @@ impl Server {
     }
 }
 impl ScriptingObject for Server {
-    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
         {
             let server = server.clone();
             env.register_function("list_items", move || {
@@ -605,7 +625,7 @@ impl ScriptingObject for Server {
                     .item_registry
                     .list()
                     .map(|id| Variant::from_str(id.to_string().as_str()))
-                    .collect::<bbscript::variant::Array>())
+                    .collect::<bbscript::variant::SharedArray>())
             });
         }
     }

@@ -71,7 +71,7 @@ impl ItemStack {
     }
 }
 impl ScriptingObject for ItemStack {
-    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
         env.register_member("id", |item: &ItemStack| {
             Some(Variant::from_str(item.item_type.id.to_string().as_str()))
         });
@@ -580,7 +580,7 @@ impl OwnedInventoryView {
     }
 }
 impl ScriptingObject for OwnedInventoryView {
-    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
         env.register_custom_name::<OwnedInventoryView, _>("InventoryView");
         env.register_method("get_item", |view: &OwnedInventoryView, index: &i64| {
             Ok(Variant::from_option(
@@ -636,7 +636,7 @@ pub struct ModGuiViewer {
     pub id: Uuid,
 }
 impl ScriptingObject for ModGuiViewer {
-    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
         env.register_custom_name::<ModGuiViewer, _>("GUIViewer");
         env.register_method(
             "set_text",
@@ -881,7 +881,7 @@ impl InventoryWrapper {
     }
 }
 impl ScriptingObject for InventoryWrapper {
-    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
         env.register_custom_name::<InventoryWrapper, _>("Inventory");
         env.register_function("create_inventory", |size: &i64| {
             //todo: verify size
@@ -1017,7 +1017,7 @@ impl Recipe {
     }
 }
 impl ScriptingObject for Recipe {
-    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
         env.register_custom_name::<Arc<Recipe>, _>("Recipe");
         {
             let server = server.clone();

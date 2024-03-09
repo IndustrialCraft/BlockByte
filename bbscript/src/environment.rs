@@ -1,6 +1,8 @@
 use crate::eval::{ExecutionEnvironment, ScriptError};
 use crate::lex::FilePosition;
-use crate::variant::{Array, FromVariant, IntoVariant, Map, Primitive, Variant};
+use crate::variant::{
+    Array, FromVariant, IntoVariant, Map, Primitive, SharedArray, SharedMap, Variant,
+};
 use immutable_string::ImmutableString;
 use std::any::TypeId;
 use std::collections::HashMap;
@@ -85,6 +87,8 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
         };
     }
     environment.register_custom_name::<ImmutableString, _>("String");
+    environment.register_custom_name::<SharedMap, _>("SharedMap");
+    environment.register_custom_name::<SharedArray, _>("SharedArray");
     environment.register_custom_name::<Map, _>("Map");
     environment.register_custom_name::<Array, _>("Array");
 
@@ -116,8 +120,10 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
     environment.register_method("uoperator-", |this: &i64| Ok(-*this));
     environment.register_method("uoperator-", |this: &f64| Ok(-*this));
 
-    environment.register_function("Array", || Ok(Arc::new(Mutex::new(Vec::<Variant>::new()))));
-    environment.register_method("get", |this: &Array, index: &i64| {
+    environment.register_function("SharedArray", || {
+        Ok(Arc::new(Mutex::new(Vec::<Variant>::new())))
+    });
+    environment.register_method("get", |this: &SharedArray, index: &i64| {
         let this = this.lock();
         this.get(*index as usize)
             .cloned()
@@ -130,7 +136,7 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
                 position: FilePosition::INVALID,
             })
     });
-    environment.register_method("set", |this: &Array, index: &i64, value: &Variant| {
+    environment.register_method("set", |this: &SharedArray, index: &i64, value: &Variant| {
         let mut this = this.lock();
         if *index > this.len() as i64 {
             return Err(ScriptError::RuntimeError {
@@ -145,32 +151,38 @@ pub fn register_defaults(environment: &mut ExecutionEnvironment) {
         this.insert(*index as usize, value.clone());
         Ok(Variant::NULL())
     });
-    environment.register_method("push", |this: &Array, value: &Variant| {
+    environment.register_method("push", |this: &SharedArray, value: &Variant| {
         let mut this = this.lock();
         this.push(value.clone());
         Ok(Variant::NULL())
     });
-    environment.register_function("Map", || {
+    environment.register_function("SharedMap", || {
         Ok(Arc::new(Mutex::new(
             HashMap::<ImmutableString, Variant>::new(),
         )))
     });
-    environment.register_method("get", |this: &Map, key: &ImmutableString| {
+    environment.register_method("get", |this: &SharedMap, key: &ImmutableString| {
         Ok(Variant::from_option(this.lock().get(key).cloned()))
     });
     environment.register_method(
         "set",
-        |this: &Map, key: &ImmutableString, value: &Variant| {
+        |this: &SharedMap, key: &ImmutableString, value: &Variant| {
             Ok(this.lock().insert(key.clone(), value.clone()))
         },
     );
     environment.register_default_accessor::<Map, _>(|this: &Variant, key: ImmutableString| {
         let map = Map::from_variant(this)?;
-        map.lock().get(&key).cloned()
+        map.get(&key).cloned()
     });
-    environment.register_setter::<Map, _>(
+    environment.register_default_accessor::<SharedMap, _>(
+        |this: &Variant, key: ImmutableString| {
+            let map = SharedMap::from_variant(this)?;
+            map.lock().get(&key).cloned()
+        },
+    );
+    environment.register_setter::<SharedMap, _>(
         |this: &Variant, key: ImmutableString, value: &Variant| {
-            if let Some(map) = Map::from_variant(this) {
+            if let Some(map) = SharedMap::from_variant(this) {
                 map.lock().insert(key, value.clone());
             }
         },

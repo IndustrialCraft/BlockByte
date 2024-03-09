@@ -85,7 +85,7 @@ pub struct Location {
     pub world: Arc<World>,
 }
 impl ScriptingObject for Location {
-    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
         env.register_custom_name::<Location, _>("Location");
         env.register_function("Location", |position: &Position, world: &Arc<World>| {
             Ok(Location {
@@ -157,7 +157,7 @@ impl BlockLocation {
     }
 }
 impl ScriptingObject for BlockLocation {
-    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
         env.register_custom_name::<BlockLocation, _>("BlockLocation");
         env.register_function(
             "BlockLocation",

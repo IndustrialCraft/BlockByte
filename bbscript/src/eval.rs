@@ -2,7 +2,8 @@ use crate::ast::{Expression, Statement, StatementBlock};
 use crate::eval::ScriptError::{BreakOutsideLoop, InvalidIterator, MemberNotFound};
 use crate::lex::FilePosition;
 use crate::variant::{
-    Array, FromVariant, FunctionType, FunctionVariant, IntoVariant, Primitive, TypeName, Variant,
+    FromVariant, FunctionType, FunctionVariant, IntoVariant, Primitive, SharedArray, TypeName,
+    Variant,
 };
 use immutable_string::ImmutableString;
 use parking_lot::Mutex;
@@ -323,7 +324,7 @@ impl Function {
                             Err(error) => return ScriptControlFlow::Err(error),
                         };
                     let stack = stack.push();
-                    let array = match Array::from_variant(&expression) {
+                    let array = match SharedArray::from_variant(&expression) {
                         Some(array) => array.lock().clone(),
                         None => match Range::<i64>::from_variant(&expression) {
                             Some(range) => range

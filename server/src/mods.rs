@@ -2,9 +2,13 @@ use anyhow::{anyhow, Context, Result};
 use bbscript::eval::{ExecutionEnvironment, Function, ScopeStack, ScriptError, ScriptResult};
 use bbscript::lex::FilePosition;
 use bbscript::variant::{
-    Array, FromVariant, FunctionType, FunctionVariant, IntoVariant, Map, Variant,
+    Array, FromVariant, FunctionType, FunctionVariant, IntoVariant, Map, SharedArray, SharedMap,
+    Variant,
 };
-use block_byte_common::content::Transformation;
+use block_byte_common::content::{
+    ClientAnimatedTexture, ClientBlockData, ClientBlockRenderDataType, ClientModel, ClientTexture,
+    Transformation,
+};
 use block_byte_common::gui::PositionAnchor;
 use block_byte_common::messages::MovementType;
 use block_byte_common::{
@@ -288,9 +292,11 @@ impl ModManager {
             .ok_or(anyhow!("mod {} not found", id.get_namespace()))
             .and_then(|mod_data| mod_data.read_image_resource(id.get_key()))
     }
-    pub fn runtime_engine_load(env: &mut ExecutionEnvironment, server: Weak<Server>) {
+    pub fn init_engine_load(env: &mut ExecutionEnvironment) {
         bbscript::environment::register_defaults(env);
-
+        Self::load_scripting_object::<ClientBlockData>(env);
+    }
+    pub fn runtime_engine_load(env: &mut ExecutionEnvironment, server: Weak<Server>) {
         {
             let server = server.clone();
             env.register_function(
@@ -318,36 +324,43 @@ impl ModManager {
             Ok(thread_rng().gen_range(range.clone()))
         });
 
-        Self::load_scripting_object::<PlayerData>(env, &server);
-        Self::load_scripting_object::<Entity>(env, &server);
-        Self::load_scripting_object::<WorldBlock>(env, &server);
-        Self::load_scripting_object::<World>(env, &server);
-        Self::load_scripting_object::<Location>(env, &server);
-        Self::load_scripting_object::<BlockLocation>(env, &server);
-        Self::load_scripting_object::<Position>(env, &server);
-        Self::load_scripting_object::<Structure>(env, &server);
-        Self::load_scripting_object::<BlockPosition>(env, &server);
-        Self::load_scripting_object::<BlockState>(env, &server);
-        Self::load_scripting_object::<UserDataWrapper>(env, &server);
-        Self::load_scripting_object::<InventoryWrapper>(env, &server);
-        Self::load_scripting_object::<Recipe>(env, &server);
-        Self::load_scripting_object::<ModGuiViewer>(env, &server);
-        Self::load_scripting_object::<Transformation>(env, &server);
-        Self::load_scripting_object::<Face>(env, &server);
-        Self::load_scripting_object::<HorizontalFace>(env, &server);
-        Self::load_scripting_object::<IdentifierTag>(env, &server);
-        Self::load_scripting_object::<ItemStack>(env, &server);
-        Self::load_scripting_object::<KeyboardKey>(env, &server);
-        Self::load_scripting_object::<Server>(env, &server);
-        Self::load_scripting_object::<OwnedInventoryView>(env, &server);
-        Self::load_scripting_object::<BlockNetwork>(env, &server);
-        Self::load_scripting_object::<Direction>(env, &server);
+        Self::load_scripting_object_server::<PlayerData>(env, &server);
+        Self::load_scripting_object_server::<Entity>(env, &server);
+        Self::load_scripting_object_server::<WorldBlock>(env, &server);
+        Self::load_scripting_object_server::<World>(env, &server);
+        Self::load_scripting_object_server::<Location>(env, &server);
+        Self::load_scripting_object_server::<BlockLocation>(env, &server);
+        Self::load_scripting_object_server::<Position>(env, &server);
+        Self::load_scripting_object_server::<Structure>(env, &server);
+        Self::load_scripting_object_server::<BlockPosition>(env, &server);
+        Self::load_scripting_object_server::<BlockState>(env, &server);
+        Self::load_scripting_object_server::<UserDataWrapper>(env, &server);
+        Self::load_scripting_object_server::<InventoryWrapper>(env, &server);
+        Self::load_scripting_object_server::<Recipe>(env, &server);
+        Self::load_scripting_object_server::<ModGuiViewer>(env, &server);
+        Self::load_scripting_object_server::<Transformation>(env, &server);
+        Self::load_scripting_object_server::<Face>(env, &server);
+        Self::load_scripting_object_server::<HorizontalFace>(env, &server);
+        Self::load_scripting_object_server::<IdentifierTag>(env, &server);
+        Self::load_scripting_object_server::<ItemStack>(env, &server);
+        Self::load_scripting_object_server::<KeyboardKey>(env, &server);
+        Self::load_scripting_object_server::<Server>(env, &server);
+        Self::load_scripting_object_server::<OwnedInventoryView>(env, &server);
+        Self::load_scripting_object_server::<BlockNetwork>(env, &server);
+        Self::load_scripting_object_server::<Direction>(env, &server);
+        Self::load_scripting_object_server::<ClientBlockData>(env, &server);
     }
-    fn load_scripting_object<T>(env: &mut ExecutionEnvironment, server: &Weak<Server>)
+    fn load_scripting_object_server<T>(env: &mut ExecutionEnvironment, server: &Weak<Server>)
     where
         T: ScriptingObject,
     {
-        T::engine_register(env, server);
+        T::engine_register_server(env, server);
+    }
+    fn load_scripting_object<T>(env: &mut ExecutionEnvironment)
+    where
+        T: ScriptingObject,
+    {
+        T::engine_register(env);
     }
     fn load_enum<T: Display + IntoEnumIterator + IntoVariant>(
         env: &mut ExecutionEnvironment,
@@ -362,10 +375,11 @@ impl ModManager {
     }
 }
 pub trait ScriptingObject {
-    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>);
+    fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {}
+    fn engine_register(env: &mut ExecutionEnvironment) {}
 }
 impl ScriptingObject for Direction {
-    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
         env.register_custom_name::<Direction, _>("Direction");
         env.register_function("Direction", |pitch: &f64, yaw: &f64| {
             Ok(Direction {
@@ -384,7 +398,7 @@ impl ScriptingObject for Direction {
     }
 }
 impl ScriptingObject for Position {
-    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
         env.register_custom_name::<Position, _>("Position");
         env.register_function("Position", |x: &f64, y: &f64, z: &f64| {
             Ok(Position {
@@ -411,7 +425,7 @@ impl ScriptingObject for Position {
     }
 }
 impl ScriptingObject for BlockPosition {
-    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
         env.register_custom_name::<BlockPosition, _>("BlockPosition");
         env.register_function("BlockPosition", |x: &i64, y: &i64, z: &i64| {
             Ok(BlockPosition {
@@ -440,7 +454,7 @@ impl ScriptingObject for BlockPosition {
     }
 }
 impl ScriptingObject for Transformation {
-    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
         /*engine.register_type_with_name::<Transformation>("Transformation");
         engine.register_fn("transform_from_rotation", |x: f64, y: f64, z: f64| {
             Transformation {
@@ -534,6 +548,90 @@ impl ScriptingObject for Transformation {
         });*/
     }
 }
+impl ScriptingObject for ClientBlockData {
+    fn engine_register(env: &mut ExecutionEnvironment) {
+        env.register_function("ClientBlockData", |data: &Map| {
+            let block_type = Map::from_variant(data.get("block_type").unwrap()).unwrap();
+            let block_type = match ImmutableString::from_option_variant(block_type.get("type"))
+                .unwrap()
+                .as_ref()
+            {
+                "Air" => ClientBlockRenderDataType::Air,
+                "Cube" => ClientBlockRenderDataType::Cube {
+                    front: client_texture_from_variant(block_type.get("front").unwrap()),
+                    back: client_texture_from_variant(block_type.get("back").unwrap()),
+                    left: client_texture_from_variant(block_type.get("left").unwrap()),
+                    right: client_texture_from_variant(block_type.get("right").unwrap()),
+                    up: client_texture_from_variant(block_type.get("up").unwrap()),
+                    down: client_texture_from_variant(block_type.get("down").unwrap()),
+                },
+                "Static" => ClientBlockRenderDataType::Static {
+                    models: Array::from_variant(block_type.get("models").unwrap())
+                        .unwrap()
+                        .iter()
+                        .map(|variant| {
+                            let data = Map::from_variant(variant).unwrap();
+                            ClientModel {
+                                model: ImmutableString::from_variant(data.get("model").unwrap())
+                                    .unwrap()
+                                    .to_string(),
+                                texture: client_texture_from_variant(data.get("texture").unwrap()),
+                                transform: Transformation::identity(),
+                            }
+                        })
+                        .collect(),
+                },
+                "Foliage" => ClientBlockRenderDataType::Foliage {
+                    sides: block_type
+                        .get("sides")
+                        .map(|texture| client_texture_from_variant(texture)),
+                    cross: block_type
+                        .get("cross")
+                        .map(|texture| client_texture_from_variant(texture)),
+                    bottom: block_type
+                        .get("bottom")
+                        .map(|texture| client_texture_from_variant(texture)),
+                },
+                _ => panic!(),
+            };
+            Ok(ClientBlockData {
+                block_type,
+                dynamic: None,
+                fluid: bool::from_option_variant(data.get("fluid"))
+                    .cloned()
+                    .unwrap_or(false),
+                render_data: i64::from_option_variant(data.get("render_data"))
+                    .cloned()
+                    .unwrap_or(0) as u8,
+                transparent: bool::from_option_variant(data.get("transparent"))
+                    .cloned()
+                    .unwrap_or(false),
+                selectable: bool::from_option_variant(data.get("selectable"))
+                    .cloned()
+                    .unwrap_or(false),
+                no_collide: bool::from_option_variant(data.get("no_collide"))
+                    .cloned()
+                    .unwrap_or(false),
+            })
+        });
+    }
+}
+fn client_texture_from_variant(variant: &Variant) -> ClientTexture {
+    if let Some(texture) = ImmutableString::from_variant(variant) {
+        ClientTexture::String(texture.as_ref().to_string())
+    } else {
+        let data = Map::from_variant(variant).unwrap();
+        ClientTexture::Struct(ClientAnimatedTexture {
+            id: ImmutableString::from_option_variant(data.get("id"))
+                .unwrap()
+                .to_string(),
+            time: u8::from_option_variant(data.get("time")).cloned().unwrap(),
+            stages: u8::from_option_variant(data.get("stages"))
+                .cloned()
+                .unwrap(),
+        })
+    }
+}
 pub struct IdentifierTag {
     ids: HashSet<Identifier>,
 }
@@ -555,7 +653,7 @@ impl IdentifierTag {
     }
 }
 impl ScriptingObject for IdentifierTag {
-    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
         {
             let server = server.clone();
             env.register_function("Tag", move |id: &ImmutableString| {
@@ -595,7 +693,7 @@ impl ScriptingObject for IdentifierTag {
     }
 }
 impl ScriptingObject for KeyboardKey {
-    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
         env.register_custom_name::<KeyboardKey, _>("KeyboardKey");
         env.register_method("to_string", |key: &KeyboardKey| {
             Ok(Variant::from_str(format!("{:?}", key).as_str()))
@@ -627,7 +725,7 @@ impl UserDataWrapper {
     }
 }
 impl ScriptingObject for UserDataWrapper {
-    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
         env.register_custom_name::<UserDataWrapper, _>("UserData");
         env.register_method("get", |this: &UserDataWrapper, key: &ImmutableString| {
             Ok(Variant::from_option(
@@ -696,14 +794,14 @@ impl ScriptingObject for UserDataWrapper {
     }
 }
 impl ScriptingObject for Face {
-    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
         env.register_method("to_horizontal_face", |this: &Face| {
             Ok(Variant::from_option(this.to_horizontal_face()))
         });
     }
 }
 impl ScriptingObject for HorizontalFace {
-    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
         env.register_method("to_face", |this: &HorizontalFace| Ok(this.to_face()));
     }
 }
@@ -938,7 +1036,7 @@ pub fn json_to_variant(json: JsonValue, script_environment: &ExecutionEnvironmen
                     json_to_variant(property.clone(), script_environment),
                 );
             }
-            Arc::new(Mutex::new(output)).into_variant()
+            Arc::new(output).into_variant()
         }
         JsonValue::Array(array) => array
             .into_iter()

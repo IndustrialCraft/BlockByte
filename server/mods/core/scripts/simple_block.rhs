@@ -15,3 +15,6 @@ fn on_destroy(data){
         }
     }
 }
+fn simple_client_data_creator(properties){
+    return ClientBlockData(this.client);
+}

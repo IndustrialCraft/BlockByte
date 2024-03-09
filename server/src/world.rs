@@ -384,7 +384,7 @@ pub enum RaycastResult {
     Entity(Arc<Entity>),
 }
 impl ScriptingObject for World {
-    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
         env.register_custom_name::<Arc<World>, _>("World");
         {
             let server = server.clone();
@@ -1220,7 +1220,7 @@ impl PlayerData {
     }
 }
 impl ScriptingObject for PlayerData {
-    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
         env.register_custom_name::<Arc<PlayerData>, _>("Player");
         env.register_method("get_entity", |player: &Arc<PlayerData>| {
             Ok(player.get_entity().into_variant())
@@ -1997,7 +1997,7 @@ impl Entity {
     }
 }
 impl ScriptingObject for Entity {
-    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
         env.register_custom_name::<Arc<Entity>, _>("Entity");
         {
             let server = server.clone();
@@ -2519,7 +2519,7 @@ impl Structure {
     }
 }
 impl ScriptingObject for Structure {
-    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
         env.register_custom_name::<Arc<Structure>, _>("Structure");
         /*{
         let server = server.clone();
@@ -2567,7 +2567,7 @@ impl BlockNetwork {
     }
 }
 impl ScriptingObject for BlockNetwork {
-    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
         /*engine.register_fn("list_members", |network: &mut Arc<BlockNetwork>| {
             network
                 .members
@@ -2706,7 +2706,7 @@ impl WorldBlock {
     }
 }
 impl ScriptingObject for WorldBlock {
-    fn engine_register(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
         env.register_custom_name::<Arc<WorldBlock>, _>("WorldBlock");
         /*engine.register_get("user_data", |block: &mut Arc<WorldBlock>| {
             UserDataWrapper::Block(block.ptr())

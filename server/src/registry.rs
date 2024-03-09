@@ -111,7 +111,7 @@ impl BlockRegistry {
     ) -> Result<u32, ()>
     where
         F: FnOnce(u32, Identifier) -> Arc<Block>,
-        T: Fn(u32, &Block) -> ClientBlockData,
+        T: Fn(u32, &Arc<Block>) -> ClientBlockData,
     {
         if self.blocks.get(&id).is_some() {
             return Err(());
@@ -551,7 +551,7 @@ impl ToString for BlockState {
     }
 }
 impl ScriptingObject for BlockState {
-    fn engine_register(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
+    fn engine_register_server(env: &mut ExecutionEnvironment, server: &Weak<Server>) {
         env.register_custom_name::<BlockStateRef, _>("BlockState");
         {
             let server = server.clone();
