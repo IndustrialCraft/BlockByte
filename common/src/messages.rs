@@ -55,7 +55,7 @@ pub enum NetworkMessageC2S {
     SendMessage(String),
     ConnectionMode(u8),
 }
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumIter)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumIter, Debug)]
 pub enum MouseButton {
     Left,
     Right,

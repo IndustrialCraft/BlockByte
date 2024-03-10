@@ -6,6 +6,7 @@ fn(){
         return;
     }
     if key == KeyboardKey::Tab{
+        player.set_cursor_locked(!is_null(player.get_open_inventory("core:open")));
         if player.get_open_inventory("core:open") {
             player.close_gui("core:open");
         } else {

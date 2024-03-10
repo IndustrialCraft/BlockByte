@@ -22,7 +22,9 @@ use bbscript::variant::{
     FromVariant, FunctionType, FunctionVariant, IntoVariant, Primitive, Variant,
 };
 use bitcode::__private::Serialize;
-use block_byte_common::gui::{GUIComponent, GUIElement, GUIElementEdit, PositionAnchor};
+use block_byte_common::gui::{
+    GUIComponent, GUIComponentEdit, GUIElement, GUIElementEdit, PositionAnchor,
+};
 use block_byte_common::messages::{
     ClientModelTarget, MovementType, NetworkMessageC2S, NetworkMessageS2C,
 };
@@ -1157,28 +1159,22 @@ impl PlayerData {
             guis.insert(id, new_inventory.0);
         }
     }
-    pub fn set_cursor(&self, texture: Option<String>) {
-        self.send_message(&NetworkMessageS2C::SetCursorLock(texture.is_none()));
+    pub fn set_cursor_locked(&self, locked: bool) {
+        self.send_message(&NetworkMessageS2C::SetCursorLock(locked));
         self.send_message(&NetworkMessageS2C::GuiRemoveElements("cursor".to_string()));
-        if let Some(texture) = texture {
-            self.send_message(&NetworkMessageS2C::GuiSetElement(
-                "cursor".to_string(),
-                GUIElement {
-                    position: Position {
-                        x: 0.,
-                        y: 0.,
-                        z: 0.,
-                    },
-                    anchor: PositionAnchor::Center,
-                    base_color: Color::WHITE,
-                    component_type: GUIComponent::ImageComponent {
-                        size: Vec2 { x: 50., y: 50. },
-                        texture,
-                        slice: None,
-                    },
-                },
-            ));
-        }
+        self.send_message(&NetworkMessageS2C::GuiEditElement(
+            "cursor".to_string(),
+            GUIElementEdit {
+                position: None,
+                anchor: Some(if locked {
+                    PositionAnchor::Center
+                } else {
+                    PositionAnchor::Cursor
+                }),
+                base_color: None,
+                component_type: GUIComponentEdit::None,
+            },
+        ));
     }
     pub fn send_chat_message(&self, text: String) {
         self.send_message(&NetworkMessageS2C::ChatMessage(text));
@@ -1220,6 +1216,13 @@ impl ScriptingObject for PlayerData {
             "close_gui",
             |player: &Arc<PlayerData>, id: &ImmutableString| {
                 player.set_open_inventory(Identifier::parse(id.as_ref()).unwrap(), None);
+                Ok(())
+            },
+        );
+        env.register_method(
+            "set_cursor_locked",
+            |player: &Arc<PlayerData>, locked: &bool| {
+                player.set_cursor_locked(*locked);
                 Ok(())
             },
         );
@@ -1634,7 +1637,13 @@ impl Entity {
                         }
                     }
                     NetworkMessageC2S::GuiClick(element, button, shifting) => {
-                        for (id, inventory) in player.open_guis.lock().iter() {
+                        let ui = player
+                            .open_guis
+                            .lock()
+                            .iter()
+                            .find(|(id, _)| element.starts_with(id.to_string().as_str()))
+                            .map(|(id, inventory)| (id.clone(), inventory.clone()));
+                        if let Some((id, inventory)) = ui {
                             let string_id = id.to_string();
                             if element.starts_with(string_id.as_str()) {
                                 inventory.get_inventory().on_click(
@@ -1642,7 +1651,7 @@ impl Entity {
                                         player: player.clone(),
                                         id: id.clone(),
                                     },
-                                    &element[(string_id.len())..],
+                                    &element[(string_id.len() + 1)..],
                                     button,
                                     shifting,
                                 );
