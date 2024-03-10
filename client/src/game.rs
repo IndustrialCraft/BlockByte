@@ -70,7 +70,11 @@ impl ClientPlayer {
         delta_time: f32,
         world: &World,
     ) {
-        let mut forward = self.make_front();
+        let mut forward = Vector3::new(
+            f32::to_radians(self.yaw_deg).sin(),
+            0.,
+            f32::to_radians(self.yaw_deg).cos(),
+        );
         forward.y = 0.;
         let cross_normalized = forward.cross(Self::UP).normalize();
         let mut move_vector = keys.iter().copied().fold(
