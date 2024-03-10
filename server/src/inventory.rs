@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::{
     ops::Range,
     sync::{Arc, Weak},
@@ -103,10 +104,10 @@ pub type InventorySetItemHandler = Box<dyn Fn(&Inventory, u32) + Send + Sync>;
 pub struct Inventory {
     owner: WeakInventoryWrapper,
     items: Mutex<Box<[Option<ItemStack>]>>,
-    viewers: Mutex<FxHashMap<Uuid, Arc<GuiInventoryViewer>>>,
+    viewers: Mutex<FxHashMap<GuiKey, Arc<GuiInventoryViewer>>>,
     pub user_data: Mutex<UserData>,
     set_item_handler: Option<InventorySetItemHandler>,
-    client_properties: Mutex<HashMap<ImmutableString, Variant>>,
+    client_properties: Mutex<HashMap<Identifier, Variant>>,
 }
 impl Inventory {
     pub fn new_owned(size: u32, set_item_handler: Option<InventorySetItemHandler>) -> Arc<Self> {
@@ -133,11 +134,11 @@ impl Inventory {
             client_properties: Mutex::new(HashMap::new()),
         }
     }
-    pub fn set_client_property(&self, id: &str, value: Variant, server: &Server) {
+    pub fn set_client_property(&self, id: Identifier, value: Variant, server: &Server) {
         let previous = self
             .client_properties
             .lock()
-            .remove(id)
+            .remove(&id)
             .unwrap_or(Variant::NULL());
         for viewer in self.viewers.lock().iter() {
             viewer
@@ -153,7 +154,7 @@ impl Inventory {
                             id: viewer.1.id.clone(),
                         }
                         .into_variant(),
-                        Variant::from_str(id),
+                        Variant::from_str(id.to_string().as_str()),
                         value.clone(),
                         previous.clone(),
                     ],
@@ -244,8 +245,11 @@ impl Inventory {
         }
     }
     pub fn add_viewer(&self, viewer: GuiInventoryViewer) {
-        let id = &viewer.id;
-        if self.viewers.lock().contains_key(id) {
+        let key = GuiKey {
+            player: viewer.viewer.clone(),
+            id: viewer.id.clone(),
+        };
+        if self.viewers.lock().contains_key(&key) {
             return;
         }
         viewer
@@ -293,16 +297,16 @@ impl Inventory {
                 ],
             );
         }
-        self.viewers.lock().insert(id.clone(), Arc::new(viewer));
+        self.viewers.lock().insert(key, Arc::new(viewer));
     }
-    pub fn remove_viewer(&self, id: &Uuid) {
-        if let Some(viewer) = self.viewers.lock().remove(id) {
+    pub fn remove_viewer(&self, key: GuiKey) {
+        if let Some(viewer) = self.viewers.lock().remove(&key) {
             viewer
                 .viewer
                 .send_message(&NetworkMessageS2C::GuiRemoveElements(viewer.id.to_string()));
         }
     }
-    pub fn get_slot_id_entity(&self, entity: &Entity, slot: u32) -> String {
+    /*pub fn get_slot_id_entity(&self, entity: &Entity, slot: u32) -> String {
         format!(
             "{}_{}",
             self.viewers
@@ -313,7 +317,7 @@ impl Inventory {
                 .to_string(),
             slot
         )
-    }
+    }*/
     fn item_to_json(item: &Option<ItemStack>) -> Option<JsonValue> {
         item.as_ref()
             .map(|item| object! {item:item.item_type.client_id, count:item.item_count})
@@ -346,39 +350,20 @@ impl Inventory {
             ));
         }
     }
-    pub fn resolve_id(&self, view_id: &Uuid, id: &str) -> Option<String> {
-        let viewers = self.viewers.lock();
-        let viewer = viewers.get(view_id).unwrap();
-        if id.starts_with(&viewer.id.to_string()) {
-            Some(
-                id.to_string()
-                    .replace(format!("{}_", &viewer.id.to_string()).as_str(), ""),
-            )
-        } else {
-            None
-        }
-    }
-    pub fn on_click(
-        &self,
-        viewer_id: Uuid,
-        player: &PlayerData,
-        id: &str,
-        button: MouseButton,
-        shifting: bool,
-    ) {
+    pub fn on_click(&self, key: GuiKey, id: &str, button: MouseButton, shifting: bool) {
         let slot = id.parse::<u32>().ok();
         let result = {
             let viewer = {
                 let viewers = self.viewers.lock();
-                viewers.get(&viewer_id).unwrap().clone()
+                viewers.get(&key).unwrap().clone()
             };
             InteractionResult::from_variant(
                 &match slot {
                     Some(slot) => viewer.on_click.call_function(
-                        &player.server.script_environment,
+                        &key.player.server.script_environment,
                         None,
                         vec![
-                            player.ptr().into_variant(),
+                            key.player.ptr().into_variant(),
                             OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr())
                                 .into_variant(),
                             (slot as i64).into_variant(),
@@ -387,10 +372,10 @@ impl Inventory {
                         ],
                     ),
                     None => viewer.on_click.call_function(
-                        &player.server.script_environment,
+                        &key.player.server.script_environment,
                         None,
                         vec![
-                            player.ptr().into_variant(),
+                            key.player.ptr().into_variant(),
                             OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr())
                                 .into_variant(),
                             Variant::from_str(id.to_string().as_str()),
@@ -407,7 +392,7 @@ impl Inventory {
         if let InteractionResult::Ignored = result {
             if button == MouseButton::Left {
                 if let Some(slot_id) = slot {
-                    let mut hand = player.hand_item.lock().clone();
+                    let mut hand = key.player.hand_item.lock().clone();
                     let mut slot = self.get_full_view().get_item(slot_id).unwrap().clone();
                     match (hand.as_mut(), slot.as_mut()) {
                         (Some(hand), Some(slot)) => {
@@ -425,34 +410,26 @@ impl Inventory {
                         }
                         _ => {}
                     }
-                    player.set_inventory_hand(slot);
+                    key.player.set_inventory_hand(slot);
                     self.get_full_view().set_item(slot_id, hand).unwrap();
                 }
             }
         }
     }
-    pub fn on_scroll(
-        &self,
-        viewer_id: Uuid,
-        player: &PlayerData,
-        id: &str,
-        x: i32,
-        y: i32,
-        shifting: bool,
-    ) {
+    pub fn on_scroll(&self, key: GuiKey, id: &str, x: i32, y: i32, shifting: bool) {
         let slot = id.parse::<u32>().ok();
         let result = {
             let viewer = {
                 let viewers = self.viewers.lock();
-                viewers.get(&viewer_id).unwrap().clone()
+                viewers.get(&key).unwrap().clone()
             };
             InteractionResult::from_variant(
                 &match slot {
                     Some(slot) => viewer.on_scroll.call_function(
-                        &player.server.script_environment,
+                        &key.player.server.script_environment,
                         None,
                         vec![
-                            player.ptr().into_variant(),
+                            key.player.ptr().into_variant(),
                             OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr())
                                 .into_variant(),
                             (slot as i64).into_variant(),
@@ -462,10 +439,10 @@ impl Inventory {
                         ],
                     ),
                     None => viewer.on_scroll.call_function(
-                        &player.server.script_environment,
+                        &key.player.server.script_environment,
                         None,
                         vec![
-                            player.ptr().into_variant(),
+                            key.player.ptr().into_variant(),
                             OwnedInventoryView::new(viewer.slot_range.clone(), self.ptr())
                                 .into_variant(),
                             Variant::from_str(id.to_string().as_str()),
@@ -482,7 +459,7 @@ impl Inventory {
         };
         if let InteractionResult::Ignored = result {
             if let Some(slot) = slot {
-                player.modify_inventory_hand(|first| {
+                key.player.modify_inventory_hand(|first| {
                     self.get_full_view()
                         .modify_item(slot, |second| {
                             let (first, second) = if y < 0 {
@@ -557,6 +534,19 @@ impl Inventory {
         self.get_view(0..self.get_size())
     }
 }
+pub struct GuiKey {
+    pub player: Arc<PlayerData>,
+    pub id: Identifier,
+}
+impl PartialEq for GuiKey {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.player, &other.player) && self.id == other.id
+    }
+}
+impl Eq for GuiKey {}
+impl Hash for GuiKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {}
+}
 #[derive(Serialize, Deserialize)]
 pub struct InventorySaveData {
     items: Vec<Option<(String, u32)>>,
@@ -619,11 +609,11 @@ pub struct GuiInventoryData {
     pub on_scroll: ScriptCallback,
 }
 impl GuiInventoryData {
-    pub fn into_viewer(self, viewer: Arc<PlayerData>) -> GuiInventoryViewer {
+    pub fn into_viewer(self, viewer: Arc<PlayerData>, id: Identifier) -> GuiInventoryViewer {
         GuiInventoryViewer {
             slot_range: self.slot_range,
             viewer,
-            id: Uuid::new_v4(),
+            id,
             layout: self.layout,
             on_click: self.on_click,
             on_scroll: self.on_scroll,
@@ -633,7 +623,7 @@ impl GuiInventoryData {
 #[derive(Clone)]
 pub struct ModGuiViewer {
     pub viewer: Arc<PlayerData>,
-    pub id: Uuid,
+    pub id: Identifier,
 }
 impl ScriptingObject for ModGuiViewer {
     fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
@@ -713,7 +703,7 @@ impl ScriptingObject for ModGuiViewer {
 pub struct GuiInventoryViewer {
     pub slot_range: Range<u32>,
     pub viewer: Arc<PlayerData>,
-    pub id: Uuid,
+    pub id: Identifier,
     pub layout: Arc<GUILayout>,
     pub on_click: ScriptCallback,
     pub on_scroll: ScriptCallback,
@@ -917,7 +907,7 @@ impl ScriptingObject for InventoryWrapper {
                 "set_client_property",
                 move |inventory: &InventoryWrapper, id: &ImmutableString, value: &Variant| {
                     inventory.get_inventory().set_client_property(
-                        id.as_ref(),
+                        Identifier::parse(id.as_ref()).unwrap(),
                         value.clone(),
                         &server.upgrade().unwrap(),
                     );

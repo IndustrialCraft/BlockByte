@@ -42,7 +42,8 @@ use serde::{Deserialize, Deserializer, Serializer};
 use uuid::Uuid;
 
 use crate::inventory::{
-    GUILayout, GuiInventoryData, GuiInventoryViewer, InventorySaveData, InventoryView, ModGuiViewer,
+    GUILayout, GuiInventoryData, GuiInventoryViewer, GuiKey, InventorySaveData, InventoryView,
+    ModGuiViewer,
 };
 use crate::mods::{ScriptCallback, ScriptingObject, UserDataWrapper};
 use crate::registry::{Block, BlockState};
@@ -1039,14 +1040,13 @@ impl<'de> serde::de::Visitor<'de> for UserDataVisitor {
 pub struct PlayerData {
     entity: Mutex<Arc<Entity>>,
     pub connection: Mutex<PlayerConnection>,
-    pub open_inventory: Mutex<Option<(InventoryWrapper, Uuid)>>,
     pub chunk_loading_manager: ChunkLoadingManager,
     pub speed: Mutex<f32>,
     pub move_type: Mutex<MovementType>,
     pub hand_item: Mutex<Option<ItemStack>>,
     pub user_data: Mutex<UserData>,
     pub server: Arc<Server>,
-    pub overlays: Mutex<HashMap<Identifier, Uuid>>,
+    pub open_guis: Mutex<HashMap<Identifier, InventoryWrapper>>,
     this: Weak<PlayerData>,
 }
 impl PlayerData {
@@ -1057,7 +1057,6 @@ impl PlayerData {
     ) -> Arc<Self> {
         let player = Arc::new_cyclic(|this| PlayerData {
             connection: Mutex::new(connection),
-            open_inventory: Mutex::new(None),
             chunk_loading_manager: ChunkLoadingManager::new(
                 this.clone(),
                 server.clone(),
@@ -1068,7 +1067,7 @@ impl PlayerData {
             move_type: Mutex::new(MovementType::Normal),
             hand_item: Mutex::new(None),
             user_data: Mutex::new(UserData::new()),
-            overlays: Mutex::new(HashMap::new()),
+            open_guis: Mutex::new(HashMap::new()),
             server,
             this: this.clone(),
         });
@@ -1078,17 +1077,14 @@ impl PlayerData {
         entity.set_player(player.clone());
         player
     }
-    pub fn get_open_inventory_id(&self) -> Option<Uuid> {
-        self.open_inventory.lock().as_ref().map(|inv| inv.1)
-    }
     pub fn destroy(&self) {
         self.chunk_loading_manager.unload_chunks();
 
-        if let Some(inventory) = self.open_inventory.lock().as_ref() {
-            inventory
-                .0
-                .get_inventory()
-                .remove_viewer(self.get_entity().get_id());
+        for inventory in self.open_guis.lock().drain() {
+            inventory.1.get_inventory().remove_viewer(GuiKey {
+                player: self.ptr(),
+                id: inventory.0,
+            });
         }
     }
     pub fn modify_inventory_hand<F>(&self, function: F)
@@ -1141,38 +1137,30 @@ impl PlayerData {
             connection.send(message);
         }
     }
-    pub fn set_open_inventory(&self, new_inventory: Option<(InventoryWrapper, GuiInventoryData)>) {
-        let mut current_inventory = self.open_inventory.lock();
-        if let Some(current_inventory) = &*current_inventory {
-            current_inventory
+    pub fn set_open_inventory(
+        &self,
+        id: Identifier,
+        new_inventory: Option<(InventoryWrapper, GuiInventoryData)>,
+    ) {
+        let mut guis = self.open_guis.lock();
+        if let Some(current_inventory) = guis.remove(&id) {
+            current_inventory.get_inventory().remove_viewer(GuiKey {
+                player: self.ptr(),
+                id: id.clone(),
+            });
+        }
+        if let Some(new_inventory) = new_inventory {
+            new_inventory
                 .0
                 .get_inventory()
-                .remove_viewer(&current_inventory.1);
+                .add_viewer(new_inventory.1.into_viewer(self.ptr(), id.clone()));
+            guis.insert(id, new_inventory.0);
         }
-        let (inventory, data) = new_inventory
-            .map(|inv| (Some(inv.0), Some(inv.1)))
-            .unwrap_or((None, None));
-        let view_id = if let Some(data) = data {
-            let viewer = data.into_viewer(self.ptr());
-            let id = viewer.id.clone();
-            inventory
-                .as_ref()
-                .unwrap()
-                .get_inventory()
-                .add_viewer(viewer);
-            Some(id)
-        } else {
-            if let Some(inventory_hand) = &*self.hand_item.lock() {
-                //todo: drop item
-                //self.get_entity().throw_item(inventory_hand.clone());
-            }
-            self.set_inventory_hand(None);
-            Inventory::set_cursor(self, &None);
-            None
-        };
-        self.send_message(&NetworkMessageS2C::SetCursorLock(inventory.is_none()));
+    }
+    pub fn set_cursor(&self, texture: Option<String>) {
+        self.send_message(&NetworkMessageS2C::SetCursorLock(texture.is_none()));
         self.send_message(&NetworkMessageS2C::GuiRemoveElements("cursor".to_string()));
-        if inventory.is_none() {
+        if let Some(texture) = texture {
             self.send_message(&NetworkMessageS2C::GuiSetElement(
                 "cursor".to_string(),
                 GUIElement {
@@ -1185,35 +1173,15 @@ impl PlayerData {
                     base_color: Color::WHITE,
                     component_type: GUIComponent::ImageComponent {
                         size: Vec2 { x: 50., y: 50. },
-                        texture: "bb:cursor".to_string(),
+                        texture,
                         slice: None,
                     },
                 },
             ));
         }
-        *current_inventory = inventory.map(|inventory| (inventory, view_id.unwrap()));
     }
     pub fn send_chat_message(&self, text: String) {
         self.send_message(&NetworkMessageS2C::ChatMessage(text));
-    }
-    pub fn open_overlay(&self, id: Identifier, layout: Arc<GUILayout>) -> Uuid {
-        let mut overlays = self.overlays.lock();
-        if let Some(id) = overlays.get(&id) {
-            self.send_message(&NetworkMessageS2C::GuiRemoveElements(id.to_string()));
-        }
-        let uuid = Uuid::new_v4();
-        overlays.insert(id, uuid);
-        layout.send_to_player(self, uuid.to_string().as_str());
-        uuid
-    }
-    pub fn get_overlay(&self, id: &Identifier) -> Option<Uuid> {
-        self.overlays.lock().get(id).map(|id| *id)
-    }
-    pub fn close_overlay(&self, id: &Identifier) {
-        let mut overlays = self.overlays.lock();
-        if let Some(id) = overlays.remove(id) {
-            self.send_message(&NetworkMessageS2C::GuiRemoveElements(id.to_string()));
-        }
     }
     pub fn ptr(&self) -> Arc<PlayerData> {
         self.this.upgrade().unwrap()
@@ -1248,51 +1216,65 @@ impl ScriptingObject for PlayerData {
         env.register_member("user_data", |player: &Arc<PlayerData>| {
             Some(UserDataWrapper::Player(player.ptr()).into_variant())
         });
-        env.register_method("close_inventory", |player: &Arc<PlayerData>| {
-            player.set_open_inventory(None);
-            Ok(())
-        });
+        env.register_method(
+            "close_gui",
+            |player: &Arc<PlayerData>, id: &ImmutableString| {
+                player.set_open_inventory(Identifier::parse(id.as_ref()).unwrap(), None);
+                Ok(())
+            },
+        );
         {
             let server = server.clone();
             env.register_method(
-                "open_inventory",
+                "open_gui",
                 move |player: &Arc<PlayerData>,
+                      id: &ImmutableString,
                       inventory: &InventoryWrapper,
                       range: &Range<i64>,
                       layout: &ImmutableString,
-                      on_click: &FunctionVariant,
-                      on_scroll: &FunctionVariant| {
-                    player.set_open_inventory(Some((
-                        inventory.clone(),
-                        GuiInventoryData {
-                            slot_range: Range::<u32> {
-                                start: range.start as u32,
-                                end: range.end as u32,
+                      on_click: &Variant,
+                      on_scroll: &Variant| {
+                    player.set_open_inventory(
+                        Identifier::parse(id.as_ref()).unwrap(),
+                        Some((
+                            inventory.clone(),
+                            GuiInventoryData {
+                                slot_range: Range::<u32> {
+                                    start: range.start as u32,
+                                    end: range.end as u32,
+                                },
+                                layout: server
+                                    .upgrade()
+                                    .unwrap()
+                                    .gui_layouts
+                                    .get(&Identifier::parse(layout.as_ref()).unwrap())
+                                    .unwrap()
+                                    .clone(),
+                                on_click: FunctionVariant::from_variant(on_click)
+                                    .map(|variant| ScriptCallback::from_function_variant(variant))
+                                    .unwrap_or(ScriptCallback::empty()),
+                                on_scroll: FunctionVariant::from_variant(on_scroll)
+                                    .map(|variant| ScriptCallback::from_function_variant(variant))
+                                    .unwrap_or(ScriptCallback::empty()),
                             },
-                            layout: server
-                                .upgrade()
-                                .unwrap()
-                                .gui_layouts
-                                .get(&Identifier::parse(layout.as_ref()).unwrap())
-                                .unwrap()
-                                .clone(),
-                            on_click: ScriptCallback::from_function_variant(on_click),
-                            on_scroll: ScriptCallback::from_function_variant(on_scroll),
-                        },
-                    )));
+                        )),
+                    );
                     Ok(())
                 },
             );
         }
-        env.register_method("get_open_inventory", |player: &Arc<PlayerData>| {
-            Ok(Variant::from_option(
-                player
-                    .open_inventory
-                    .lock()
-                    .as_ref()
-                    .map(|inv| inv.0.clone()),
-            ))
-        });
+        env.register_method(
+            "get_open_inventory",
+            |player: &Arc<PlayerData>, id: &ImmutableString| {
+                Ok(Variant::from_option(
+                    player
+                        .open_guis
+                        .lock()
+                        .get(&Identifier::parse(id.as_ref()).unwrap())
+                        .cloned(),
+                ))
+            },
+        );
         env.register_method(
             "set_hand_item",
             |player: &Arc<PlayerData>, item: &Variant| {
@@ -1307,47 +1289,6 @@ impl ScriptingObject for PlayerData {
                 player.hand_item.lock().as_ref().cloned(),
             ))
         });
-        {
-            let server = server.clone();
-            env.register_method(
-                "open_overlay",
-                move |player: &Arc<PlayerData>, id: &ImmutableString, layout: &ImmutableString| {
-                    Ok(ModGuiViewer {
-                        id: player.open_overlay(
-                            Identifier::parse(id.as_ref()).unwrap(),
-                            server
-                                .upgrade()
-                                .unwrap()
-                                .gui_layouts
-                                .get(&Identifier::parse(layout.as_ref()).unwrap())
-                                .unwrap()
-                                .clone(),
-                        ),
-                        viewer: player.clone(),
-                    })
-                },
-            );
-        }
-        env.register_method(
-            "get_overlay",
-            |player: &Arc<PlayerData>, id: &ImmutableString| {
-                Ok(Variant::from_option(
-                    player
-                        .get_overlay(&Identifier::parse(id.clone()).unwrap())
-                        .map(|id| ModGuiViewer {
-                            id,
-                            viewer: player.clone(),
-                        }),
-                ))
-            },
-        );
-        env.register_method(
-            "close_overlay",
-            |player: &Arc<PlayerData>, id: &ImmutableString| {
-                player.close_overlay(&Identifier::parse(id.clone()).unwrap());
-                Ok(())
-            },
-        );
     }
 }
 
@@ -1416,7 +1357,7 @@ impl Entity {
         player.send_message(&NetworkMessageS2C::ControllingEntity(
             self.entity_type.client_id,
         ));
-        self.inventory.add_viewer(GuiInventoryViewer {
+        /*self.inventory.add_viewer(GuiInventoryViewer {
             slot_range: 0..9,
             layout: self
                 .server
@@ -1428,7 +1369,7 @@ impl Entity {
             viewer: player.clone(),
             on_click: ScriptCallback::empty(),
             on_scroll: ScriptCallback::empty(),
-        });
+        });*/
 
         *self.player.lock() = Some(Arc::downgrade(&player));
 
@@ -1442,7 +1383,8 @@ impl Entity {
         };
         let old_slot = *self.slot.lock();
         *self.slot.lock() = slot;
-        if let Some(player) = self.get_player() {
+        //todo
+        /*if let Some(player) = self.get_player() {
             player.send_message(&NetworkMessageS2C::GuiEditElement(
                 self.inventory.get_slot_id_entity(self, old_slot),
                 GUIElementEdit {
@@ -1463,7 +1405,7 @@ impl Entity {
                 },
             ));
             self.sync_main_hand_viewmodel(self.get_hand_item().as_ref());
-        }
+        }*/
     }
     pub fn get_collider(&self) -> AABB {
         let position = self.get_location().position;
@@ -1685,12 +1627,6 @@ impl Entity {
                             Identifier::new("bb", "keyboard"),
                             Arc::new(Mutex::new(keyboard_event)).into_variant(),
                         );
-                        match key {
-                            KeyboardKey::Escape => {
-                                player.set_open_inventory(None);
-                            }
-                            _ => {}
-                        }
                         if let Some(slot) = key.get_slot() {
                             if pressed {
                                 self.set_hand_slot(slot as u32);
@@ -1698,55 +1634,35 @@ impl Entity {
                         }
                     }
                     NetworkMessageC2S::GuiClick(element, button, shifting) => {
-                        {
-                            let id = self.inventory.resolve_id(self.get_id(), element.as_str());
-                            if let Some(id) = id {
-                                self.inventory
-                                    .on_click(self.id, &player, &id, button, shifting);
-                                continue;
-                            }
-                        }
-                        {
-                            if let Some(open_inventory) = &mut *player.open_inventory.lock() {
-                                let inventory = open_inventory.0.get_inventory();
-                                let id = inventory.resolve_id(&open_inventory.1, element.as_str());
-                                if let Some(id) = id {
-                                    inventory.on_click(
-                                        open_inventory.1,
-                                        &player,
-                                        &id,
-                                        button,
-                                        shifting,
-                                    );
-                                    continue;
-                                }
+                        for (id, inventory) in player.open_guis.lock().iter() {
+                            let string_id = id.to_string();
+                            if element.starts_with(string_id.as_str()) {
+                                inventory.get_inventory().on_click(
+                                    GuiKey {
+                                        player: player.clone(),
+                                        id: id.clone(),
+                                    },
+                                    &element[(string_id.len())..],
+                                    button,
+                                    shifting,
+                                );
                             }
                         }
                     }
                     NetworkMessageC2S::GuiScroll(element, x, y, shifting) => {
-                        {
-                            let id = self.inventory.resolve_id(self.get_id(), element.as_str());
-                            if let Some(id) = id {
-                                self.inventory
-                                    .on_scroll(self.id, &player, &id, x, y, shifting);
-                                continue;
-                            }
-                        }
-                        {
-                            if let Some(open_inventory) = &mut *player.open_inventory.lock() {
-                                let inventory = open_inventory.0.get_inventory();
-                                let id = inventory.resolve_id(&open_inventory.1, element.as_str());
-                                if let Some(id) = id {
-                                    inventory.on_scroll(
-                                        open_inventory.1,
-                                        &player,
-                                        &id,
-                                        x,
-                                        y,
-                                        shifting,
-                                    );
-                                    continue;
-                                }
+                        for (id, inventory) in player.open_guis.lock().iter() {
+                            let string_id = id.to_string();
+                            if element.starts_with(string_id.as_str()) {
+                                inventory.get_inventory().on_scroll(
+                                    GuiKey {
+                                        player: player.clone(),
+                                        id: id.clone(),
+                                    },
+                                    &element[(string_id.len())..],
+                                    x,
+                                    y,
+                                    shifting,
+                                );
                             }
                         }
                     }

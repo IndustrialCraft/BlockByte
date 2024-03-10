@@ -1,4 +1,5 @@
 #bb:player_join
 fn(){
     this.player.user_data.set("core:creative", true);
+    this.get("player").open_gui("core:hotbar", this.get("player").get_entity().inventory, 0..9, "core:layout_hotbar", null, null);
 }

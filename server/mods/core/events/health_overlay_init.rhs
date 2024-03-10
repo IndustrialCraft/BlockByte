@@ -1,5 +1,5 @@
 #bb:player_join
 fn(){
-    this.get("player").open_overlay("core:health", "core:layout_health");
+    this.get("player").open_gui("core:health", this.get("player").get_entity().inventory, 0..0, "core:layout_health", fn(){}, fn(){});
     core::health::set_health(this.player, 50.);
 }

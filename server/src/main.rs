@@ -370,7 +370,7 @@ impl Server {
             }
             ContentType::Binary(_) => {}
         });
-        mod_manager.load_resource_type("events", |_, content| match content {
+        mod_manager.load_resource_type("events", |id, content| match content {
             ContentType::Json(_) => {}
             ContentType::Binary(text) => {
                 let text = String::from_utf8(text).unwrap();
@@ -378,7 +378,7 @@ impl Server {
                 events.register(
                     Identifier::parse(&id[1..]).unwrap(),
                     ScriptCallback::new(Arc::new(
-                        bbscript::parse_source_file(event, None, 1)
+                        bbscript::parse_source_file(event, Some(id.to_string().into()), 1)
                             .unwrap()
                             .remove(0),
                     )),

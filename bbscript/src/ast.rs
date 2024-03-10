@@ -267,7 +267,7 @@ pub fn parse_statement(tokens: &mut TokenReader) -> Result<Option<Statement>, St
             let operator = match tokens.pop().0 {
                 Token::Assign(operator) => operator,
                 Token::SemiColon => return Ok(Some(Statement::Eval { expression: left })),
-                _ => panic!(),
+                tok => panic!("{:?}", tok),
             };
             let right = parse_expression(tokens)?.unwrap();
             tokens.pop_assert(Token::SemiColon)?;

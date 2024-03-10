@@ -1,6 +1,6 @@
 fn set_health(player, health){
     player.user_data.set("core:health", health);
-    player.get_overlay("core:health").set_slice("health_fg", 0., 0., health/100., 1.);
+    player.get_open_inventory("core:health").set_client_property("core:health", health / 100.);
 }
 fn get_health(player){
     return player.user_data.get("core:health");

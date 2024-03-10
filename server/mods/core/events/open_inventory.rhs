@@ -6,12 +6,12 @@ fn(){
         return;
     }
     if key == KeyboardKey::Tab{
-        if player.get_open_inventory() {
-            player.close_inventory();
+        if player.get_open_inventory("core:open") {
+            player.close_gui("core:open");
         } else {
             let creative_inventory = create_inventory(27);
             creative_inventory.user_data.set("core:page", 0);
-            creative_inventory.set_client_property("page", 0);
+            creative_inventory.set_client_property("core:page", 0);
             let i = 0;
             for item in list_items(){
                 if i >= 27{
@@ -21,7 +21,7 @@ fn(){
                 creative_inventory.full_view().set_item(i, item.with_count(item.stack_size));
                 i += 1;
             }
-            player.open_inventory(creative_inventory, 0..27, "core:layout_creative", fn(viewer, view, id, btn, shift){
+            player.open_gui("core:open", creative_inventory, 0..27, "core:layout_creative", fn(viewer, view, id, btn, shift){
                                                      if type_of(id) == "String" {
                                                          let user_data = view.get_inventory().user_data;
                                                          let page = user_data.get("core:page");
@@ -34,7 +34,7 @@ fn(){
                                                          }
                                                          let page = max(page,0);
                                                          user_data.set("core:page", page);
-                                                         view.get_inventory().set_client_property("page", page);
+                                                         view.get_inventory().set_client_property("core:page", page);
                                                          for i in 0..27{
                                                             view.set_item(i, null);
                                                          }

@@ -292,7 +292,7 @@ impl FilePosition {
         let mut line = 1;
 
         for line_length in &line_info.lines {
-            if offset > *line_length {
+            if offset < *line_length {
                 break;
             }
             offset -= line_length;

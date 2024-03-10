@@ -1,4 +1,5 @@
 {
+  "on_client_property": "!fn(viewer,id,value,old_value){if id == \"core:health\"{viewer.set_slice(\"health_fg\", 0., 0., value, 1.);}}",
   "elements": {
     "health_bg": {
       "component_type": {
