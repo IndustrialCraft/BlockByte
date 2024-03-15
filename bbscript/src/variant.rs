@@ -90,6 +90,16 @@ impl Variant {
             }),
         }
     }
+    pub fn function_set_this(&self, this: Variant) -> Variant {
+        match FunctionVariant::from_variant(self) {
+            Some(function) => {
+                let mut function = function.clone();
+                function.this = this;
+                function.into_variant()
+            }
+            None => self.clone(),
+        }
+    }
     #[allow(non_snake_case)]
     pub fn NULL() -> Variant {
         Variant(Box::new(()))

@@ -2,8 +2,8 @@ use anyhow::{anyhow, Context, Result};
 use bbscript::eval::{ExecutionEnvironment, Function, ScopeStack, ScriptError, ScriptResult};
 use bbscript::lex::FilePosition;
 use bbscript::variant::{
-    Array, FromVariant, FunctionType, FunctionVariant, IntoVariant, Map, SharedArray, SharedMap,
-    Variant,
+    Array, FromVariant, FunctionType, FunctionVariant, IntoVariant, Map, Primitive, SharedArray,
+    SharedMap, TypeName, Variant,
 };
 use block_byte_common::content::{
     ClientAnimatedTexture, ClientBlockData, ClientBlockRenderDataType, ClientModel, ClientTexture,
@@ -15,15 +15,20 @@ use block_byte_common::{
     BlockPosition, Color, Direction, Face, HorizontalFace, KeyboardKey, Position,
 };
 use hex_color::HexColor;
+use image::codecs::pnm::GraymapHeader;
 use image::io::Reader;
 use image::{ImageOutputFormat, Rgba, RgbaImage};
 use immutable_string::ImmutableString;
 use json::{object, JsonValue};
+use parking_lot::lock_api::RawMutex;
 use parking_lot::{Mutex, MutexGuard};
 use rand::{thread_rng, Rng};
+use std::any::Any;
 use std::collections::HashSet;
 use std::fmt::Display;
+use std::marker::PhantomData;
 use std::ops::Range;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     collections::HashMap,
     fs,
@@ -349,6 +354,20 @@ impl ModManager {
         Self::load_scripting_object_server::<BlockNetwork>(env, &server);
         Self::load_scripting_object_server::<Direction>(env, &server);
         Self::load_scripting_object_server::<ClientBlockData>(env, &server);
+        {
+            let server = server.clone();
+            env.register_function(
+                "transaction",
+                Box::new(move |mut args: Vec<Variant>| {
+                    do_transaction(
+                        args.remove(0),
+                        args,
+                        &server.upgrade().unwrap().script_environment,
+                    );
+                    Ok(Variant::NULL())
+                }) as Box<dyn Fn(Vec<Variant>) -> ScriptResult + Send + Sync>,
+            );
+        }
     }
     fn load_scripting_object_server<T>(env: &mut ExecutionEnvironment, server: &Weak<Server>)
     where
@@ -984,6 +1003,136 @@ impl ModImage {
         buffer
     }
 }
+trait TransactionLock {
+    fn commit(&self);
+    fn cancel(&self);
+}
+#[derive(Clone)]
+struct TransactionData {
+    locks: Arc<(Vec<Arc<dyn TransactionLock + Send + Sync>>, AtomicBool)>,
+}
+impl ScriptingObject for TransactionData {
+    fn engine_register_server(env: &mut ExecutionEnvironment, _server: &Weak<Server>) {
+        env.register_method("commit", |this: &TransactionData| {
+            match this
+                .locks
+                .1
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Acquire)
+            {
+                Ok(_) => {
+                    for lock in this.locks.0.iter() {
+                        lock.commit();
+                    }
+                    Ok(())
+                }
+                Err(_) => Err(ScriptError::runtime("double commit", FilePosition::INVALID)),
+            }
+        });
+    }
+}
+fn do_transaction(function: Variant, locks: Vec<Variant>, environment: &ExecutionEnvironment) {
+    let mut args = Vec::new();
+    let mut transaction_locks = Vec::new();
+    for lock in locks {
+        let lock = transaction_lock(lock).unwrap();
+        args.push(lock.clone().into_variant());
+        transaction_locks.push(lock);
+    }
+    let transaction_locks = Arc::new((transaction_locks, AtomicBool::new(false)));
+    let function = function.function_set_this(
+        TransactionData {
+            locks: transaction_locks.clone(),
+        }
+        .into_variant(),
+    );
+    function
+        .call(args, environment, &FilePosition::INVALID)
+        .unwrap();
+    if !transaction_locks.1.load(Ordering::Acquire) {
+        for lock in transaction_locks.0.iter() {
+            lock.cancel();
+        }
+    }
+}
+fn transaction_lock(variant: Variant) -> Option<Arc<dyn TransactionLock + Send + Sync>> {
+    if let Some(map) = SharedMap::from_variant(&variant) {
+        return Some(LockedSharedMap::lock(map));
+    }
+    None
+}
+struct LockedSharedMap {
+    map: SharedMap,
+    guard: Mutex<
+        Option<
+            TransactionMutex<
+                Mutex<HashMap<ImmutableString, Variant>>,
+                HashMap<ImmutableString, Variant>,
+            >,
+        >,
+    >,
+    local: Mutex<HashMap<ImmutableString, Variant>>,
+}
+impl LockedSharedMap {
+    pub fn lock(ptr: &SharedMap) -> Arc<Self> {
+        Arc::new(Self {
+            map: ptr.clone(),
+            guard: Mutex::new(Some(TransactionMutex::lock(ptr.clone()))),
+            local: Mutex::new(HashMap::new()),
+        })
+    }
+}
+impl TransactionLock for LockedSharedMap {
+    fn commit(&self) {
+        let mut guard_lock = self.guard.lock();
+        if guard_lock.is_some() {
+            guard_lock
+                .as_ref()
+                .unwrap()
+                .get()
+                .extend(self.local.lock().drain());
+            *guard_lock = None;
+        }
+    }
+    fn cancel(&self) {
+        *self.guard.lock() = None;
+    }
+}
+
+struct TransactionMutex<A: TransactionLockable<T>, T> {
+    ptr: Arc<A>,
+    _pd: PhantomData<T>,
+}
+impl<A: TransactionLockable<T>, T> TransactionMutex<A, T> {
+    pub fn lock(ptr: Arc<A>) -> TransactionMutex<A, T> {
+        unsafe {
+            ptr.get_lock().raw().lock();
+        }
+        TransactionMutex {
+            ptr,
+            _pd: PhantomData::default(),
+        }
+    }
+    pub fn get(&self) -> &mut T {
+        unsafe { &mut *self.ptr.get_lock().data_ptr() }
+    }
+}
+impl<A: TransactionLockable<T>, T> Drop for TransactionMutex<A, T> {
+    fn drop(&mut self) {
+        unsafe {
+            self.ptr.get_lock().raw().unlock();
+        }
+    }
+}
+
+trait TransactionLockable<T> {
+    fn get_lock(&self) -> &Mutex<T>;
+}
+impl<T> TransactionLockable<T> for Mutex<T> {
+    fn get_lock(&self) -> &Mutex<T> {
+        self
+    }
+}
+
 fn patch_up_json(base: JsonValue, patch: JsonValue) -> JsonValue {
     match (base, patch) {
         (JsonValue::Object(mut base), JsonValue::Object(patch)) => {

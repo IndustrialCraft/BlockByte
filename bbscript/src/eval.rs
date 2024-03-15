@@ -685,6 +685,18 @@ pub trait IntoScriptFunction<A: 'static> {
 pub trait IntoScriptMethod<S: Primitive, A: 'static> {
     fn into_method(self) -> Box<dyn Fn(&S, Vec<Variant>) -> ScriptResult + Send + Sync>;
 }
+impl IntoScriptFunction<()> for Box<dyn Fn(Vec<Variant>) -> ScriptResult + Send + Sync> {
+    fn into_function(self) -> Box<dyn Fn(Vec<Variant>) -> ScriptResult + Send + Sync> {
+        self
+    }
+}
+impl<S: Primitive> IntoScriptMethod<S, ()>
+    for Box<dyn Fn(&S, Vec<Variant>) -> ScriptResult + Send + Sync>
+{
+    fn into_method(self) -> Box<dyn Fn(&S, Vec<Variant>) -> ScriptResult + Send + Sync> {
+        self
+    }
+}
 macro_rules! register_into_function {
     ($($i:tt,)*) => {
         impl<T, R, $($i,)*> IntoScriptFunction<($($i,)*)> for T
